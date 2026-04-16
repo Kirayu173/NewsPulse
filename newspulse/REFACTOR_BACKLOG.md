@@ -1,11 +1,11 @@
 ﻿# Refactor Backlog
 
-Last updated: 2026-04-14
+Last updated: 2026-04-16
 
 This file records the next architecture simplification topics for NewsPulse.
 They are intentionally kept at the project root so we can review and execute them one by one.
 
-## Pending Topics
+## Current Status
 
 ### 1. Move config fully inside the project
 - Goal: make configuration ownership fully internal to NewsPulse.
@@ -17,7 +17,11 @@ They are intentionally kept at the project root so we can review and execute the
   - simpler config model
   - less hidden path dependency
   - easier bootstrap and deployment consistency
-- Status: recorded, pending detailed design
+- Status: completed
+- Notes:
+  - config ownership is now project-local under `newspulse/config/`
+  - config lookup rules were simplified and made explicit
+  - prompt / keyword / interests files now follow the project config root consistently
 
 ### 2. Unify RSS and hotlist into one data source layer
 - Goal: stop treating RSS and hotlist as two parallel source systems at the architecture level.
@@ -29,7 +33,11 @@ They are intentionally kept at the project root so we can review and execute the
   - one source domain model
   - less branching in pipeline/report/AI logic
   - easier future source expansion
-- Status: recorded, pending detailed design
+- Status: closed by simplification
+- Notes:
+  - RSS support was physically removed from the project
+  - the runtime is now hotlist-only instead of maintaining two parallel source systems
+  - downstream pipeline / report / notification / AI paths were simplified around the hotlist model
 
 ### 3. Strengthen the AI workflow and remove redundant AI modules
 - Goal: make AI a native first-class workflow rather than several loosely attached features.
@@ -56,5 +64,7 @@ They are intentionally kept at the project root so we can review and execute the
 - Status: recorded, pending detailed design
 
 ## Execution Rule
-- We will review and decide these items one by one.
+- Remaining execution order: 3 -> 0
+- Items 1 and 2 are no longer pending.
+- We will review and decide the remaining items one by one.
 - If a later design requires broad replacement, old logic should be removed cleanly instead of being kept as parallel paths.
