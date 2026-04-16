@@ -1,0 +1,144 @@
+# coding=utf-8
+"""Cross-stage data contracts for the native workflow pipeline."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Dict, List
+
+
+@dataclass
+class HotlistItem:
+    """Normalized hotlist item shared across the workflow stages."""
+
+    news_item_id: str
+    source_id: str
+    title: str
+    source_name: str = ""
+    url: str = ""
+    mobile_url: str = ""
+    current_rank: int = 0
+    ranks: List[int] = field(default_factory=list)
+    first_time: str = ""
+    last_time: str = ""
+    count: int = 1
+    rank_timeline: List[Dict[str, Any]] = field(default_factory=list)
+    is_new: bool = False
+
+
+@dataclass
+class SourceFailure:
+    """Failure details kept in the snapshot for downstream reporting."""
+
+    source_id: str
+    source_name: str = ""
+    reason: str = ""
+
+
+@dataclass
+class StandaloneSection:
+    """Standalone hotlist section carried through the report pipeline."""
+
+    key: str
+    label: str
+    items: List[HotlistItem] = field(default_factory=list)
+    description: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class SelectionGroup:
+    """Unified group output for keyword and AI-based selection."""
+
+    key: str
+    label: str
+    items: List[HotlistItem] = field(default_factory=list)
+    description: str = ""
+    position: int = 0
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class InsightSection:
+    """Structured insight block produced by the insight stage."""
+
+    key: str
+    title: str
+    content: str
+    summary: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class HotlistSnapshot:
+    """Unique downstream input generated from stored hotlist data."""
+
+    mode: str
+    generated_at: str
+    items: List[HotlistItem] = field(default_factory=list)
+    failed_sources: List[SourceFailure] = field(default_factory=list)
+    new_items: List[HotlistItem] = field(default_factory=list)
+    standalone_sections: List[StandaloneSection] = field(default_factory=list)
+    summary: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def item_count(self) -> int:
+        """Return the number of normalized items in the snapshot."""
+
+        return len(self.items)
+
+
+@dataclass
+class SelectionResult:
+    """Selection stage output used by insight, render and delivery stages."""
+
+    strategy: str
+    groups: List[SelectionGroup] = field(default_factory=list)
+    selected_items: List[HotlistItem] = field(default_factory=list)
+    total_candidates: int = 0
+    total_selected: int = 0
+    diagnostics: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class InsightResult:
+    """Insight stage output shared with report assembly and localization."""
+
+    enabled: bool = False
+    strategy: str = "noop"
+    sections: List[InsightSection] = field(default_factory=list)
+    raw_response: str = ""
+    diagnostics: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class RenderableReport:
+    """Unified report object assembled before localization and rendering."""
+
+    meta: Dict[str, Any] = field(default_factory=dict)
+    selection: SelectionResult = field(default_factory=lambda: SelectionResult(strategy="keyword"))
+    insight: InsightResult = field(default_factory=InsightResult)
+    new_items: List[HotlistItem] = field(default_factory=list)
+    standalone_sections: List[StandaloneSection] = field(default_factory=list)
+    display_regions: List[str] = field(default_factory=list)
+
+
+@dataclass
+class LocalizedReport:
+    """Localized representation of a renderable report."""
+
+    base_report: RenderableReport = field(default_factory=RenderableReport)
+    localized_titles: Dict[str, str] = field(default_factory=dict)
+    localized_sections: Dict[str, str] = field(default_factory=dict)
+    language: str = ""
+    translation_meta: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class DeliveryPayload:
+    """Final payload sent to a notification or delivery channel."""
+
+    channel: str
+    title: str
+    content: str
+    metadata: Dict[str, Any] = field(default_factory=dict)
