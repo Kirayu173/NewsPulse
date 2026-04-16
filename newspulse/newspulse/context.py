@@ -28,6 +28,10 @@ from newspulse.utils.time import (
     get_configured_time,
     get_current_time_display,
 )
+from newspulse.workflow.selection import SelectionService
+from newspulse.workflow.shared.contracts import HotlistSnapshot, SelectionResult
+from newspulse.workflow.shared.options import SelectionAIOptions, SelectionOptions, SnapshotOptions
+from newspulse.workflow.snapshot import SnapshotService
 
 
 class AppContext:
@@ -326,6 +330,115 @@ class AppContext:
                 fallback_report_mode=self.config.get("REPORT_MODE", "current"),
             )
         return self._scheduler
+
+    def create_snapshot_service(self) -> SnapshotService:
+        """Create the workflow snapshot builder for the current runtime."""
+
+        standalone_config = self.config.get("DISPLAY", {}).get("STANDALONE", {})
+        platform_names = {
+            platform.get("id", ""): platform.get("name", platform.get("id", ""))
+            for platform in self.platforms
+            if platform.get("id")
+        }
+        return SnapshotService(
+            self.get_storage_manager(),
+            platform_ids=self.platform_ids,
+            platform_names=platform_names,
+            standalone_platform_ids=standalone_config.get("PLATFORMS", []),
+            standalone_max_items=standalone_config.get("MAX_ITEMS", 20),
+        )
+
+    def create_selection_service(self) -> SelectionService:
+        """Create the workflow selection service with the current project config."""
+
+        return SelectionService(
+            config_root=str(self.config_root),
+            rank_threshold=self.rank_threshold,
+            weight_config=self.weight_config,
+            max_news_per_keyword=self.config.get("MAX_NEWS_PER_KEYWORD", 0),
+            sort_by_position_first=self.config.get("SORT_BY_POSITION_FIRST", False),
+            storage_manager=self.get_storage_manager(),
+            ai_runtime_config=self.ai_filter_model_config,
+            ai_filter_config=self.ai_filter_config,
+            debug=bool(self.config.get("DEBUG", False)),
+        )
+
+    def build_selection_options(
+        self,
+        *,
+        strategy: Optional[str] = None,
+        frequency_file: Optional[str] = None,
+        interests_file: Optional[str] = None,
+    ) -> SelectionOptions:
+        """Build workflow selection options from the current app config."""
+
+        ai_filter_config = self.ai_filter_config
+        effective_interests_file = interests_file or ai_filter_config.get("INTERESTS_FILE") or "ai_interests.txt"
+        return SelectionOptions(
+            strategy=strategy or self.filter_method,
+            frequency_file=frequency_file,
+            priority_sort_enabled=self.ai_priority_sort_enabled,
+            ai=SelectionAIOptions(
+                interests_file=effective_interests_file,
+                batch_size=int(ai_filter_config.get("BATCH_SIZE", 200) or 200),
+                batch_interval=float(ai_filter_config.get("BATCH_INTERVAL", 5) or 0),
+                min_score=float(ai_filter_config.get("MIN_SCORE", 0) or 0),
+                fallback_to_keyword=bool(ai_filter_config.get("FALLBACK_TO_KEYWORD", True)),
+            ),
+        )
+
+    def run_selection_stage(
+        self,
+        *,
+        mode: str,
+        strategy: Optional[str] = None,
+        frequency_file: Optional[str] = None,
+        interests_file: Optional[str] = None,
+        snapshot_service: Optional[SnapshotService] = None,
+        selection_service: Optional[SelectionService] = None,
+    ) -> Tuple[HotlistSnapshot, SelectionResult]:
+        """Run the native selection stage and optionally fall back to keyword mode."""
+
+        snapshot_builder = snapshot_service or self.create_snapshot_service()
+        selection_runner = selection_service or self.create_selection_service()
+        snapshot = snapshot_builder.build(SnapshotOptions(mode=mode))
+        options = self.build_selection_options(
+            strategy=strategy,
+            frequency_file=frequency_file,
+            interests_file=interests_file,
+        )
+
+        try:
+            selection = selection_runner.run(snapshot, options)
+        except Exception as exc:
+            if options.strategy == "ai" and options.ai.fallback_to_keyword:
+                fallback_options = self.build_selection_options(
+                    strategy="keyword",
+                    frequency_file=frequency_file,
+                )
+                selection = selection_runner.run(snapshot, fallback_options)
+                selection.diagnostics.update(
+                    {
+                        "requested_strategy": "ai",
+                        "fallback_strategy": "keyword",
+                        "fallback_reason": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+            else:
+                raise
+
+        selection.diagnostics.setdefault("requested_strategy", options.strategy)
+        return snapshot, selection
+
+    def convert_selection_to_report_data(self, selection_result: SelectionResult) -> List[Dict]:
+        """Adapt native workflow selection output back into the current legacy stats structure."""
+
+        return SelectionService.to_legacy_stats(
+            selection_result,
+            display_mode=self.display_mode,
+            rank_threshold=self.rank_threshold,
+            weight_config=self.weight_config,
+        )
 
     @staticmethod
     def _with_ordered_priorities(tags: List[Dict], start_priority: int = 1) -> List[Dict]:

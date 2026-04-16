@@ -418,54 +418,33 @@ class NewsAnalyzer:
         standalone_data: Optional[Dict] = None,
         schedule: Optional[ResolvedSchedule] = None,
     ) -> Tuple[List[Dict], Optional[str], Optional[AIAnalysisResult]]:
-        total_titles = sum(len(titles) for titles in data_source.values())
+        snapshot, selection_result = self.ctx.run_selection_stage(
+            mode=mode,
+            strategy=self.filter_method,
+            frequency_file=self.frequency_file,
+            interests_file=self.interests_file,
+        )
+        total_titles = snapshot.item_count
+        stats = self.ctx.convert_selection_to_report_data(selection_result)
 
-        if self.filter_method == "ai":
-            print("[筛选] 使用 AI 筛选模式")
-            ai_filter_result = self.ctx.run_ai_filter(interests_file=self.interests_file)
-            if ai_filter_result and ai_filter_result.success:
-                print(
-                    f"[筛选] AI 筛选结果: {ai_filter_result.total_matched} 条新闻, "
-                    f"{len(ai_filter_result.tags)} 个标签"
-                )
-                stats = self.ctx.convert_ai_filter_to_report_data(
-                    ai_filter_result,
-                    mode=mode,
-                    new_titles=new_titles,
-                )
-            else:
-                error_msg = ai_filter_result.error if ai_filter_result else "未知错误"
-                print(f"[筛选] AI 筛选失败: {error_msg}，回退到频率统计")
-                stats, total_titles = self.ctx.count_frequency(
-                    data_source,
-                    word_groups,
-                    filter_words,
-                    id_to_name,
-                    title_info,
-                    new_titles,
-                    mode=mode,
-                    global_filters=global_filters,
-                    quiet=quiet,
-                )
+        if selection_result.strategy == "ai":
+            print(
+                f"[筛选] 使用 AI selection stage: {selection_result.total_selected} 条新闻, "
+                f"{len(selection_result.groups)} 个标签组"
+            )
         else:
-            stats, total_titles = self.ctx.count_frequency(
-                data_source,
-                word_groups,
-                filter_words,
-                id_to_name,
-                title_info,
-                new_titles,
-                mode=mode,
-                global_filters=global_filters,
-                quiet=quiet,
+            print(
+                f"[筛选] 使用 keyword selection stage: {selection_result.total_selected} 条新闻, "
+                f"{len(selection_result.groups)} 个分组"
+            )
+        if selection_result.diagnostics.get("fallback_strategy") == "keyword":
+            print(
+                f"[筛选] AI selection 失败，已回退到 keyword: "
+                f"{selection_result.diagnostics.get('fallback_reason', 'unknown error')}"
             )
 
-        if self.ctx.display_mode == "platform" and stats:
-            stats = convert_keyword_stats_to_platform_stats(
-                stats,
-                self.ctx.weight_config,
-                self.ctx.rank_threshold,
-            )
+        if failed_ids is None:
+            failed_ids = [failure.source_id for failure in snapshot.failed_sources]
 
         ai_result = None
         if self.ctx.config.get("AI_ANALYSIS", {}).get("ENABLED", False) and stats:
