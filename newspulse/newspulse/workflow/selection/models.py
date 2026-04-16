@@ -33,3 +33,38 @@ class KeywordGroupBucket:
         """Return the total matched item count before output capping."""
 
         return len(self.matched_items)
+
+
+@dataclass(frozen=True)
+class AIActiveTag:
+    """Active AI tag row loaded from the compatibility storage tables."""
+
+    id: int
+    tag: str
+    description: str = ""
+    priority: int = 9999
+    version: int = 0
+    prompt_hash: str = ""
+
+
+@dataclass(frozen=True)
+class AIBatchNewsItem:
+    """Single snapshot item prepared for an AI classification batch."""
+
+    prompt_id: int
+    news_item_id: str
+    title: str
+    source_id: str = ""
+    source_name: str = ""
+    persisted_news_id: int | None = None
+
+
+@dataclass(frozen=True)
+class AIClassificationResult:
+    """Normalized AI classification output for one selected news item."""
+
+    news_item_id: str
+    tag_id: int
+    relevance_score: float
+    source_type: str = "hotlist"
+    persisted_news_id: int | None = None
