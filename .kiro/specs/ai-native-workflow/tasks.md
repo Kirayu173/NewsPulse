@@ -1,0 +1,142 @@
+# Implementation Plan
+
+说明：
+
+- 本任务表承接 `newspulse/3-原生AI工作流重构设计.md`
+- 目标是把后半段流程改造成正式阶段链路：`snapshot -> selection -> insight -> localization -> render -> delivery`
+- 执行原则：一次只做一个子任务，先补测试，再迁移代码，再删旧胶水
+
+- [ ] 1. 搭建 `workflow/` 主链路骨架与共享契约
+  - [ ] 1.1 创建 `workflow/` 目录骨架和统一阶段接口
+    - 新建 `newspulse/newspulse/workflow/__init__.py`
+    - 新建 `newspulse/newspulse/workflow/shared/contracts.py`
+    - 新建 `newspulse/newspulse/workflow/shared/options.py`
+    - 定义 `HotlistSnapshot`、`HotlistItem`、`SelectionResult`、`InsightResult`、`RenderableReport`、`LocalizedReport`、`DeliveryPayload`
+    - 为各阶段服务定义统一入口约定，避免后续继续把逻辑塞回 `pipeline/` 和 `context.py`
+    - _设计章节：3、4、5、7_
+  - [ ] 1.2 建立共享 AI runtime 并补最小单元测试
+    - 新建 `newspulse/newspulse/workflow/shared/ai_runtime/client.py`
+    - 新建 `newspulse/newspulse/workflow/shared/ai_runtime/prompts.py`
+    - 新建 `newspulse/newspulse/workflow/shared/ai_runtime/codec.py`
+    - 新建 `newspulse/newspulse/workflow/shared/ai_runtime/errors.py`
+    - 先把 prompt 加载、模型调用、基础解析能力收敛成可复用底座
+    - 为 prompt 读取、响应解析、错误对象补单元测试
+    - _设计章节：3、4、10_
+
+- [ ] 2. 实现 Snapshot Stage，固定后半段唯一输入
+  - [ ] 2.1 落地 `workflow/snapshot/` 并用现有模式逻辑生成 `HotlistSnapshot`
+    - 新建 `newspulse/newspulse/workflow/snapshot/service.py`
+    - 新建 `newspulse/newspulse/workflow/snapshot/models.py`
+    - 把当前 `current / daily / incremental` 的重组逻辑迁入 `SnapshotService`
+    - 让 snapshot 同时产出 `items`、`new_items`、`failed_sources`、`standalone_sections`
+    - 保证 `HotlistItem` 保留稳定 `news_item_id`
+    - _设计章节：5.1、5.2、6.1_
+  - [ ] 2.2 为 snapshot 构建补齐模式测试和存储回归测试
+    - 覆盖 `current / daily / incremental` 三种模式
+    - 覆盖 `new_items` 检测、standalone 区块生成、失败源保留
+    - 验证 snapshot 输出不再依赖后续阶段重复读 storage
+    - _设计章节：6.1、11_
+
+- [ ] 3. 实现 Selection Stage 的关键词路径，并提供旧链路兼容适配
+  - [ ] 3.1 落地 `workflow/selection/keyword.py`，把关键词筛选收口成统一 `SelectionResult`
+    - 新建 `newspulse/newspulse/workflow/selection/service.py`
+    - 新建 `newspulse/newspulse/workflow/selection/models.py`
+    - 新建 `newspulse/newspulse/workflow/selection/keyword.py`
+    - 将现有 frequency words 匹配和排序逻辑迁移成 keyword strategy
+    - 输出统一 `SelectionGroup`，不再直接生成旧 `stats`
+    - _设计章节：5.3、5.4、6.2_
+  - [ ] 3.2 增加 `SelectionResult -> legacy stats` 适配层并补集成测试
+    - 保证 HTML 和通知可在迁移期继续使用旧渲染能力
+    - 覆盖显示模式、排序、`new_items` 标记等兼容行为
+    - 让主链路先改成阶段式，但不要求同一轮就重写所有 report 代码
+    - _设计章节：6.2、11_
+
+- [ ] 4. 实现 Selection Stage 的 AI 路径，替换 `AppContext.run_ai_filter()`
+  - [ ] 4.1 落地 `workflow/selection/ai.py` 并迁移 AI 标签与分类流程
+    - 新建 `newspulse/newspulse/workflow/selection/ai.py`
+    - 把兴趣文件加载、标签抽取、批量分类、标签更新逻辑迁入该策略
+    - 复用 `workflow/shared/ai_runtime/`，不再让该阶段直接依赖旧式 AI 小框架
+    - 保持对现有 AI 标签表、分类结果表、已分析状态表的兼容
+    - _设计章节：6.2、9.2、10_
+  - [ ] 4.2 用新策略替换 `context.py` 中的 AI 筛选入口并补回归测试
+    - 删除对 `AppContext.run_ai_filter()` 的主链路依赖
+    - 覆盖兴趣文件切换、批大小、分数阈值、跳过已分析新闻、AI 失败回退关键词
+    - 验证关键词与 AI 两种策略都输出统一 `SelectionResult`
+    - _设计章节：2、6.2、9.2、12_
+
+- [ ] 5. 实现 Insight Stage，替换编排器中的 AI 分析挂件
+  - [ ] 5.1 落地 `workflow/insight/`，先提供 noop 和 AI 两种策略
+    - 新建 `newspulse/newspulse/workflow/insight/service.py`
+    - 新建 `newspulse/newspulse/workflow/insight/models.py`
+    - 新建 `newspulse/newspulse/workflow/insight/noop.py`
+    - 新建 `newspulse/newspulse/workflow/insight/ai.py`
+    - 让 Insight Stage 统一吃 `HotlistSnapshot + SelectionResult`
+    - _设计章节：6.3、7_
+  - [ ] 5.2 迁移现有 AI 分析逻辑并补齐调度与模式回归测试
+    - 把 `AI_ANALYSIS.MODE` 相关行为迁成 Insight Stage 配置
+    - 对齐 `follow_report / daily / current / incremental` 模式行为
+    - 覆盖 `include_standalone`、`include_rank_timeline`、最大分析条数
+    - 删除 `NewsAnalyzer` 对 AI 分析细节的直接编排依赖
+    - _设计章节：6.3、9.1、10、12_
+
+- [ ] 6. 实现统一报告组装与 Localization Stage
+  - [ ] 6.1 增加报告组装器，把 snapshot、selection、insight 收口成 `RenderableReport`
+    - 新建 `newspulse/newspulse/workflow/render/models.py`
+    - 新建报告组装器，统一承接 `meta`、`selection`、`insight`、`new_items`、`standalone_sections`
+    - 让 HTML 和通知不再分别重复准备不同格式的 report_data
+    - _设计章节：5.6、6.5、7_
+  - [ ] 6.2 落地 `workflow/localization/`，把翻译从通知模块前移到正式阶段
+    - 新建 `newspulse/newspulse/workflow/localization/service.py`
+    - 新建 `newspulse/newspulse/workflow/localization/models.py`
+    - 新建 `newspulse/newspulse/workflow/localization/noop.py`
+    - 新建 `newspulse/newspulse/workflow/localization/ai.py`
+    - 让翻译统一输出 `LocalizedReport`
+    - 覆盖标题、new_items、standalone、insight 段落的翻译范围控制
+    - _设计章节：5.7、6.4、10_
+
+- [ ] 7. 实现 Render Stage 和 Delivery Stage，统一 HTML 与通知出口
+  - [ ] 7.1 落地 `workflow/render/`，让 HTML 和通知共同消费 `LocalizedReport`
+    - 新建 `newspulse/newspulse/workflow/render/service.py`
+    - 新建 `newspulse/newspulse/workflow/render/html.py`
+    - 新建 `newspulse/newspulse/workflow/render/notification.py`
+    - 先通过 adapter 复用现有 `report/` 渲染能力
+    - 同时生成 HTML 输出和 `DeliveryPayload[]`
+    - _设计章节：6.5、7_
+  - [ ] 7.2 落地 `workflow/delivery/` 并让 dispatcher 退化为纯发送层
+    - 新建 `newspulse/newspulse/workflow/delivery/service.py`
+    - 新建 `newspulse/newspulse/workflow/delivery/generic_webhook.py`
+    - 移除 `NotificationDispatcher.translate_content()` 及相关翻译注入
+    - 让 `notification/` 下现有 sender 只承担渠道发送
+    - _设计章节：6.6、9.3、12_
+
+- [ ] 8. 用新的阶段链路替换 `NewsAnalyzer` 主流程
+  - [ ] 8.1 重写 `pipeline/news_analyzer.py` 的后半段编排，只串阶段不写 AI 细节
+    - 保留抓取、存储、调度入口
+    - 将后半段改成 `snapshot -> selection -> insight -> localization -> render -> delivery`
+    - 移除 `_run_analysis_pipeline()` 中 keyword/AI 分叉的主体逻辑
+    - 移除 `_run_ai_analysis()` 作为核心业务入口的地位
+    - _设计章节：7、8、9.1_
+  - [ ] 8.2 精简 `context.py` 并补主链路集成测试
+    - 删除 `run_ai_filter()`
+    - 删除 `convert_ai_filter_to_report_data()`
+    - 删除 `create_notification_dispatcher()` 里的 translator 注入
+    - 保留 storage、scheduler、时间和路径等通用 facade
+    - 补一条主链路集成测试，验证阶段顺序和阶段产物传递
+    - _设计章节：9.2、12_
+
+- [ ] 9. 清理旧胶水、完成配置迁移并补端到端回归
+  - [ ] 9.1 收口配置到阶段导向模型，并保留兼容映射
+    - 为 `workflow.selection / workflow.insight / workflow.localization` 增加 loader
+    - 保留旧 `filter / ai_filter / ai_analysis / ai_translation` 到新配置的兼容解析
+    - 为阶段配置和 AI runtime 配置补 loader 测试
+    - _设计章节：10、11_
+  - [ ] 9.2 删除旧链路残留并补全端到端回归测试
+    - 删除不再使用的 AI 挂靠逻辑
+    - 覆盖以下场景：
+      - 全部 AI 关闭
+      - 仅开启 AI 筛选
+      - 开启 AI 筛选 + AI 分析
+      - 开启 AI 翻译
+      - HTML 与通知使用同一份翻译结果
+    - 验证 `NotificationDispatcher` 只负责发送，`AppContext` 不再承载 AI 主流程
+    - _设计章节：11、12、13_
