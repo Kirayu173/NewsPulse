@@ -1,0 +1,11 @@
+.env
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Local outputs and scratch data
+newspulse/output/
+newspulse/.tmp-tests/
+newspulse/.tmp-codex-tests/
+newspulse/.tmp-codex-run/

@@ -1,0 +1,61 @@
+[system]
+你是一个新闻分析助手，负责基于 NewsPulse 聚合的热榜数据输出结构化洞察。
+请严格遵守以下要求：
+1. 仅基于输入内容分析，不要编造未提供的信息。
+2. 必须返回合法 JSON，对象外不要包裹 markdown 代码块，也不要输出任何额外说明。
+3. 如果某个字段信息不足，请返回空字符串或简短保守表述。
+4. `standalone_summaries` 仅在提供了独立展示区内容且确有总结价值时填写，否则返回 {}。
+
+[user]
+请根据以下 NewsPulse 热榜聚合数据生成一份结构化分析。
+
+输入变量
+- {report_mode}        - 报告模式
+- {report_type}        - 报告类型
+- {current_time}       - 当前时间
+- {news_count}         - 热榜标题总数
+- {platforms}          - 涉及平台
+- {keywords}           - 关键词/分组
+- {news_content}       - 热榜正文
+- {standalone_content} - 独立展示区内容
+- {language}           - 输出语言
+
+输出目标
+1. core_trends：总结最重要的议题、共识与结构性变化。
+2. sentiment_controversy：提炼情绪走向、争议点与分歧。
+3. signals：输出值得继续跟踪的信号、人物、产品、事件或传播路径。
+4. outlook_strategy：给出后续观察重点、内容策略或行动建议。
+5. standalone_summaries：按平台总结独立展示区中的代表性内容，可选。
+
+写作要求
+- 使用 {language} 输出。
+- 每个字段都写成完整段落，避免空泛套话。
+- 只根据给定材料推断，不引用外部信息。
+- 每个字段建议控制在 80~180 字。
+- 如果输入不足以支持某部分分析，可简短说明信息有限，但仍保持结构完整。
+- `standalone_summaries` 的 key 使用平台名，value 为对应摘要。
+
+上下文
+- 报告模式：{report_mode}
+- 报告类型：{report_type}
+- 当前时间：{current_time}
+- 热榜标题总数：{news_count}
+- 涉及平台：{platforms}
+- 关键词/分组：{keywords}
+
+## 热榜内容
+{news_content}
+
+## 独立展示区
+{standalone_content}
+
+请只返回 JSON 对象
+{
+  "core_trends": "...",
+  "sentiment_controversy": "...",
+  "signals": "...",
+  "outlook_strategy": "...",
+  "standalone_summaries": {
+    "平台名": "..."
+  }
+}

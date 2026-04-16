@@ -1,0 +1,398 @@
+# coding=utf-8
+"""Configuration loading utilities."""
+
+import os
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+import yaml
+
+from .config import parse_multi_account_config
+from .config_paths import get_config_layout, resolve_prompt_path, resolve_timeline_path
+from newspulse.utils.time import DEFAULT_TIMEZONE
+
+
+DEFAULT_REGION_ORDER = ["hotlist", "new_items", "standalone", "ai_analysis"]
+
+
+def _get_env_bool(key: str) -> Optional[bool]:
+    value = os.environ.get(key, "").strip().lower()
+    if not value:
+        return None
+    return value in ("true", "1")
+
+
+def _get_env_int(key: str, default: int = 0) -> int:
+    value = os.environ.get(key, "").strip()
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+def _get_env_int_or_none(key: str) -> Optional[int]:
+    value = os.environ.get(key, "").strip()
+    if not value:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def _get_env_float_or_none(key: str) -> Optional[float]:
+    value = os.environ.get(key, "").strip()
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def _get_env_str(key: str, default: str = "") -> str:
+    return os.environ.get(key, "").strip() or default
+
+
+def _get_env_first(*keys: str, default: str = "") -> str:
+    for key in keys:
+        value = os.environ.get(key, "").strip()
+        if value:
+            return value
+    return default
+
+
+def _load_app_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
+    app_config = config_data.get("app", {})
+    advanced = config_data.get("advanced", {})
+    debug_env = _get_env_bool("DEBUG")
+    return {
+        "VERSION_CHECK_URL": advanced.get("version_check_url", ""),
+        "CONFIGS_VERSION_CHECK_URL": advanced.get("configs_version_check_url", ""),
+        "SHOW_VERSION_UPDATE": app_config.get("show_version_update", True),
+        "TIMEZONE": _get_env_str("TIMEZONE") or app_config.get("timezone", DEFAULT_TIMEZONE),
+        "DEBUG": advanced.get("debug", False) if debug_env is None else debug_env,
+    }
+
+
+def _load_crawler_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
+    advanced = config_data.get("advanced", {})
+    crawler = advanced.get("crawler", {})
+    platforms = config_data.get("platforms", {})
+    return {
+        "REQUEST_INTERVAL": crawler.get("request_interval", 100),
+        "USE_PROXY": crawler.get("use_proxy", False),
+        "DEFAULT_PROXY": crawler.get("default_proxy", ""),
+        "ENABLE_CRAWLER": platforms.get("enabled", True),
+    }
+
+
+def _load_report_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
+    report = config_data.get("report", {})
+    sort_by_position_env = _get_env_bool("SORT_BY_POSITION_FIRST")
+    max_news_env = _get_env_int_or_none("MAX_NEWS_PER_KEYWORD")
+    return {
+        "REPORT_MODE": report.get("mode", "daily"),
+        "DISPLAY_MODE": report.get("display_mode", "keyword"),
+        "RANK_THRESHOLD": report.get("rank_threshold", 10),
+        "SORT_BY_POSITION_FIRST": report.get("sort_by_position_first", False) if sort_by_position_env is None else sort_by_position_env,
+        "MAX_NEWS_PER_KEYWORD": report.get("max_news_per_keyword", 0) if max_news_env is None else max_news_env,
+    }
+
+
+def _load_notification_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
+    notification = config_data.get("notification", {})
+    advanced = config_data.get("advanced", {})
+    batch_size = advanced.get("batch_size", {})
+    return {
+        "ENABLE_NOTIFICATION": notification.get("enabled", True),
+        "MESSAGE_BATCH_SIZE": batch_size.get("default", 4000),
+        "BATCH_SEND_INTERVAL": advanced.get("batch_send_interval", 1.0),
+        "MAX_ACCOUNTS_PER_CHANNEL": _get_env_int("MAX_ACCOUNTS_PER_CHANNEL") or advanced.get("max_accounts_per_channel", 3),
+    }
+
+
+def _load_schedule_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
+    schedule = config_data.get("schedule", {})
+    enabled_env = _get_env_bool("SCHEDULE_ENABLED")
+    preset_env = _get_env_str("SCHEDULE_PRESET")
+    return {
+        "enabled": schedule.get("enabled", False) if enabled_env is None else enabled_env,
+        "preset": preset_env or schedule.get("preset", "always_on"),
+    }
+
+
+def _load_timeline_data(config_root: Path) -> Dict[str, Any]:
+    timeline_path = resolve_timeline_path(config_root=config_root)
+    if not timeline_path.exists():
+        print(f"[配置] 未找到 timeline.yaml: {timeline_path}，将使用默认时间线")
+        return {
+            "presets": {},
+            "custom": {
+                "default": {
+                    "collect": True,
+                    "analyze": False,
+                    "push": False,
+                    "report_mode": "current",
+                    "ai_mode": "follow_report",
+                    "once": {"analyze": False, "push": False},
+                },
+                "periods": {},
+                "day_plans": {"all_day": {"periods": []}},
+                "week_map": {i: "all_day" for i in range(1, 8)},
+            },
+        }
+
+    with open(timeline_path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    print(f"[配置] 已加载 timeline.yaml: {timeline_path}")
+    return data or {}
+
+
+def _load_weight_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
+    advanced = config_data.get("advanced", {})
+    weight = advanced.get("weight", {})
+    return {
+        "RANK_WEIGHT": weight.get("rank", 0.6),
+        "FREQUENCY_WEIGHT": weight.get("frequency", 0.3),
+        "HOTNESS_WEIGHT": weight.get("hotness", 0.1),
+    }
+
+
+def _load_display_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
+    display = config_data.get("display", {})
+    regions = display.get("regions", {})
+    standalone = display.get("standalone", {})
+
+    region_order = [region for region in display.get("region_order", DEFAULT_REGION_ORDER) if region in set(DEFAULT_REGION_ORDER)]
+    if not region_order:
+        region_order = list(DEFAULT_REGION_ORDER)
+
+    return {
+        "REGION_ORDER": region_order,
+        "REGIONS": {
+            "HOTLIST": regions.get("hotlist", True),
+            "NEW_ITEMS": regions.get("new_items", True),
+            "STANDALONE": regions.get("standalone", False),
+            "AI_ANALYSIS": regions.get("ai_analysis", True),
+        },
+        "STANDALONE": {
+            "PLATFORMS": standalone.get("platforms", []),
+            "MAX_ITEMS": standalone.get("max_items", 20),
+        },
+    }
+
+
+def _load_ai_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
+    ai = config_data.get("ai", {})
+    timeout_env = _get_env_int_or_none("AI_TIMEOUT")
+    return {
+        "MODEL": _get_env_first("AI_MODEL", "MODEL") or ai.get("model", ""),
+        "API_KEY": _get_env_first("AI_API_KEY", "API_KEY") or ai.get("api_key", ""),
+        "API_BASE": _get_env_first("AI_API_BASE", "BASE_URL", "API_BASE") or ai.get("api_base", ""),
+        "TIMEOUT": ai.get("timeout", 120) if timeout_env is None else timeout_env,
+        "TEMPERATURE": ai.get("temperature", 1.0),
+        "MAX_TOKENS": ai.get("max_tokens", 5000),
+        "NUM_RETRIES": ai.get("num_retries", 2),
+        "FALLBACK_MODELS": ai.get("fallback_models", []),
+        "EXTRA_PARAMS": ai.get("extra_params", {}),
+    }
+
+
+def _merge_ai_runtime_config(base_ai_config: Dict[str, Any], section_config: Dict[str, Any], env_prefix: str) -> Dict[str, Any]:
+    merged = dict(base_ai_config)
+
+    string_fields = {"MODEL": "model", "API_KEY": "api_key", "API_BASE": "api_base"}
+    int_fields = {"TIMEOUT": "timeout", "MAX_TOKENS": "max_tokens", "NUM_RETRIES": "num_retries"}
+
+    for target_key, yaml_key in string_fields.items():
+        env_value = _get_env_str(f"{env_prefix}_{target_key}")
+        if env_value:
+            merged[target_key] = env_value
+        elif section_config.get(yaml_key) not in (None, ""):
+            merged[target_key] = section_config.get(yaml_key)
+
+    for target_key, yaml_key in int_fields.items():
+        env_value = _get_env_int_or_none(f"{env_prefix}_{target_key}")
+        if env_value is not None:
+            merged[target_key] = env_value
+        elif section_config.get(yaml_key) is not None:
+            merged[target_key] = section_config.get(yaml_key)
+
+    temperature_env = _get_env_float_or_none(f"{env_prefix}_TEMPERATURE")
+    if temperature_env is not None:
+        merged["TEMPERATURE"] = temperature_env
+    elif section_config.get("temperature") is not None:
+        merged["TEMPERATURE"] = section_config.get("temperature")
+
+    if section_config.get("fallback_models") is not None:
+        merged["FALLBACK_MODELS"] = section_config.get("fallback_models")
+    if section_config.get("extra_params") is not None:
+        merged["EXTRA_PARAMS"] = section_config.get("extra_params")
+
+    return merged
+
+
+def _load_ai_analysis_config(config_data: Dict[str, Any], config_root: Path) -> Dict[str, Any]:
+    ai_analysis = config_data.get("ai_analysis", {})
+    enabled_env = _get_env_bool("AI_ANALYSIS_ENABLED")
+    return {
+        "ENABLED": ai_analysis.get("enabled", False) if enabled_env is None else enabled_env,
+        "LANGUAGE": ai_analysis.get("language", "Chinese"),
+        "PROMPT_FILE": str(resolve_prompt_path(ai_analysis.get("prompt_file", "ai_analysis_prompt.txt"), config_root=config_root)),
+        "MODE": ai_analysis.get("mode", "follow_report"),
+        "MAX_NEWS_FOR_ANALYSIS": ai_analysis.get("max_news_for_analysis", 50),
+        "INCLUDE_RANK_TIMELINE": ai_analysis.get("include_rank_timeline", False),
+        "INCLUDE_STANDALONE": ai_analysis.get("include_standalone", False),
+    }
+
+
+def _load_ai_translation_config(config_data: Dict[str, Any], config_root: Path) -> Dict[str, Any]:
+    translation = config_data.get("ai_translation", {})
+    enabled_env = _get_env_bool("AI_TRANSLATION_ENABLED")
+    scope = translation.get("scope", {})
+    return {
+        "ENABLED": translation.get("enabled", False) if enabled_env is None else enabled_env,
+        "LANGUAGE": _get_env_str("AI_TRANSLATION_LANGUAGE") or translation.get("language", "English"),
+        "PROMPT_FILE": str(resolve_prompt_path(translation.get("prompt_file", "ai_translation_prompt.txt"), config_root=config_root)),
+        "SCOPE": {
+            "HOTLIST": scope.get("hotlist", True),
+            "STANDALONE": scope.get("standalone", True),
+        },
+    }
+
+
+def _load_ai_filter_config(config_data: Dict[str, Any], config_root: Path) -> Dict[str, Any]:
+    ai_filter = config_data.get("ai_filter", {})
+    return {
+        "BATCH_SIZE": ai_filter.get("batch_size", 200),
+        "BATCH_INTERVAL": ai_filter.get("batch_interval", 5),
+        "TIMEOUT": ai_filter.get("timeout"),
+        "NUM_RETRIES": ai_filter.get("num_retries"),
+        "INTERESTS_FILE": ai_filter.get("interests_file"),
+        "PROMPT_FILE": str(resolve_prompt_path(ai_filter.get("prompt_file", "prompt.txt"), config_root=config_root, config_subdir="ai_filter")),
+        "EXTRACT_PROMPT_FILE": str(resolve_prompt_path(ai_filter.get("extract_prompt_file", "extract_prompt.txt"), config_root=config_root, config_subdir="ai_filter")),
+        "UPDATE_TAGS_PROMPT_FILE": str(resolve_prompt_path(ai_filter.get("update_tags_prompt_file", "update_tags_prompt.txt"), config_root=config_root, config_subdir="ai_filter")),
+        "RECLASSIFY_THRESHOLD": ai_filter.get("reclassify_threshold", 0.6),
+        "MIN_SCORE": float(ai_filter.get("min_score", 0)),
+    }
+
+
+def _load_ai_analysis_model_config(config_data: Dict[str, Any], base_ai_config: Dict[str, Any]) -> Dict[str, Any]:
+    return _merge_ai_runtime_config(base_ai_config, config_data.get("ai_analysis", {}), "AI_ANALYSIS")
+
+
+def _load_ai_translation_model_config(config_data: Dict[str, Any], base_ai_config: Dict[str, Any]) -> Dict[str, Any]:
+    return _merge_ai_runtime_config(base_ai_config, config_data.get("ai_translation", {}), "AI_TRANSLATION")
+
+
+def _load_ai_filter_model_config(config_data: Dict[str, Any], base_ai_config: Dict[str, Any]) -> Dict[str, Any]:
+    return _merge_ai_runtime_config(base_ai_config, config_data.get("ai_filter", {}), "AI_FILTER")
+
+
+def _load_filter_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
+    filter_cfg = config_data.get("filter", {})
+    env_ai_filter = _get_env_bool("AI_FILTER_ENABLED")
+    method = filter_cfg.get("method", "keyword")
+    if env_ai_filter is True:
+        method = "ai"
+    if method == "keyword" and not filter_cfg.get("method") and config_data.get("ai_filter", {}).get("enabled", False):
+        method = "ai"
+    return {
+        "METHOD": method,
+        "PRIORITY_SORT_ENABLED": filter_cfg.get("priority_sort_enabled", False),
+    }
+
+
+def _load_storage_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
+    storage = config_data.get("storage", {})
+    formats = storage.get("formats", {})
+    local = storage.get("local", {})
+    txt_enabled_env = _get_env_bool("STORAGE_TXT_ENABLED")
+    html_enabled_env = _get_env_bool("STORAGE_HTML_ENABLED")
+    return {
+        "BACKEND": "local",
+        "FORMATS": {
+            "SQLITE": formats.get("sqlite", True),
+            "TXT": formats.get("txt", True) if txt_enabled_env is None else txt_enabled_env,
+            "HTML": formats.get("html", True) if html_enabled_env is None else html_enabled_env,
+        },
+        "LOCAL": {
+            "DATA_DIR": local.get("data_dir", "output"),
+            "RETENTION_DAYS": _get_env_int("LOCAL_RETENTION_DAYS") or local.get("retention_days", 0),
+        },
+    }
+
+
+def _load_webhook_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
+    notification = config_data.get("notification", {})
+    channels = notification.get("channels", {})
+    generic = channels.get("generic_webhook", {})
+    return {
+        "GENERIC_WEBHOOK_URL": _get_env_str("GENERIC_WEBHOOK_URL") or generic.get("webhook_url", ""),
+        "GENERIC_WEBHOOK_TEMPLATE": _get_env_str("GENERIC_WEBHOOK_TEMPLATE") or generic.get("payload_template", ""),
+    }
+
+
+def _print_notification_sources(config: Dict[str, Any]) -> None:
+    notification_sources = []
+    max_accounts = config["MAX_ACCOUNTS_PER_CHANNEL"]
+
+    if config.get("GENERIC_WEBHOOK_URL"):
+        accounts = parse_multi_account_config(config["GENERIC_WEBHOOK_URL"])
+        count = min(len(accounts), max_accounts)
+        source = "环境变量" if os.environ.get("GENERIC_WEBHOOK_URL") else "配置文件"
+        notification_sources.append(f"通用 Webhook({source}, {count} 个账号)")
+
+    if notification_sources:
+        print(f"已启用通知渠道: {', '.join(notification_sources)}")
+        print(f"单渠道最大账号数: {max_accounts}")
+    else:
+        print("未配置通知渠道")
+
+
+def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
+    layout = get_config_layout(config_path)
+    resolved_config_path = layout.config_path
+    if not resolved_config_path.exists():
+        raise FileNotFoundError(f"config file not found: {resolved_config_path}")
+
+    with open(resolved_config_path, "r", encoding="utf-8") as f:
+        config_data = yaml.safe_load(f) or {}
+
+    print(f"config loaded: {resolved_config_path}")
+
+    config: Dict[str, Any] = {}
+    config.update(_load_app_config(config_data))
+    config.update(_load_crawler_config(config_data))
+    config.update(_load_report_config(config_data))
+    config.update(_load_notification_config(config_data))
+
+    config["SCHEDULE"] = _load_schedule_config(config_data)
+    config["_TIMELINE_DATA"] = _load_timeline_data(layout.config_root)
+    config["WEIGHT_CONFIG"] = _load_weight_config(config_data)
+    config["PLATFORMS"] = config_data.get("platforms", {}).get("sources", [])
+
+    config["AI"] = _load_ai_config(config_data)
+    config["AI_ANALYSIS"] = _load_ai_analysis_config(config_data, layout.config_root)
+    config["AI_ANALYSIS_MODEL"] = _load_ai_analysis_model_config(config_data, config["AI"])
+    config["AI_TRANSLATION"] = _load_ai_translation_config(config_data, layout.config_root)
+    config["AI_TRANSLATION_MODEL"] = _load_ai_translation_model_config(config_data, config["AI"])
+    config["AI_FILTER"] = _load_ai_filter_config(config_data, layout.config_root)
+    config["AI_FILTER_MODEL"] = _load_ai_filter_model_config(config_data, config["AI"])
+
+    config["FILTER"] = _load_filter_config(config_data)
+    config["DISPLAY"] = _load_display_config(config_data)
+    config["STORAGE"] = _load_storage_config(config_data)
+    config.update(_load_webhook_config(config_data))
+    config["_PATHS"] = {
+        "PROJECT_ROOT": str(layout.project_root),
+        "CONFIG_ROOT": str(layout.config_root),
+        "CONFIG_PATH": str(layout.config_path),
+    }
+
+    _print_notification_sources(config)
+    return config

@@ -1,0 +1,172 @@
+# NewsPulse project-local config
+# 说明：
+# - 当前项目仅保留 hotlist（热榜）这一类 source type，不再包含 RSS 源。
+# - 本文件中的相对路径默认相对于当前项目的 `config/` 目录解析。
+# - 可通过环境变量覆盖部分配置；未覆盖时以此文件为准。
+
+app:
+  # 时区会影响调度判断、报表时间和输出目录日期。
+  timezone: Asia/Shanghai
+  # 为 true 时，在通知和 HTML 报告中展示版本更新提示。
+  show_version_update: false
+
+schedule:
+  # 为 false 时忽略 `timeline.yaml`，直接按 report.mode 执行采集 / 分析 / 推送。
+  enabled: true
+  # 预设名称来自 `config/timeline.yaml`；`custom` 表示使用自定义时间线。
+  preset: morning_evening
+
+platforms:
+  enabled: true
+  # 仅保留热榜源；每个 id 对应一个内置热榜抓取器。
+  sources:
+    - id: toutiao
+      name: 今日头条
+    - id: baidu
+      name: 百度热搜
+    - id: wallstreetcn-hot
+      name: 华尔街见闻
+    - id: thepaper
+      name: 澎湃新闻
+    - id: bilibili-hot-search
+      name: bilibili 热搜
+    - id: cls-hot
+      name: 财联社热门
+    - id: ifeng
+      name: 凤凰网
+    - id: tieba
+      name: 贴吧
+    - id: weibo
+      name: 微博
+    - id: douyin
+      name: 抖音
+    - id: zhihu
+      name: 知乎
+
+report:
+  # `current`: 当前快照；`daily`: 日报；`incremental`: 仅关注本次新增。
+  mode: current
+  # `keyword`: 按关键词聚合；`platform`: 按平台聚合。
+  display_mode: keyword
+  # 为 true 时更优先按榜单排名排序；false 时更偏向综合热度。
+  sort_by_position_first: false
+  # 高亮排名阈值，例如 5 表示前 5 名。
+  rank_threshold: 5
+  # 0 表示不限制每个关键词展示条数。
+  max_news_per_keyword: 0
+
+display:
+  # 页面 / 通知分区顺序。可选值：hotlist / new_items / standalone / ai_analysis
+  region_order:
+    - new_items
+    - hotlist
+    - standalone
+    - ai_analysis
+  regions:
+    hotlist: true
+    new_items: false
+    standalone: false
+    ai_analysis: true
+  standalone:
+    # 这些平台会在主报告之外额外单独展示一份榜单摘要。
+    platforms:
+      - zhihu
+      - wallstreetcn-hot
+    max_items: 20
+
+notification:
+  enabled: true
+  channels:
+    generic_webhook:
+      # 通用 Webhook 地址；留空表示未启用。
+      # 如需多账号 / 多地址，按项目既有 multi-account 格式填写。
+      webhook_url: ''
+      # 可选 JSON 模板，占位符：{title} / {content}
+      # 留空时默认发送：{"title": "...", "content": "..."}
+      payload_template: ''
+
+ai:
+  # 全局默认 AI 模型配置；ai_analysis / ai_translation / ai_filter 会继承或覆盖它。
+  model: deepseek/deepseek-chat
+  api_key: ''
+  api_base: ''
+  timeout: 120
+  temperature: 0.5
+  max_tokens: 5000
+  num_retries: 1
+  fallback_models: []
+
+ai_analysis:
+  enabled: true
+  language: Chinese
+  prompt_file: ai_analysis_prompt.txt
+  # `follow_report` / `daily` / `current` / `incremental`
+  mode: follow_report
+  # 参与 AI 分析的最大热榜标题数。
+  max_news_for_analysis: 150
+  # 是否把独立展示区和排名时间线一起交给 AI。
+  include_standalone: true
+  include_rank_timeline: true
+
+ai_translation:
+  enabled: true
+  language: 中文
+  prompt_file: ai_translation_prompt.txt
+  scope:
+    # `hotlist`: 主热榜区域；`standalone`: 独立展示区。
+    hotlist: false
+    standalone: true
+
+ai_filter:
+  # AI 筛选的批处理与阈值配置。
+  batch_size: 10
+  batch_interval: 2
+  timeout: 480
+  num_retries: 0
+  min_score: 0.7
+  reclassify_threshold: 0.6
+  prompt_file: prompt.txt
+  extract_prompt_file: extract_prompt.txt
+  update_tags_prompt_file: update_tags_prompt.txt
+
+filter:
+  # `keyword`: 频率词匹配；`ai`: 基于兴趣文件的 AI 筛选。
+  method: ai
+  # 为 true 时优先按词组优先级排序。
+  priority_sort_enabled: true
+
+storage:
+  # 当前运行时仅使用本地存储。
+  backend: local
+  formats:
+    sqlite: true
+    txt: false
+    html: true
+  local:
+    # 输出目录，相对路径基于项目根目录。
+    data_dir: output
+    # 0 表示不自动清理历史数据。
+    retention_days: 0
+
+advanced:
+  debug: false
+  # 版本检查地址；留空表示关闭远程版本检查。
+  version_check_url: ''
+  configs_version_check_url: ''
+  crawler:
+    # 请求间隔，单位毫秒。
+    request_interval: 2000
+    use_proxy: false
+    default_proxy: http://127.0.0.1:10801
+  weight:
+    # 热度综合评分权重。
+    rank: 0.6
+    frequency: 0.3
+    hotness: 0.1
+  # 单个通知渠道最多使用多少个账号 / 地址。
+  max_accounts_per_channel: 3
+  batch_size:
+    # 默认通知分批字节上限。
+    default: 4000
+  # 多批通知之间的间隔秒数。
+  batch_send_interval: 3
