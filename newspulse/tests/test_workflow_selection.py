@@ -3,6 +3,9 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from newspulse.report.generator import prepare_report_data
+from newspulse.report.sections.hotlist import render_hotlist_stats_html
+from newspulse.workflow.selection.legacy import selection_result_to_legacy_stats
 from newspulse.workflow.selection.service import SelectionService
 from newspulse.workflow.shared.contracts import HotlistItem, HotlistSnapshot
 from newspulse.workflow.shared.options import SelectionOptions
@@ -117,6 +120,15 @@ class SelectionServiceTest(unittest.TestCase):
             )
             self.assertEqual(result.diagnostics["matched_candidates"], 3)
 
+            legacy_stats = selection_result_to_legacy_stats(result, display_mode="keyword", rank_threshold=5)
+            self.assertEqual([stat["word"] for stat in legacy_stats], ["AI", "OpenSource"])
+            self.assertEqual(legacy_stats[0]["count"], 2)
+            self.assertEqual(legacy_stats[0]["titles"][0]["is_new"], True)
+            self.assertEqual(
+                legacy_stats[0]["titles"][0]["time_display"],
+                "[2026-04-17 09:00:00 ~ 2026-04-17 10:00:00]",
+            )
+
     def test_keyword_selection_can_sort_by_group_position(self):
         with TemporaryDirectory() as tmp:
             config_root = Path(tmp) / "config"
@@ -174,6 +186,61 @@ class SelectionServiceTest(unittest.TestCase):
 
             self.assertEqual([group.label for group in result.groups], ["Later", "Earlier"])
             self.assertEqual(result.total_selected, 3)
+
+            platform_stats = selection_result_to_legacy_stats(
+                result,
+                display_mode="platform",
+                rank_threshold=5,
+            )
+            self.assertEqual([stat["word"] for stat in platform_stats], ["平台1"])
+            self.assertEqual(platform_stats[0]["titles"][0]["matched_keyword"], "Earlier")
+
+    def test_legacy_stats_adapter_remains_compatible_with_existing_report_rendering(self):
+        with TemporaryDirectory() as tmp:
+            config_root = Path(tmp) / "config"
+            _write_text(
+                config_root / "custom" / "keyword" / "render.txt",
+                """
+                [WORD_GROUPS]
+                [AI]
+                AI
+                """,
+            )
+
+            snapshot = HotlistSnapshot(
+                mode="current",
+                generated_at="2026-04-17 10:00:00",
+                items=[
+                    HotlistItem(
+                        news_item_id="1",
+                        source_id="s1",
+                        source_name="平台1",
+                        title="AI launches new model",
+                        url="https://example.com/a",
+                        mobile_url="https://m.example.com/a",
+                        ranks=[2, 1],
+                        current_rank=1,
+                        first_time="09-00",
+                        last_time="10-00",
+                        count=3,
+                        is_new=True,
+                    ),
+                ],
+            )
+
+            service = SelectionService(config_root=str(config_root))
+            result = service.run(
+                snapshot,
+                SelectionOptions(strategy="keyword", frequency_file="render.txt"),
+            )
+            legacy_stats = selection_result_to_legacy_stats(result, display_mode="keyword", rank_threshold=5)
+            report_data = prepare_report_data(legacy_stats, mode="current")
+            html = render_hotlist_stats_html(report_data["stats"], display_mode="keyword")
+
+            self.assertEqual(report_data["stats"][0]["titles"][0]["title"], "AI launches new model")
+            self.assertIn("平台1", html)
+            self.assertIn("news-item new", html)
+            self.assertIn("09:00~10:00", html)
 
 
 if __name__ == "__main__":

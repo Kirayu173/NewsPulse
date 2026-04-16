@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from newspulse.workflow.selection.legacy import selection_result_to_legacy_stats
 from newspulse.workflow.selection.keyword import KeywordSelectionStrategy
 from newspulse.workflow.shared.options import SelectionOptions
 
@@ -36,3 +37,9 @@ class SelectionService:
         if options.strategy == "keyword":
             return self.keyword_strategy.run(snapshot, options)
         raise NotImplementedError(f"Unsupported selection strategy: {options.strategy}")
+
+    @staticmethod
+    def to_legacy_stats(selection_result, **kwargs):
+        """Adapt native selection output back into the legacy stats structure."""
+
+        return selection_result_to_legacy_stats(selection_result, **kwargs)
