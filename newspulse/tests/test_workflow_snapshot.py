@@ -81,8 +81,16 @@ class SnapshotServiceTest(unittest.TestCase):
                 self.assertEqual(current.standalone_sections[0].label, "平台2")
                 self.assertEqual(current.standalone_sections[0].items[0].title, "Gamma")
 
+                daily_alpha = next(item for item in daily.items if item.title == "Alpha")
+                current_alpha = next(item for item in current.items if item.title == "Alpha")
                 current_charlie = next(item for item in current.items if item.title == "Charlie")
                 incremental_charlie = next(item for item in incremental.items if item.title == "Charlie")
+                self.assertEqual(daily_alpha.ranks, [1, 2])
+                self.assertEqual(current_alpha.ranks, [1, 2])
+                self.assertEqual(current_alpha.count, 2)
+                self.assertEqual(current_alpha.first_time, "2026-04-17 09:00:00")
+                self.assertEqual(current_alpha.last_time, "2026-04-17 10:00:00")
+                self.assertEqual(len(current_alpha.rank_timeline), 2)
                 self.assertEqual(current_charlie.news_item_id, incremental_charlie.news_item_id)
                 self.assertTrue(incremental_charlie.is_new)
             finally:
@@ -116,6 +124,68 @@ class SnapshotServiceTest(unittest.TestCase):
                 self.assertEqual({item.title for item in snapshot.items}, {"Alpha", "Gamma"})
                 self.assertEqual({item.title for item in snapshot.new_items}, {"Alpha", "Gamma"})
                 self.assertEqual(snapshot.summary["is_first_crawl"], True)
+            finally:
+                storage.cleanup()
+
+    def test_snapshot_output_remains_usable_after_build(self):
+        with TemporaryDirectory() as tmp:
+            storage = self._create_storage(Path(tmp))
+            try:
+                _save_crawl(
+                    storage,
+                    "2026-04-17 09:00:00",
+                    {
+                        "s1": {
+                            "Alpha": {"ranks": [1], "url": "https://example.com/a", "mobileUrl": ""},
+                        },
+                        "s2": {
+                            "Gamma": {"ranks": [1], "url": "https://example.com/g", "mobileUrl": ""},
+                        },
+                    },
+                    failed_ids=["s3"],
+                )
+
+                service = SnapshotService(
+                    storage,
+                    platform_ids=["s1", "s2"],
+                    platform_names={"s1": "platform-1", "s2": "platform-2", "s3": "platform-3"},
+                    standalone_platform_ids=["s2"],
+                )
+                snapshot = service.build(SnapshotOptions(mode="current"))
+            finally:
+                storage.cleanup()
+
+            def _boom(*args, **kwargs):
+                raise AssertionError("snapshot should not need storage after build")
+
+            storage.get_latest_crawl_data = _boom
+            storage.get_today_all_data = _boom
+            storage.get_all_news_ids = _boom
+            storage.is_first_crawl_today = _boom
+
+            self.assertEqual(snapshot.summary["total_items"], 2)
+            self.assertEqual({item.title for item in snapshot.items}, {"Alpha", "Gamma"})
+            self.assertEqual(snapshot.failed_sources[0].source_id, "s3")
+            self.assertEqual(snapshot.standalone_sections[0].items[0].title, "Gamma")
+
+    def test_snapshot_service_returns_empty_snapshot_when_storage_is_empty(self):
+        with TemporaryDirectory() as tmp:
+            storage = self._create_storage(Path(tmp))
+            try:
+                service = SnapshotService(
+                    storage,
+                    platform_ids=["s1", "s2"],
+                    platform_names={"s1": "platform-1", "s2": "platform-2"},
+                    standalone_platform_ids=["s2"],
+                )
+                snapshot = service.build(SnapshotOptions(mode="daily"))
+
+                self.assertEqual(snapshot.generated_at, "")
+                self.assertEqual(snapshot.items, [])
+                self.assertEqual(snapshot.new_items, [])
+                self.assertEqual(snapshot.failed_sources, [])
+                self.assertEqual(snapshot.standalone_sections, [])
+                self.assertEqual(snapshot.summary["total_items"], 0)
             finally:
                 storage.cleanup()
 
