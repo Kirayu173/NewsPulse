@@ -14,7 +14,8 @@ from newspulse.workflow.insight.models import (
     build_summary,
 )
 from newspulse.workflow.shared.ai_runtime.client import AIRuntimeClient
-from newspulse.workflow.shared.ai_runtime.codec import decode_json_response
+from newspulse.workflow.shared.ai_runtime.codec import decode_json_response, extract_json_block
+from newspulse.workflow.shared.ai_runtime.errors import AIResponseDecodeError
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate, load_prompt_template
 from newspulse.workflow.shared.contracts import InsightResult, InsightSection
 from newspulse.workflow.shared.options import InsightOptions
@@ -69,41 +70,49 @@ class AIInsightStrategy:
                     "report_mode": options.mode,
                     "selected_items": selection.total_selected,
                     "analyzed_items": 0,
+                    "max_items": options.max_items,
                     "skipped": True,
                     "reason": "no selected items available for insight generation",
                 },
             )
 
         user_prompt = self._render_prompt(payload)
+        raw_response = ""
         try:
             raw_response = self.client.chat(self.prompt_template.build_messages(user_prompt))
-            parsed = decode_json_response(raw_response)
+            parsed, parse_error = self._decode_response_payload(raw_response)
             sections = self._build_sections(parsed)
+            diagnostics = {
+                "mode": snapshot.mode,
+                "report_mode": options.mode,
+                "selected_items": selection.total_selected,
+                "analyzed_items": payload.news_count,
+                "max_items": options.max_items,
+                "platform_count": len(payload.platforms),
+                "keyword_count": len(payload.keywords),
+                "standalone_included": bool(payload.standalone_content),
+                "section_count": len(sections),
+            }
+            if parse_error:
+                diagnostics["parse_error"] = parse_error
             return InsightResult(
                 enabled=True,
                 strategy="ai",
                 sections=sections,
+                raw_response=raw_response,
+                diagnostics=diagnostics,
+            )
+        except Exception as exc:
+            return InsightResult(
+                enabled=True,
+                strategy="ai",
                 raw_response=raw_response,
                 diagnostics={
                     "mode": snapshot.mode,
                     "report_mode": options.mode,
                     "selected_items": selection.total_selected,
                     "analyzed_items": payload.news_count,
-                    "platform_count": len(payload.platforms),
-                    "keyword_count": len(payload.keywords),
-                    "standalone_included": bool(payload.standalone_content),
-                    "section_count": len(sections),
-                },
-            )
-        except Exception as exc:
-            return InsightResult(
-                enabled=True,
-                strategy="ai",
-                diagnostics={
-                    "mode": snapshot.mode,
-                    "report_mode": options.mode,
-                    "selected_items": selection.total_selected,
-                    "analyzed_items": payload.news_count,
+                    "max_items": options.max_items,
                     "error": f"{type(exc).__name__}: {exc}",
                 },
             )
@@ -279,6 +288,17 @@ class AIInsightStrategy:
                     )
                 )
         return sections
+
+    @staticmethod
+    def _decode_response_payload(raw_response: str) -> tuple[Any, str]:
+        """Decode the model payload and fall back to plain-text insight when JSON is invalid."""
+
+        try:
+            return decode_json_response(raw_response), ""
+        except AIResponseDecodeError as exc:
+            normalized = extract_json_block(raw_response) or (raw_response or "").strip()
+            fallback_content = normalized[:500] + ("..." if len(normalized) > 500 else "")
+            return {"core_trends": fallback_content}, str(exc)
 
     @staticmethod
     def _format_rank_range(ranks: list[int]) -> str:

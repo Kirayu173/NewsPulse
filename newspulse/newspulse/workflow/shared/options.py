@@ -46,9 +46,9 @@ class InsightOptions:
     enabled: bool = False
     strategy: str = "noop"
     mode: str = "follow_report"
-    max_items: int = 150
-    include_standalone: bool = True
-    include_rank_timeline: bool = True
+    max_items: int = 50
+    include_standalone: bool = False
+    include_rank_timeline: bool = False
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 

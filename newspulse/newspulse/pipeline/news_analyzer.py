@@ -9,10 +9,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from newspulse import __version__
-from newspulse.ai import AIAnalysisResult, AIAnalyzer
+from newspulse.ai import AIAnalysisResult
 from newspulse.context import AppContext
 from newspulse.core import load_config
-from newspulse.core.analyzer import convert_keyword_stats_to_platform_stats
 from newspulse.core.scheduler import ResolvedSchedule
 from newspulse.crawler import DataFetcher
 from newspulse.storage import convert_crawl_results_to_news_data
@@ -130,158 +129,6 @@ class NewsAnalyzer:
         has_matched_news = any(stat.get("count", 0) > 0 for stat in stats)
         has_new_news = bool(new_titles and any(len(titles) > 0 for titles in new_titles.values()))
         return has_matched_news or has_new_news
-
-    def _prepare_ai_analysis_data(
-        self,
-        ai_mode: str,
-        current_results: Optional[Dict] = None,
-        current_id_to_name: Optional[Dict] = None,
-    ) -> Tuple[List[Dict], Optional[Dict]]:
-        try:
-            word_groups, filter_words, global_filters = self.ctx.load_frequency_words(self.frequency_file)
-
-            if ai_mode == "incremental":
-                if not current_results or not current_id_to_name:
-                    print("[AI] incremental 模式缺少当前抓取数据")
-                    return [], None
-
-                time_info = self.ctx.format_time()
-                title_info = self._prepare_current_title_info(current_results, time_info)
-                new_titles = self.ctx.detect_new_titles(list(current_results.keys()))
-                stats, _ = self.ctx.count_frequency(
-                    current_results,
-                    word_groups,
-                    filter_words,
-                    current_id_to_name,
-                    title_info,
-                    new_titles,
-                    mode="incremental",
-                    global_filters=global_filters,
-                    quiet=True,
-                )
-                if self.ctx.display_mode == "platform" and stats:
-                    stats = convert_keyword_stats_to_platform_stats(
-                        stats,
-                        self.ctx.weight_config,
-                        self.ctx.rank_threshold,
-                    )
-                return stats, current_id_to_name
-
-            if ai_mode in ("daily", "current"):
-                analysis_data = self._load_analysis_data(quiet=True)
-                if not analysis_data:
-                    print(f"[AI] 无法加载 {ai_mode} 模式所需的历史数据")
-                    return [], None
-
-                all_results, id_to_name, title_info, new_titles, word_groups2, filter_words2, global_filters2 = analysis_data
-                stats, _ = self.ctx.count_frequency(
-                    all_results,
-                    word_groups2,
-                    filter_words2,
-                    id_to_name,
-                    title_info,
-                    new_titles,
-                    mode=ai_mode,
-                    global_filters=global_filters2,
-                    quiet=True,
-                )
-                if self.ctx.display_mode == "platform" and stats:
-                    stats = convert_keyword_stats_to_platform_stats(
-                        stats,
-                        self.ctx.weight_config,
-                        self.ctx.rank_threshold,
-                    )
-                return stats, id_to_name
-
-            print(f"[AI] 不支持的 AI 模式: {ai_mode}")
-            return [], None
-        except Exception as exc:
-            print(f"[AI] 准备 {ai_mode} 分析数据失败: {exc}")
-            if self.ctx.config.get("DEBUG", False):
-                raise
-            return [], None
-
-    def _run_ai_analysis(
-        self,
-        stats: List[Dict],
-        mode: str,
-        report_type: str,
-        id_to_name: Optional[Dict],
-        current_results: Optional[Dict] = None,
-        schedule: Optional[ResolvedSchedule] = None,
-        standalone_data: Optional[Dict] = None,
-    ) -> Optional[AIAnalysisResult]:
-        analysis_config = self.ctx.config.get("AI_ANALYSIS", {})
-        if not analysis_config.get("ENABLED", False):
-            return None
-
-        schedule = schedule or self.ctx.create_scheduler().resolve()
-        if not schedule.analyze:
-            print("[AI] 当前时段未配置 AI 分析")
-            return None
-
-        if schedule.once_analyze and schedule.period_key:
-            scheduler = self.ctx.create_scheduler()
-            date_str = self.ctx.format_date()
-            if scheduler.already_executed(schedule.period_key, "analyze", date_str):
-                print(f"[AI] 分析计划 {schedule.period_name or schedule.period_key} 今日已执行")
-                return None
-            print(f"[AI] 分析计划 {schedule.period_name or schedule.period_key} 准备执行")
-
-        print("[AI] 开始执行 AI 分析...")
-        ai_config = self.ctx.ai_analysis_model_config
-        analyzer = AIAnalyzer(ai_config, analysis_config, self.ctx.get_time, debug=self.ctx.config.get("DEBUG", False))
-
-        ai_mode_config = analysis_config.get("MODE", "follow_report")
-        ai_mode = mode
-        ai_stats = stats
-        ai_id_to_name = id_to_name
-
-        if ai_mode_config in ("daily", "current", "incremental") and ai_mode_config != mode:
-            print(f"[AI] AI 模式切换为: {ai_mode_config} (报告模式: {mode})")
-            ai_stats, ai_id_to_name = self._prepare_ai_analysis_data(ai_mode_config, current_results, id_to_name)
-            if ai_stats:
-                ai_mode = ai_mode_config
-            else:
-                print(f"[AI] 无法准备 {ai_mode_config} 模式的数据，回退到当前报告数据")
-                ai_stats = stats
-                ai_id_to_name = id_to_name
-        elif ai_mode_config not in ("follow_report", "daily", "current", "incremental"):
-            print(f"[AI] 未识别 ai_analysis.mode={ai_mode_config}，按 follow_report 处理")
-
-        platforms = list(ai_id_to_name.values()) if ai_id_to_name else []
-        keywords = [stat.get("word", "") for stat in ai_stats if stat.get("word")]
-        report_type_by_mode = {
-            "daily": "每日报告",
-            "current": "实时报告",
-            "incremental": "增量报告",
-        }
-        ai_report_type = report_type_by_mode.get(ai_mode, report_type)
-
-        result = analyzer.analyze(
-            stats=ai_stats,
-            report_mode=ai_mode,
-            report_type=ai_report_type,
-            platforms=platforms,
-            keywords=keywords,
-            standalone_data=standalone_data,
-        )
-
-        if result.success:
-            result.ai_mode = ai_mode
-            if result.error:
-                print(f"[AI] 分析完成，但有警告: {result.error}")
-            else:
-                print("[AI] 分析完成")
-            if schedule.once_analyze and schedule.period_key:
-                scheduler = self.ctx.create_scheduler()
-                scheduler.record_execution(schedule.period_key, "analyze", self.ctx.format_date())
-        elif result.skipped:
-            print(f"[AI] {result.error}")
-        else:
-            print(f"[AI] 分析失败: {result.error}")
-
-        return result
 
     def _load_analysis_data(
         self,
@@ -446,17 +293,15 @@ class NewsAnalyzer:
         if failed_ids is None:
             failed_ids = [failure.source_id for failure in snapshot.failed_sources]
 
-        ai_result = None
-        if self.ctx.config.get("AI_ANALYSIS", {}).get("ENABLED", False) and stats:
-            ai_result = self._run_ai_analysis(
-                stats,
-                mode,
-                self._get_mode_strategy()["report_type"],
-                id_to_name,
-                current_results=data_source,
-                schedule=schedule,
-                standalone_data=standalone_data,
-            )
+        _, ai_result = self.ctx.run_insight_stage(
+            report_mode=mode,
+            snapshot=snapshot,
+            selection=selection_result,
+            strategy=self.filter_method,
+            frequency_file=self.frequency_file,
+            interests_file=self.interests_file,
+            schedule=schedule,
+        )
 
         html_file = None
         if self.ctx.config["STORAGE"]["FORMATS"].get("HTML", True):
@@ -486,7 +331,6 @@ class NewsAnalyzer:
         html_file_path: Optional[str] = None,
         standalone_data: Optional[Dict] = None,
         ai_result: Optional[AIAnalysisResult] = None,
-        current_results: Optional[Dict] = None,
         schedule: Optional[ResolvedSchedule] = None,
     ) -> bool:
         has_notification = self._has_notification_configured()
@@ -508,14 +352,12 @@ class NewsAnalyzer:
                 print(f"[推送] 推送计划 {schedule.period_name or schedule.period_key} 准备执行")
 
             if ai_result is None and cfg.get("AI_ANALYSIS", {}).get("ENABLED", False) and stats:
-                ai_result = self._run_ai_analysis(
-                    stats,
-                    mode,
-                    report_type,
-                    id_to_name,
-                    current_results=current_results,
+                _, ai_result = self.ctx.run_insight_stage(
+                    report_mode=mode,
+                    strategy=self.filter_method,
+                    frequency_file=self.frequency_file,
+                    interests_file=self.interests_file,
                     schedule=schedule,
-                    standalone_data=standalone_data,
                 )
 
             report_data = self.ctx.prepare_report(
@@ -682,7 +524,6 @@ class NewsAnalyzer:
                 html_file_path=html_file,
                 standalone_data=standalone_data,
                 ai_result=ai_result,
-                current_results=results_for_analysis,
                 schedule=schedule,
             )
 

@@ -7,8 +7,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from newspulse.ai import AITranslator
+from newspulse.ai import AIAnalysisResult, AITranslator
 from newspulse.ai.filter import AIFilter, AIFilterResult
+from newspulse.core.scheduler import ResolvedSchedule
 from newspulse.core import (
     Scheduler,
     count_word_frequency,
@@ -20,6 +21,7 @@ from newspulse.core import (
 from newspulse.notification import NotificationDispatcher, split_content_into_batches
 from newspulse.report import generate_html_report, prepare_report_data, render_html_content
 from newspulse.storage import get_storage_manager
+from newspulse.workflow.insight import InsightService, to_ai_analysis_result
 from newspulse.utils.time import (
     DEFAULT_TIMEZONE,
     convert_time_for_display,
@@ -29,8 +31,8 @@ from newspulse.utils.time import (
     get_current_time_display,
 )
 from newspulse.workflow.selection import SelectionService
-from newspulse.workflow.shared.contracts import HotlistSnapshot, SelectionResult
-from newspulse.workflow.shared.options import SelectionAIOptions, SelectionOptions, SnapshotOptions
+from newspulse.workflow.shared.contracts import HotlistSnapshot, InsightResult, SelectionResult
+from newspulse.workflow.shared.options import InsightOptions, SelectionAIOptions, SelectionOptions, SnapshotOptions
 from newspulse.workflow.snapshot import SnapshotService
 
 
@@ -429,6 +431,117 @@ class AppContext:
 
         selection.diagnostics.setdefault("requested_strategy", options.strategy)
         return snapshot, selection
+
+    def create_insight_service(self) -> InsightService:
+        """Create the workflow insight service with the current project config."""
+
+        return InsightService(
+            ai_runtime_config=self.ai_analysis_model_config,
+            ai_analysis_config=self.config.get("AI_ANALYSIS", {}),
+            config_root=str(self.config_root),
+        )
+
+    def build_insight_options(
+        self,
+        *,
+        report_mode: str,
+    ) -> InsightOptions:
+        """Build workflow insight options from the current app config."""
+
+        analysis_config = self.config.get("AI_ANALYSIS", {})
+        enabled = bool(analysis_config.get("ENABLED", False))
+        requested_mode = str(analysis_config.get("MODE", "follow_report") or "follow_report").strip()
+        effective_mode = requested_mode if requested_mode in {"daily", "current", "incremental"} else report_mode
+
+        return InsightOptions(
+            enabled=enabled,
+            strategy="ai" if enabled else "noop",
+            mode=effective_mode,
+            max_items=int(analysis_config.get("MAX_NEWS_FOR_ANALYSIS", 50) or 50),
+            include_standalone=bool(analysis_config.get("INCLUDE_STANDALONE", False)),
+            include_rank_timeline=bool(analysis_config.get("INCLUDE_RANK_TIMELINE", False)),
+            metadata={
+                "requested_mode": requested_mode,
+                "report_mode": report_mode,
+            },
+        )
+
+    @staticmethod
+    def _build_noop_insight_result(reason: str, *, report_mode: str, schedule: Optional[ResolvedSchedule] = None) -> InsightResult:
+        diagnostics = {
+            "report_mode": report_mode,
+            "skipped": True,
+            "reason": reason,
+        }
+        if schedule is not None:
+            diagnostics["schedule_analyze"] = schedule.analyze
+            diagnostics["schedule_period"] = schedule.period_key
+        return InsightResult(
+            enabled=False,
+            strategy="noop",
+            diagnostics=diagnostics,
+        )
+
+    def run_insight_stage(
+        self,
+        *,
+        report_mode: str,
+        snapshot: Optional[HotlistSnapshot] = None,
+        selection: Optional[SelectionResult] = None,
+        strategy: Optional[str] = None,
+        frequency_file: Optional[str] = None,
+        interests_file: Optional[str] = None,
+        schedule: Optional[ResolvedSchedule] = None,
+        selection_service: Optional[SelectionService] = None,
+        insight_service: Optional[InsightService] = None,
+    ) -> Tuple[InsightResult, Optional[AIAnalysisResult]]:
+        """Run the native insight stage and adapt the result for the current render pipeline."""
+
+        options = self.build_insight_options(report_mode=report_mode)
+        if not options.enabled or options.strategy == "noop":
+            return self._build_noop_insight_result("insight stage disabled", report_mode=report_mode, schedule=schedule), None
+
+        if schedule is not None:
+            if not schedule.analyze:
+                return self._build_noop_insight_result("insight stage disabled by schedule", report_mode=report_mode, schedule=schedule), None
+
+            if schedule.once_analyze and schedule.period_key:
+                date_str = self.format_date()
+                if self.get_storage_manager().has_period_executed(date_str, schedule.period_key, "analyze"):
+                    return (
+                        self._build_noop_insight_result(
+                            f"insight stage already executed for {schedule.period_name or schedule.period_key}",
+                            report_mode=report_mode,
+                            schedule=schedule,
+                        ),
+                        None,
+                    )
+
+        selection_mode = options.mode
+        if snapshot is None or selection is None or selection_mode != report_mode:
+            snapshot, selection = self.run_selection_stage(
+                mode=selection_mode,
+                strategy=self.filter_method if strategy is None else strategy,
+                frequency_file=frequency_file,
+                interests_file=interests_file,
+                selection_service=selection_service,
+            )
+
+        runner = insight_service or self.create_insight_service()
+        insight = runner.run(snapshot, selection, options)
+        legacy_result = to_ai_analysis_result(
+            insight,
+            total_news=selection.total_selected,
+            analyzed_news=int(insight.diagnostics.get("analyzed_items", 0) or 0),
+            max_news_limit=options.max_items,
+            hotlist_count=selection.total_selected,
+            ai_mode=options.mode,
+        )
+
+        if legacy_result and legacy_result.success and schedule is not None and schedule.once_analyze and schedule.period_key:
+            self.get_storage_manager().record_period_execution(self.format_date(), schedule.period_key, "analyze")
+
+        return insight, legacy_result
 
     def convert_selection_to_report_data(self, selection_result: SelectionResult) -> List[Dict]:
         """Adapt native workflow selection output back into the current legacy stats structure."""
