@@ -212,29 +212,22 @@ class InsightClient:
         )
 
 
-class FakeTranslator:
+class RecordingLocalizationClient:
     def __init__(self):
         self.calls = []
-        self.enabled = True
-        self.target_language = "Chinese"
-        self.scope = {"HOTLIST": True, "STANDALONE": True, "INSIGHT": True}
 
-    def translate_batch(self, texts):
-        from newspulse.ai.translator import BatchTranslationResult, TranslationResult
+    def chat(self, messages, **kwargs):
+        texts = []
+        for line in messages[-1]["content"].splitlines():
+            stripped = line.strip()
+            if not stripped.startswith("[") or "]" not in stripped:
+                continue
+            texts.append(stripped[stripped.index("]") + 1 :].strip())
 
-        self.calls.append(list(texts))
-        results = [
-            TranslationResult(original_text=text, translated_text=f"ZH:{text}", success=True)
-            for text in texts
-        ]
-        return BatchTranslationResult(
-            results=results,
-            success_count=len(results),
-            fail_count=0,
-            total_count=len(results),
-            prompt="prompt",
-            raw_response="raw-response",
-            parsed_count=len(results),
+        self.calls.append(texts)
+        return "\n".join(
+            f"[{index}] ZH:{text}"
+            for index, text in enumerate(texts, start=1)
         )
 
 
@@ -391,8 +384,17 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
             )
         )
 
-    def _build_localization_service(self, translator: FakeTranslator) -> LocalizationService:
-        return LocalizationService(ai_strategy=AILocalizationStrategy(translator=translator))
+    def _build_localization_service(self, client: RecordingLocalizationClient) -> LocalizationService:
+        prompt_template = PromptTemplate(
+            path=Path("localization-prompt.txt"),
+            user_prompt="LANG={target_language}\n{content}",
+        )
+        return LocalizationService(
+            ai_strategy=AILocalizationStrategy(
+                client=client,
+                prompt_template=prompt_template,
+            )
+        )
 
     def _build_delivery_service(self, ctx: AppContext, sender: RecordingSender) -> DeliveryService:
         return DeliveryService(
@@ -518,7 +520,7 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
     def test_end_to_end_reuses_same_translation_for_html_and_notification(self):
         with TemporaryDirectory() as tmp:
             ctx = self._create_context(tmp, ai_analysis_enabled=True, ai_translation_enabled=True)
-            translator = FakeTranslator()
+            localization_client = RecordingLocalizationClient()
             sender = RecordingSender()
             try:
                 self._seed_hotlist(ctx)
@@ -526,7 +528,7 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                     ctx,
                     selection_strategy="keyword",
                     insight_service=self._build_ai_insight_service(ctx),
-                    localization_service=self._build_localization_service(translator),
+                    localization_service=self._build_localization_service(localization_client),
                     delivery_service=self._build_delivery_service(ctx, sender),
                 )
 
@@ -553,7 +555,7 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                 self.assertNotIn("ZH:NBA finals schedule announced", render_result.html.content)
                 self.assertNotIn("ZH:NBA finals schedule announced", joined_payload)
                 self.assertTrue(delivery_result.success)
-                self.assertEqual(len(translator.calls), 2)
+                self.assertEqual(len(localization_client.calls), 2)
             finally:
                 ctx.cleanup()
 

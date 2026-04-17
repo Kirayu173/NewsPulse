@@ -13,9 +13,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from newspulse.ai.client import AIClient
-from newspulse.ai.prompt_loader import load_prompt_template
 from newspulse.core.config_paths import resolve_ai_interests_path
+from newspulse.workflow.shared.ai_runtime.client import AIRuntimeClient
+from newspulse.workflow.shared.ai_runtime.prompts import load_prompt_template
 
 
 @dataclass
@@ -45,7 +45,7 @@ class AIFilter:
         debug: bool = False,
         config_root: Optional[Path] = None,
     ):
-        self.client = AIClient(ai_config)
+        self.client = AIRuntimeClient(ai_config)
         self.filter_config = filter_config
         self.batch_size = filter_config.get("BATCH_SIZE", 200)
         self.get_time_func = get_time_func
@@ -53,18 +53,27 @@ class AIFilter:
         self.config_root = config_root
 
         # 加载提示词模板
-        self.classify_system, self.classify_user = load_prompt_template(
+        classify_prompt = load_prompt_template(
             filter_config.get("PROMPT_FILE", "ai_filter_prompt.txt"),
-            config_subdir="ai_filter", label="AI筛选",
+            config_root=self.config_root,
+            config_subdir="ai_filter",
         )
-        self.extract_system, self.extract_user = load_prompt_template(
+        extract_prompt = load_prompt_template(
             filter_config.get("EXTRACT_PROMPT_FILE", "ai_filter_extract_prompt.txt"),
-            config_subdir="ai_filter", label="AI筛选",
+            config_root=self.config_root,
+            config_subdir="ai_filter",
         )
-        self.update_tags_system, self.update_tags_user = load_prompt_template(
+        update_tags_prompt = load_prompt_template(
             filter_config.get("UPDATE_TAGS_PROMPT_FILE", "update_tags_prompt.txt"),
-            config_subdir="ai_filter", label="AI筛选",
+            config_root=self.config_root,
+            config_subdir="ai_filter",
         )
+        self.classify_system = classify_prompt.system_prompt
+        self.classify_user = classify_prompt.user_prompt
+        self.extract_system = extract_prompt.system_prompt
+        self.extract_user = extract_prompt.user_prompt
+        self.update_tags_system = update_tags_prompt.system_prompt
+        self.update_tags_user = update_tags_prompt.user_prompt
 
     def compute_interests_hash(self, interests_content: str, filename: str = "ai_interests.txt") -> str:
         """计算兴趣描述的 hash，格式为 filename:md5"""

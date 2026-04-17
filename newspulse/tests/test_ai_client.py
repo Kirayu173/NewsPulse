@@ -1,11 +1,11 @@
 import unittest
 
-from newspulse.ai.client import AIClient
+from newspulse.workflow.shared.ai_runtime.client import AIRuntimeConfig
 
 
 class AIClientTest(unittest.TestCase):
     def test_normalize_model_with_api_base_adds_openai_prefix(self):
-        client = AIClient(
+        config = AIRuntimeConfig.from_mapping(
             {
                 "MODEL": "glm-4.6v",
                 "API_KEY": "test-key",
@@ -13,7 +13,7 @@ class AIClientTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(client.model, "openai/glm-4.6v")
+        self.assertEqual(config.model, "openai/glm-4.6v")
 
 
 if __name__ == "__main__":

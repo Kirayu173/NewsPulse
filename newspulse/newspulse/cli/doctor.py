@@ -136,7 +136,7 @@ def run_doctor(config_path: Optional[str] = None) -> bool:
 
         if ai_enabled:
             try:
-                from newspulse.ai.client import AIClient
+                from newspulse.workflow.shared.ai_runtime.client import AIRuntimeClient
                 ai_targets = []
                 if ai_analysis_enabled:
                     ai_targets.append(("analysis", config.get("AI_ANALYSIS_MODEL", {}), "fail"))
@@ -148,7 +148,7 @@ def run_doctor(config_path: Optional[str] = None) -> bool:
                 status = "pass"
                 details = []
                 for label, ai_runtime_config, invalid_status in ai_targets:
-                    valid, message = AIClient(ai_runtime_config).validate_config()
+                    valid, message = AIRuntimeClient(ai_runtime_config).validate_config()
                     if valid:
                         details.append(f"{label}: {ai_runtime_config.get('MODEL', '')}")
                         continue

@@ -7,8 +7,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from newspulse.ai.client import AIClient
-from newspulse.ai.prompt_loader import load_prompt_template
+from newspulse.workflow.shared.ai_runtime.client import AIRuntimeClient
+from newspulse.workflow.shared.ai_runtime.prompts import load_prompt_template
 
 
 @dataclass
@@ -47,7 +47,7 @@ class AIAnalyzer:
         self.analysis_config = analysis_config
         self.get_time_func = get_time_func
         self.debug = debug
-        self.client = AIClient(ai_config)
+        self.client = AIRuntimeClient(ai_config)
 
         valid, error = self.client.validate_config()
         if not valid:
@@ -57,10 +57,11 @@ class AIAnalyzer:
         self.include_rank_timeline = analysis_config.get("INCLUDE_RANK_TIMELINE", False)
         self.include_standalone = analysis_config.get("INCLUDE_STANDALONE", False)
         self.language = analysis_config.get("LANGUAGE", "Chinese")
-        self.system_prompt, self.user_prompt_template = load_prompt_template(
+        prompt_template = load_prompt_template(
             analysis_config.get("PROMPT_FILE", "ai_analysis_prompt.txt"),
-            label="AI",
         )
+        self.system_prompt = prompt_template.system_prompt
+        self.user_prompt_template = prompt_template.user_prompt
 
     def analyze(
         self,
@@ -74,7 +75,7 @@ class AIAnalyzer:
         """Analyze hotlist statistics with the configured model."""
 
         model = self.ai_config.get("MODEL", "unknown")
-        api_key = self.client.api_key or ""
+        api_key = self.client.config.api_key or ""
         api_base = self.ai_config.get("API_BASE", "")
         masked_key = f"{api_key[:5]}******" if len(api_key) >= 5 else "******"
 
@@ -87,7 +88,7 @@ class AIAnalyzer:
             f"max_tokens={self.ai_config.get('MAX_TOKENS', 5000)}"
         )
 
-        if not self.client.api_key:
+        if not self.client.config.api_key:
             return AIAnalysisResult(
                 success=False,
                 error="未配置 AI API Key，请在 config.yaml 或环境变量 AI_API_KEY 中设置",

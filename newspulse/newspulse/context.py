@@ -289,6 +289,7 @@ class AppContext:
         return LocalizationService(
             ai_translation_config=self.config.get("AI_TRANSLATION", {}),
             ai_runtime_config=self.ai_translation_model_config,
+            config_root=str(self.config_root),
         )
 
     def create_render_service(self) -> RenderService:

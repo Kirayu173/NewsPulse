@@ -4,6 +4,7 @@ import unittest
 import newspulse.notification as notification_pkg
 import newspulse.report as report_pkg
 import newspulse.storage as storage_pkg
+import newspulse.ai as ai_pkg
 import newspulse.workflow as workflow_pkg
 import newspulse.workflow.insight as insight_pkg
 import newspulse.workflow.selection as selection_pkg
@@ -34,6 +35,17 @@ class LegacyCleanupTest(unittest.TestCase):
             importlib.import_module("newspulse.workflow.insight.legacy")
         with self.assertRaises(ModuleNotFoundError):
             importlib.import_module("newspulse.workflow.selection.legacy")
+
+    def test_ai_package_no_longer_exports_legacy_translation_stack(self):
+        self.assertFalse(hasattr(ai_pkg, "AITranslator"))
+        self.assertFalse(hasattr(ai_pkg, "TranslationResult"))
+        self.assertFalse(hasattr(ai_pkg, "BatchTranslationResult"))
+        with self.assertRaises(ModuleNotFoundError):
+            importlib.import_module("newspulse.ai.translator")
+        with self.assertRaises(ModuleNotFoundError):
+            importlib.import_module("newspulse.ai.client")
+        with self.assertRaises(ModuleNotFoundError):
+            importlib.import_module("newspulse.ai.prompt_loader")
 
 
 if __name__ == "__main__":

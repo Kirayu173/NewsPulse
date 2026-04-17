@@ -7,7 +7,6 @@ NewsPulse AI 模块
 
 from .analyzer import AIAnalyzer, AIAnalysisResult
 from .filter import AIFilter, AIFilterResult
-from .translator import AITranslator, TranslationResult, BatchTranslationResult
 from .formatter import (
     get_ai_analysis_renderer,
     render_ai_analysis_markdown,
@@ -25,10 +24,6 @@ __all__ = [
     # 智能筛选
     "AIFilter",
     "AIFilterResult",
-    # 翻译器
-    "AITranslator",
-    "TranslationResult",
-    "BatchTranslationResult",
     # 格式化
     "get_ai_analysis_renderer",
     "render_ai_analysis_markdown",

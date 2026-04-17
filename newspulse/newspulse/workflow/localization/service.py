@@ -20,13 +20,15 @@ class LocalizationService:
         noop_strategy: NoopLocalizationStrategy | None = None,
         ai_translation_config: dict[str, Any] | None = None,
         ai_runtime_config: dict[str, Any] | None = None,
+        config_root: str | None = None,
     ):
         self.noop_strategy = noop_strategy or NoopLocalizationStrategy()
         self.ai_strategy = ai_strategy
         if self.ai_strategy is None and ai_translation_config is not None:
             self.ai_strategy = AILocalizationStrategy(
                 translation_config=ai_translation_config,
-                ai_config=ai_runtime_config,
+                ai_runtime_config=ai_runtime_config,
+                config_root=config_root,
             )
 
     def run(self, report: Any, options: LocalizationOptions):
