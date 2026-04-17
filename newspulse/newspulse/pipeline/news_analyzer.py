@@ -6,20 +6,20 @@ from __future__ import annotations
 import os
 import webbrowser
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from newspulse import __version__
-from newspulse.ai import AIAnalysisResult
 from newspulse.context import AppContext
 from newspulse.core import load_config
 from newspulse.core.scheduler import ResolvedSchedule
 from newspulse.crawler import DataFetcher
 from newspulse.storage import convert_crawl_results_to_news_data
 from newspulse.utils.time import DEFAULT_TIMEZONE
+from newspulse.workflow.shared.contracts import DeliveryPayload, HotlistSnapshot, SelectionResult
 
 
 class NewsAnalyzer:
-    """Coordinate crawling, analysis, rendering and notification."""
+    """Coordinate crawling and native workflow stage orchestration."""
 
     MODE_STRATEGIES = {
         "incremental": {
@@ -121,285 +121,85 @@ class NewsAnalyzer:
     def _has_notification_configured(self) -> bool:
         return bool(self.ctx.config.get("GENERIC_WEBHOOK_URL"))
 
-    def _has_valid_content(self, stats: List[Dict], new_titles: Optional[Dict] = None) -> bool:
-        if self.report_mode == "incremental":
-            return any(stat.get("count", 0) > 0 for stat in stats)
-        if self.report_mode == "current":
-            return any(stat.get("count", 0) > 0 for stat in stats)
-        has_matched_news = any(stat.get("count", 0) > 0 for stat in stats)
-        has_new_news = bool(new_titles and any(len(titles) > 0 for titles in new_titles.values()))
-        return has_matched_news or has_new_news
+    def _has_valid_content(self, snapshot: HotlistSnapshot, selection: SelectionResult) -> bool:
+        if snapshot.mode in {"incremental", "current"}:
+            return selection.total_selected > 0
+        return selection.total_selected > 0 or bool(snapshot.new_items)
 
-    def _load_analysis_data(
-        self,
-        quiet: bool = False,
-    ) -> Optional[Tuple[Dict, Dict, Dict, Dict, List, List, List]]:
-        try:
-            current_platform_ids = self.ctx.platform_ids
-            if not quiet:
-                print(f"当前平台: {current_platform_ids}")
-
-            all_results, id_to_name, title_info = self.ctx.read_today_titles(current_platform_ids, quiet=quiet)
-            if not all_results:
-                if not quiet:
-                    print("未读取到今日历史数据")
-                return None
-
-            total_titles = sum(len(titles) for titles in all_results.values())
-            if not quiet:
-                print(f"共加载 {total_titles} 条历史标题用于分析")
-
-            new_titles = self.ctx.detect_new_titles(current_platform_ids, quiet=quiet)
-            word_groups, filter_words, global_filters = self.ctx.load_frequency_words(self.frequency_file)
-            return (
-                all_results,
-                id_to_name,
-                title_info,
-                new_titles,
-                word_groups,
-                filter_words,
-                global_filters,
-            )
-        except Exception as exc:
-            print(f"读取分析数据失败: {exc}")
-            return None
-
-    def _prepare_current_title_info(self, results: Dict, time_info: str) -> Dict:
-        title_info: Dict[str, Dict] = {}
-        for source_id, titles_data in results.items():
-            title_info[source_id] = {}
-            for title, title_data in titles_data.items():
-                title_info[source_id][title] = {
-                    "first_time": time_info,
-                    "last_time": time_info,
-                    "count": 1,
-                    "ranks": title_data.get("ranks", []),
-                    "url": title_data.get("url", ""),
-                    "mobileUrl": title_data.get("mobileUrl", ""),
-                }
-        return title_info
-
-    def _prepare_standalone_data(
-        self,
-        results: Dict,
-        id_to_name: Dict,
-        title_info: Optional[Dict] = None,
-    ) -> Optional[Dict]:
-        display_config = self.ctx.config.get("DISPLAY", {})
-        standalone_config = display_config.get("STANDALONE", {})
-        platform_ids = standalone_config.get("PLATFORMS", [])
-        max_items = standalone_config.get("MAX_ITEMS", 20)
-        if not platform_ids:
-            return None
-
-        latest_time = None
-        if title_info:
-            for source_titles in title_info.values():
-                for title_data in source_titles.values():
-                    last_time = title_data.get("last_time", "")
-                    if last_time and (latest_time is None or last_time > latest_time):
-                        latest_time = last_time
-
-        standalone_platforms: List[Dict] = []
-        for platform_id in platform_ids:
-            if platform_id not in results:
-                continue
-
-            items: List[Dict] = []
-            for title, title_data in results[platform_id].items():
-                meta = title_info.get(platform_id, {}).get(title, {}) if title_info else {}
-                if latest_time and meta and meta.get("last_time") != latest_time:
-                    continue
-
-                current_ranks = title_data.get("ranks", [])
-                current_rank = current_ranks[-1] if current_ranks else 0
-                historical_ranks = list(meta.get("ranks", []))
-                display_ranks = historical_ranks[:]
-                for rank in current_ranks:
-                    if rank not in display_ranks:
-                        display_ranks.append(rank)
-
-                items.append(
-                    {
-                        "title": title,
-                        "url": title_data.get("url", ""),
-                        "mobileUrl": title_data.get("mobileUrl", ""),
-                        "rank": current_rank,
-                        "ranks": display_ranks or current_ranks,
-                        "first_time": meta.get("first_time", ""),
-                        "last_time": meta.get("last_time", ""),
-                        "count": meta.get("count", 1),
-                        "rank_timeline": meta.get("rank_timeline", []),
-                    }
-                )
-
-            items.sort(key=lambda item: item["rank"] if item["rank"] > 0 else 9999)
-            if max_items > 0:
-                items = items[:max_items]
-
-            if items:
-                standalone_platforms.append(
-                    {
-                        "id": platform_id,
-                        "name": id_to_name.get(platform_id, platform_id),
-                        "items": items,
-                    }
-                )
-
-        if not standalone_platforms:
-            return None
-        return {"platforms": standalone_platforms}
-
-    def _run_analysis_pipeline(
-        self,
-        data_source: Dict,
-        mode: str,
-        title_info: Dict,
-        new_titles: Dict,
-        word_groups: List[Dict],
-        filter_words: List[str],
-        id_to_name: Dict,
-        failed_ids: Optional[List] = None,
-        global_filters: Optional[List[str]] = None,
-        quiet: bool = False,
-        standalone_data: Optional[Dict] = None,
-        schedule: Optional[ResolvedSchedule] = None,
-    ) -> Tuple[List[Dict], Optional[str], Optional[AIAnalysisResult]]:
-        snapshot, selection_result = self.ctx.run_selection_stage(
-            mode=mode,
-            strategy=self.filter_method,
-            frequency_file=self.frequency_file,
-            interests_file=self.interests_file,
-        )
-        total_titles = snapshot.item_count
-        stats = self.ctx.convert_selection_to_report_data(selection_result)
-
-        if selection_result.strategy == "ai":
+    def _log_selection_result(self, selection: SelectionResult) -> None:
+        if selection.strategy == "ai":
             print(
-                f"[筛选] 使用 AI selection stage: {selection_result.total_selected} 条新闻, "
-                f"{len(selection_result.groups)} 个标签组"
+                f"[筛选] 使用 AI selection stage: {selection.total_selected} 条新闻, "
+                f"{len(selection.groups)} 个标签组"
             )
         else:
             print(
-                f"[筛选] 使用 keyword selection stage: {selection_result.total_selected} 条新闻, "
-                f"{len(selection_result.groups)} 个分组"
+                f"[筛选] 使用 keyword selection stage: {selection.total_selected} 条新闻, "
+                f"{len(selection.groups)} 个分组"
             )
-        if selection_result.diagnostics.get("fallback_strategy") == "keyword":
+        if selection.diagnostics.get("fallback_strategy") == "keyword":
             print(
                 f"[筛选] AI selection 失败，已回退到 keyword: "
-                f"{selection_result.diagnostics.get('fallback_reason', 'unknown error')}"
+                f"{selection.diagnostics.get('fallback_reason', 'unknown error')}"
             )
 
-        if failed_ids is None:
-            failed_ids = [failure.source_id for failure in snapshot.failed_sources]
-
-        _, ai_result = self.ctx.run_insight_stage(
-            report_mode=mode,
-            snapshot=snapshot,
-            selection=selection_result,
-            strategy=self.filter_method,
-            frequency_file=self.frequency_file,
-            interests_file=self.interests_file,
-            schedule=schedule,
-        )
-
-        html_file = None
-        if self.ctx.config["STORAGE"]["FORMATS"].get("HTML", True):
-            html_file = self.ctx.generate_html(
-                stats,
-                total_titles,
-                failed_ids=failed_ids,
-                new_titles=new_titles,
-                id_to_name=id_to_name,
-                mode=mode,
-                update_info=self.update_info if self.ctx.config.get("SHOW_VERSION_UPDATE", False) else None,
-                ai_analysis=ai_result,
-                standalone_data=standalone_data,
-                frequency_file=self.frequency_file,
-            )
-
-        return stats, html_file, ai_result
-
-    def _send_notification_if_needed(
+    def _should_emit_notification(
         self,
-        stats: List[Dict],
+        snapshot: HotlistSnapshot,
+        selection: SelectionResult,
         report_type: str,
-        mode: str,
-        failed_ids: Optional[List] = None,
-        new_titles: Optional[Dict] = None,
-        id_to_name: Optional[Dict] = None,
-        html_file_path: Optional[str] = None,
-        standalone_data: Optional[Dict] = None,
-        ai_result: Optional[AIAnalysisResult] = None,
-        schedule: Optional[ResolvedSchedule] = None,
+        schedule: ResolvedSchedule,
     ) -> bool:
-        has_notification = self._has_notification_configured()
         cfg = self.ctx.config
-        has_news_content = self._has_valid_content(stats, new_titles)
-
-        if cfg["ENABLE_NOTIFICATION"] and has_notification and has_news_content:
-            schedule = schedule or self.ctx.create_scheduler().resolve()
-            if not schedule.push:
-                print("[推送] 当前时段未配置消息推送")
-                return False
-
-            if schedule.once_push and schedule.period_key:
-                scheduler = self.ctx.create_scheduler()
-                date_str = self.ctx.format_date()
-                if scheduler.already_executed(schedule.period_key, "push", date_str):
-                    print(f"[推送] 推送计划 {schedule.period_name or schedule.period_key} 今日已执行")
-                    return False
-                print(f"[推送] 推送计划 {schedule.period_name or schedule.period_key} 准备执行")
-
-            if ai_result is None and cfg.get("AI_ANALYSIS", {}).get("ENABLED", False) and stats:
-                _, ai_result = self.ctx.run_insight_stage(
-                    report_mode=mode,
-                    strategy=self.filter_method,
-                    frequency_file=self.frequency_file,
-                    interests_file=self.interests_file,
-                    schedule=schedule,
-                )
-
-            report_data = self.ctx.prepare_report(
-                stats,
-                failed_ids,
-                new_titles,
-                id_to_name,
-                mode,
-                frequency_file=self.frequency_file,
-            )
-            dispatcher = self.ctx.create_notification_dispatcher()
-            results = dispatcher.dispatch_all(
-                report_data=report_data,
-                report_type=report_type,
-                update_info=self.update_info if cfg.get("SHOW_VERSION_UPDATE", False) else None,
-                proxy_url=self.proxy_url,
-                mode=mode,
-                html_file_path=html_file_path,
-                ai_analysis=ai_result,
-                standalone_data=standalone_data,
-            )
-
-            if not results:
-                print("通知渠道没有返回任何结果")
-                return False
-
-            if any(results.values()) and schedule.once_push and schedule.period_key:
-                scheduler = self.ctx.create_scheduler()
-                scheduler.record_execution(schedule.period_key, "push", self.ctx.format_date())
-
-            return any(results.values())
-
-        if cfg["ENABLE_NOTIFICATION"] and not has_notification:
-            print("已启用通知，但未配置任何可用通知渠道")
-        elif not cfg["ENABLE_NOTIFICATION"]:
+        if not cfg["ENABLE_NOTIFICATION"]:
             print(f"已关闭 {report_type} 通知发送")
-        elif cfg["ENABLE_NOTIFICATION"] and has_notification and not has_news_content:
-            if self.report_mode == "incremental":
+            return False
+
+        if not self._has_notification_configured():
+            print("已启用通知，但未配置任何可用通知渠道")
+            return False
+
+        if not self._has_valid_content(snapshot, selection):
+            if snapshot.mode == "incremental":
                 print("增量模式下没有新增内容，跳过通知")
             else:
                 print(f"当前{self._get_mode_strategy()['mode_name']}没有可发送内容")
-        return False
+            return False
+
+        if not schedule.push:
+            print("[推送] 当前时段未配置消息推送")
+            return False
+
+        if schedule.once_push and schedule.period_key:
+            scheduler = self.ctx.create_scheduler()
+            date_str = self.ctx.format_date()
+            if scheduler.already_executed(schedule.period_key, "push", date_str):
+                print(f"[推送] 推送计划 {schedule.period_name or schedule.period_key} 今日已执行")
+                return False
+            print(f"[推送] 推送计划 {schedule.period_name or schedule.period_key} 准备执行")
+
+        return True
+
+    def _run_delivery_if_needed(
+        self,
+        payloads: Sequence[DeliveryPayload],
+        *,
+        schedule: ResolvedSchedule,
+    ) -> bool:
+        if not payloads:
+            print("[推送] render stage 未生成任何可发送 payload")
+            return False
+
+        result = self.ctx.run_delivery_stage(payloads, proxy_url=self.proxy_url)
+        if not getattr(result, "channel_results", None):
+            print("通知渠道没有返回任何结果")
+            return False
+
+        if result.success and schedule.once_push and schedule.period_key:
+            scheduler = self.ctx.create_scheduler()
+            scheduler.record_execution(schedule.period_key, "push", self.ctx.format_date())
+
+        return result.success
 
     def _initialize_and_check_config(self) -> None:
         now = self.ctx.get_time()
@@ -455,6 +255,10 @@ class NewsAnalyzer:
         failed_ids: List,
         schedule: Optional[ResolvedSchedule] = None,
     ) -> Optional[str]:
+        del results
+        del id_to_name
+        del failed_ids
+
         schedule = schedule or self.ctx.create_scheduler().resolve()
 
         effective_mode = schedule.report_mode
@@ -467,65 +271,48 @@ class NewsAnalyzer:
         self.filter_method = schedule.filter_method or self.ctx.filter_method
         self.interests_file = schedule.interests_file
 
-        time_info = self.ctx.format_time()
-        current_platform_ids = self.ctx.platform_ids
-        new_titles = self.ctx.detect_new_titles(current_platform_ids)
-        title_info = self._prepare_current_title_info(results, time_info)
-        results_for_analysis = results
-        id_to_name_for_analysis = id_to_name
+        snapshot, selection = self.ctx.run_selection_stage(
+            mode=self.report_mode,
+            strategy=self.filter_method,
+            frequency_file=self.frequency_file,
+            interests_file=self.interests_file,
+        )
+        self._log_selection_result(selection)
 
-        analysis_data = None
-        if self.report_mode in ("daily", "current"):
-            analysis_data = self._load_analysis_data()
-            if analysis_data:
-                (
-                    all_results,
-                    historical_id_to_name,
-                    historical_title_info,
-                    historical_new_titles,
-                    _,
-                    _,
-                    _,
-                ) = analysis_data
-                results_for_analysis = all_results
-                id_to_name_for_analysis = {**historical_id_to_name, **id_to_name}
-                title_info = historical_title_info
-                new_titles = historical_new_titles
-
-        word_groups, filter_words, global_filters = self.ctx.load_frequency_words(self.frequency_file)
-        standalone_data = self._prepare_standalone_data(results_for_analysis, id_to_name_for_analysis, title_info)
-        stats, html_file, ai_result = self._run_analysis_pipeline(
-            results_for_analysis,
-            self.report_mode,
-            title_info,
-            new_titles,
-            word_groups,
-            filter_words,
-            id_to_name_for_analysis,
-            failed_ids=failed_ids,
-            global_filters=global_filters,
-            standalone_data=standalone_data,
+        insight, _ = self.ctx.run_insight_stage(
+            report_mode=self.report_mode,
+            snapshot=snapshot,
+            selection=selection,
+            strategy=self.filter_method,
+            frequency_file=self.frequency_file,
+            interests_file=self.interests_file,
             schedule=schedule,
         )
+        report = self.ctx.assemble_renderable_report(snapshot, selection, insight)
+        localized_report = self.ctx.run_localization_stage(report)
+
+        emit_html = bool(self.ctx.config["STORAGE"]["FORMATS"].get("HTML", True))
+        emit_notification = mode_strategy["should_send_notification"] and self._should_emit_notification(
+            snapshot,
+            selection,
+            mode_strategy["report_type"],
+            schedule,
+        )
+        render_result = self.ctx.run_render_stage(
+            localized_report,
+            emit_html=emit_html,
+            emit_notification=emit_notification,
+            update_info=self.update_info if self.ctx.config.get("SHOW_VERSION_UPDATE", False) else None,
+        )
+        html_file = render_result.html.file_path or None
 
         if html_file:
             print(f"HTML 报告已生成: {html_file}")
             latest_file = self.ctx.get_data_dir() / "html" / "latest" / f"{self.report_mode}.html"
             print(f"最新快照链接: {latest_file}")
 
-        if mode_strategy["should_send_notification"]:
-            self._send_notification_if_needed(
-                stats,
-                mode_strategy["report_type"],
-                self.report_mode,
-                failed_ids=failed_ids,
-                new_titles=new_titles,
-                id_to_name=id_to_name_for_analysis,
-                html_file_path=html_file,
-                standalone_data=standalone_data,
-                ai_result=ai_result,
-                schedule=schedule,
-            )
+        if emit_notification:
+            self._run_delivery_if_needed(render_result.payloads, schedule=schedule)
 
         if self._should_open_browser() and html_file:
             file_url = "file://" + str(Path(html_file).resolve())
