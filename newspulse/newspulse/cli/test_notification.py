@@ -4,68 +4,57 @@
 from __future__ import annotations
 
 import copy
-from typing import Dict, Optional
+from typing import Dict
 
 from newspulse.context import AppContext
+from newspulse.workflow.shared.contracts import (
+    HotlistItem,
+    InsightResult,
+    RenderableReport,
+    SelectionGroup,
+    SelectionResult,
+)
 
 
-def _build_test_report_data(ctx: AppContext) -> Dict:
+def _build_test_report(ctx: AppContext) -> RenderableReport:
     now = ctx.get_time()
-    title = f"NewsPulse 测试通知 {now.strftime('%Y-%m-%d %H:%M:%S')}"
-    return {
-        "stats": [
-            {
-                "word": "测试关键词",
-                "count": 1,
-                "titles": [
-                    {
-                        "title": title,
-                        "source_name": "NewsPulse",
-                        "url": "",
-                        "mobile_url": "",
-                        "ranks": [1],
-                        "rank_threshold": ctx.rank_threshold,
-                        "count": 1,
-                        "is_new": True,
-                        "time_display": now.strftime('%H:%M'),
-                        "matched_keyword": "测试关键词",
-                    }
-                ],
-            }
-        ],
-        "failed_ids": [],
-        "new_titles": [],
-        "id_to_name": {},
-    }
-
-
-def _create_test_html_file(ctx: AppContext) -> Optional[str]:
-    try:
-        now = ctx.get_time()
-        output_dir = ctx.get_data_dir() / "html" / ctx.format_date()
-        output_dir.mkdir(parents=True, exist_ok=True)
-        html_path = output_dir / f"notification_test_{ctx.format_time()}.html"
-        html_path.write_text(
-            f"""<!DOCTYPE html>
-<html lang="zh-CN">
-<head><meta charset="UTF-8"><title>NewsPulse 测试页面</title></head>
-<body>
-<h2>NewsPulse 通知测试</h2>
-<p>生成时间：{now.strftime('%Y-%m-%d %H:%M:%S')} ({ctx.timezone})</p>
-<p>这是一份用于通知链路验证的测试 HTML。</p>
-</body>
-</html>""",
-            encoding="utf-8",
-        )
-        return str(html_path)
-    except Exception as exc:
-        print(f"[测试] 生成 HTML 失败: {exc}")
-        return None
+    current_time = now.strftime("%Y-%m-%d %H:%M:%S")
+    item = HotlistItem(
+        news_item_id="notification-smoke-test",
+        source_id="newspulse",
+        source_name="NewsPulse",
+        title=f"NewsPulse 通知测试 {current_time}",
+        current_rank=1,
+        ranks=[1],
+        first_time=current_time,
+        last_time=current_time,
+        count=1,
+        is_new=True,
+    )
+    selection = SelectionResult(
+        strategy="keyword",
+        groups=[SelectionGroup(key="notification_test", label="通知测试", items=[item], position=0)],
+        selected_items=[item],
+        selected_new_items=[item],
+        total_candidates=1,
+        total_selected=1,
+    )
+    return RenderableReport(
+        meta={
+            "mode": "daily",
+            "generated_at": current_time,
+            "report_type": "测试通知",
+            "timezone": ctx.timezone,
+        },
+        selection=selection,
+        insight=InsightResult(enabled=False, strategy="noop"),
+        new_items=[item],
+        standalone_sections=[],
+        display_regions=["hotlist"],
+    )
 
 
 def run_test_notification(config: Dict) -> bool:
-    from newspulse.notification import NotificationDispatcher
-
     test_config = copy.deepcopy(config)
     display_regions = test_config.setdefault("DISPLAY", {}).setdefault("REGIONS", {})
     display_regions.update(
@@ -90,41 +79,44 @@ def run_test_notification(config: Dict) -> bool:
         if proxy_url:
             print("[测试] 当前使用代理发送通知")
 
-        dispatcher = NotificationDispatcher(
-            config=test_config,
-            split_content_func=test_ctx.split_content,
-        )
-
-        report_data = _build_test_report_data(test_ctx)
-        html_file_path = _create_test_html_file(test_ctx)
+        report = _build_test_report(test_ctx)
+        localized_report = test_ctx.run_localization_stage(report, strategy="noop")
 
         print("=" * 60)
         print("开始发送测试通知")
         print("=" * 60)
 
-        results = dispatcher.dispatch_all(
-            report_data=report_data,
-            report_type="测试通知",
+        render_result = test_ctx.run_render_stage(
+            localized_report,
+            emit_html=True,
+            emit_notification=True,
+            display_regions=["hotlist"],
+        )
+        html_file_path = render_result.html.file_path or ""
+        if html_file_path:
+            print(f"[测试] HTML 已生成: {html_file_path}")
+
+        delivery_result = test_ctx.run_delivery_stage(
+            render_result.payloads,
             proxy_url=proxy_url,
-            mode="daily",
-            html_file_path=html_file_path,
         )
 
-        if not results:
+        if not getattr(delivery_result, "channel_results", None):
             print("通知发送完成，但没有任何渠道返回结果")
             return False
 
         print("-" * 60)
         success_count = 0
-        for channel, ok in results.items():
-            if ok:
+        channel_results = delivery_result.channel_results
+        for channel_result in channel_results:
+            if channel_result.success:
                 success_count += 1
-                print(f"✅ {channel}: 成功")
+                print(f"OK {channel_result.channel}: 成功")
             else:
-                print(f"❌ {channel}: 失败")
+                print(f"FAIL {channel_result.channel}: 失败")
 
         print("-" * 60)
-        print(f"结果: {success_count}/{len(results)} 个渠道成功")
+        print(f"结果: {success_count}/{len(channel_results)} 个渠道成功")
         return success_count > 0
     finally:
         test_ctx.cleanup()

@@ -124,7 +124,7 @@ class NewsAnalyzer:
     def _has_valid_content(self, snapshot: HotlistSnapshot, selection: SelectionResult) -> bool:
         if snapshot.mode in {"incremental", "current"}:
             return selection.total_selected > 0
-        return selection.total_selected > 0 or bool(snapshot.new_items)
+        return selection.total_selected > 0 or bool(selection.resolve_selected_new_items(snapshot.new_items))
 
     def _log_selection_result(self, selection: SelectionResult) -> None:
         if selection.strategy == "ai":

@@ -118,6 +118,9 @@ class NotificationDispatcherPreparedPayloadTest(unittest.TestCase):
         self.assertEqual(results, {"generic_webhook": True})
         self.assertEqual(len(sender.calls), 2)
 
+    def test_dispatcher_no_longer_exposes_legacy_dispatch_all_wrapper(self):
+        self.assertFalse(hasattr(NotificationDispatcher, "dispatch_all"))
+
 
 if __name__ == "__main__":
     unittest.main()

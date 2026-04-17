@@ -96,6 +96,16 @@ class AppContextTest(unittest.TestCase):
         self.assertTrue(options.scope.standalone)
         self.assertTrue(options.scope.insight_sections)
 
+    def test_context_no_longer_exposes_legacy_report_helpers(self):
+        self.assertFalse(hasattr(AppContext, "load_frequency_words"))
+        self.assertFalse(hasattr(AppContext, "matches_word_groups"))
+        self.assertFalse(hasattr(AppContext, "count_frequency"))
+        self.assertFalse(hasattr(AppContext, "prepare_report"))
+        self.assertFalse(hasattr(AppContext, "generate_html"))
+        self.assertFalse(hasattr(AppContext, "render_html"))
+        self.assertFalse(hasattr(AppContext, "split_content"))
+        self.assertFalse(hasattr(AppContext, "create_notification_dispatcher"))
+
 
 if __name__ == "__main__":
     unittest.main()

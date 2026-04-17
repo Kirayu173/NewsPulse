@@ -78,6 +78,7 @@ class WorkflowContractsTest(unittest.TestCase):
             strategy="keyword",
             groups=[SelectionGroup(key="ai", label="AI", items=[item], position=1)],
             selected_items=[item],
+            selected_new_items=[item],
             total_candidates=1,
             total_selected=1,
         )
@@ -91,7 +92,7 @@ class WorkflowContractsTest(unittest.TestCase):
             meta={"mode": snapshot.mode},
             selection=selection,
             insight=insight,
-            new_items=snapshot.new_items,
+            new_items=selection.selected_new_items,
             standalone_sections=snapshot.standalone_sections,
             display_regions=["hotlist", "ai_analysis"],
         )
@@ -110,6 +111,7 @@ class WorkflowContractsTest(unittest.TestCase):
 
         self.assertEqual(snapshot.item_count, 1)
         self.assertEqual(selection.selected_items[0].news_item_id, item.news_item_id)
+        self.assertEqual(selection.selected_new_items[0].news_item_id, item.news_item_id)
         self.assertEqual(insight.sections[0].key, "trend")
         self.assertEqual(localized.base_report.selection.total_selected, 1)
         self.assertEqual(payload.metadata["language"], "English")

@@ -50,11 +50,15 @@ class SelectionService:
         """Run the configured selection strategy."""
 
         if options.strategy == "keyword":
-            return self.keyword_strategy.run(snapshot, options)
+            result = self.keyword_strategy.run(snapshot, options)
+            result.selected_new_items = result.resolve_selected_new_items(getattr(snapshot, "new_items", []))
+            return result
         if options.strategy == "ai":
             if self.ai_strategy is None:
                 raise NotImplementedError("AI selection strategy is not configured")
-            return self.ai_strategy.run(snapshot, options)
+            result = self.ai_strategy.run(snapshot, options)
+            result.selected_new_items = result.resolve_selected_new_items(getattr(snapshot, "new_items", []))
+            return result
         raise NotImplementedError(f"Unsupported selection strategy: {options.strategy}")
 
     @staticmethod

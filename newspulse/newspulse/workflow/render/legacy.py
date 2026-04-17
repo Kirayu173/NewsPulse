@@ -83,6 +83,7 @@ def _localize_selection(selection: SelectionResult, localized_titles: dict[str, 
         selection,
         groups=groups,
         selected_items=[_localize_item(item, localized_titles) for item in selection.selected_items],
+        selected_new_items=[_localize_item(item, localized_titles) for item in selection.selected_new_items],
     )
 
 

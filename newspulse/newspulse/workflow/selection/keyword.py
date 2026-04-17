@@ -58,7 +58,7 @@ class KeywordSelectionStrategy:
         selected_items = self._flatten_selected_items(output_groups)
         total_matched = sum(bucket.total_matched for bucket in buckets)
 
-        return SelectionResult(
+        result = SelectionResult(
             strategy="keyword",
             groups=output_groups,
             selected_items=selected_items,
@@ -74,6 +74,8 @@ class KeywordSelectionStrategy:
                 "sort_by_position_first": self.sort_by_position_first,
             },
         )
+        result.selected_new_items = result.resolve_selected_new_items(getattr(snapshot, "new_items", []))
+        return result
 
     def _build_group_definitions(self, raw_groups: list[dict[str, Any]]) -> list[KeywordGroupDefinition]:
         if not raw_groups:

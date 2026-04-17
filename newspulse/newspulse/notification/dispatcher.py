@@ -12,7 +12,6 @@ from newspulse.notification.batch import add_batch_headers
 from .senders import send_prepared_generic_webhook
 
 if TYPE_CHECKING:
-    from newspulse.ai import AIAnalysisResult
     from newspulse.workflow.shared.contracts import DeliveryPayload
 
 
@@ -22,11 +21,9 @@ class NotificationDispatcher:
     def __init__(
         self,
         config: Dict[str, Any],
-        split_content_func: Optional[Callable] = None,
         generic_webhook_sender: Callable[..., bool] = send_prepared_generic_webhook,
     ):
         self.config = config
-        self.split_content_func = split_content_func
         self.max_accounts = config.get("MAX_ACCOUNTS_PER_CHANNEL", 3)
         self.generic_webhook_sender = generic_webhook_sender
 
@@ -56,137 +53,6 @@ class NotificationDispatcher:
                 continue
             results[channel] = False
         return results
-
-    def dispatch_all(
-        self,
-        report_data: Dict,
-        report_type: str,
-        update_info: Optional[Dict] = None,
-        proxy_url: Optional[str] = None,
-        mode: str = "daily",
-        html_file_path: Optional[str] = None,
-        ai_analysis: Optional["AIAnalysisResult"] = None,
-        standalone_data: Optional[Dict] = None,
-        skip_translation: bool = False,
-    ) -> Dict[str, bool]:
-        """Legacy compatibility wrapper scheduled for removal in later stages."""
-
-        del html_file_path
-        del skip_translation
-        display_regions = self.config.get("DISPLAY", {}).get("REGIONS", {})
-        report_data, ai_analysis, standalone_data = self._apply_display_regions(
-            report_data,
-            display_regions,
-            ai_analysis,
-            standalone_data,
-        )
-
-        payloads = self._build_legacy_payloads(
-            report_data=report_data,
-            report_type=report_type,
-            update_info=update_info,
-            mode=mode,
-            ai_analysis=ai_analysis,
-            standalone_data=standalone_data,
-        )
-        return self.dispatch_payloads(payloads, proxy_url=proxy_url)
-
-    def _build_legacy_payloads(
-        self,
-        *,
-        report_data: Dict,
-        report_type: str,
-        update_info: Optional[Dict],
-        mode: str,
-        ai_analysis: Optional["AIAnalysisResult"],
-        standalone_data: Optional[Dict],
-    ) -> list["DeliveryPayload"]:
-        if self.split_content_func is None:
-            raise ValueError("split_content_func is required for legacy dispatch_all")
-
-        from newspulse.workflow.shared.contracts import DeliveryPayload
-
-        payloads: list[DeliveryPayload] = []
-        if self.config.get("GENERIC_WEBHOOK_URL"):
-            batches = self._build_generic_webhook_batches(
-                report_data=report_data,
-                report_type=report_type,
-                update_info=update_info,
-                mode=mode,
-                ai_analysis=ai_analysis,
-                standalone_data=standalone_data,
-            )
-            for index, content in enumerate(batches, start=1):
-                payloads.append(
-                    DeliveryPayload(
-                        channel="generic_webhook",
-                        title=report_type,
-                        content=content,
-                        metadata={
-                            "mode": mode,
-                            "batch_index": index,
-                            "batch_total": len(batches),
-                            "legacy_dispatch": True,
-                            "has_batch_headers": True,
-                        },
-                    )
-                )
-        return payloads
-
-    def _build_generic_webhook_batches(
-        self,
-        *,
-        report_data: Dict,
-        report_type: str,
-        update_info: Optional[Dict],
-        mode: str,
-        ai_analysis: Optional["AIAnalysisResult"],
-        standalone_data: Optional[Dict],
-    ) -> list[str]:
-        ai_content = None
-        ai_stats = None
-        if ai_analysis:
-            from newspulse.ai.formatter import get_ai_analysis_renderer
-
-            ai_content = get_ai_analysis_renderer("wework")(ai_analysis)
-            if getattr(ai_analysis, "success", False):
-                ai_stats = {
-                    "total_news": getattr(ai_analysis, "total_news", 0),
-                    "analyzed_news": getattr(ai_analysis, "analyzed_news", 0),
-                    "max_news_limit": getattr(ai_analysis, "max_news_limit", 0),
-                    "hotlist_count": getattr(ai_analysis, "hotlist_count", 0),
-                    "ai_mode": getattr(ai_analysis, "ai_mode", ""),
-                }
-
-        template_overhead = 200
-        batches = self.split_content_func(
-            report_data,
-            "wework",
-            update_info,
-            max_bytes=self.config.get("MESSAGE_BATCH_SIZE", 4000) - template_overhead,
-            mode=mode,
-            ai_content=ai_content,
-            standalone_data=standalone_data,
-            ai_stats=ai_stats,
-            report_type=report_type,
-        )
-        return add_batch_headers(batches, "generic_webhook", self.config.get("MESSAGE_BATCH_SIZE", 4000))
-
-    def _apply_display_regions(
-        self,
-        report_data: Dict,
-        display_regions: Optional[Dict],
-        ai_analysis: Optional["AIAnalysisResult"] = None,
-        standalone_data: Optional[Dict] = None,
-    ) -> tuple:
-        display_regions = display_regions or {}
-        if not display_regions.get("HOTLIST", True):
-            report_data = {"stats": [], "failed_ids": [], "new_titles": [], "id_to_name": {}, "total_new_count": 0}
-        return (
-            report_data,
-            ai_analysis if display_regions.get("AI_ANALYSIS", True) else None,
-            standalone_data if display_regions.get("STANDALONE", False) else None,
-        )
 
     def _dispatch_generic_webhook_payloads(
         self,

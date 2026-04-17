@@ -41,6 +41,7 @@ def _build_snapshot(*, mode="current", total_selected=1) -> tuple[HotlistSnapsho
         strategy="keyword",
         groups=[SelectionGroup(key="ai", label="AI", items=items, position=0)] if items else [],
         selected_items=items,
+        selected_new_items=snapshot.new_items,
         total_candidates=len(items),
         total_selected=len(items),
     )
@@ -77,7 +78,7 @@ class FakeContext:
             meta={"mode": snapshot.mode},
             selection=selection,
             insight=self.insight,
-            new_items=snapshot.new_items,
+            new_items=selection.selected_new_items,
             standalone_sections=snapshot.standalone_sections,
             display_regions=["hotlist", "new_items", "standalone", "ai_analysis"],
         )
@@ -214,6 +215,33 @@ class NewsAnalyzerWorkflowStageTest(unittest.TestCase):
         self.assertFalse(ctx.calls[4][2]["emit_notification"])
         self.assertEqual(scheduler.already_calls, [])
         self.assertEqual(scheduler.recorded, [])
+
+    def test_daily_notifiable_content_requires_selection_filtered_new_items(self):
+        analyzer = self._build_analyzer(SimpleNamespace())
+        item = HotlistItem(
+            news_item_id="nba-1",
+            source_id="hackernews",
+            source_name="Hacker News",
+            title="NBA finals schedule announced",
+            current_rank=3,
+            ranks=[3],
+        )
+        snapshot = HotlistSnapshot(
+            mode="daily",
+            generated_at="2026-04-17 10:30:00",
+            items=[item],
+            new_items=[item],
+            summary={"total_items": 1, "total_new_items": 1},
+        )
+        selection = SelectionResult(
+            strategy="keyword",
+            groups=[],
+            selected_items=[],
+            total_candidates=1,
+            total_selected=0,
+        )
+
+        self.assertFalse(analyzer._has_valid_content(snapshot, selection))
 
 
 if __name__ == "__main__":

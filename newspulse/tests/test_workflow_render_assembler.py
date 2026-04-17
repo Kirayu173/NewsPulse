@@ -39,22 +39,34 @@ def _build_sample_stage_outputs():
         last_time="2026-04-17 10:00:00",
         count=1,
     )
+    outsider = HotlistItem(
+        news_item_id="3",
+        source_id="hackernews",
+        source_name="Hacker News",
+        title="NBA finals schedule announced",
+        current_rank=3,
+        ranks=[3],
+        first_time="2026-04-17 10:00:00",
+        last_time="2026-04-17 10:00:00",
+        count=1,
+        is_new=True,
+    )
     snapshot = HotlistSnapshot(
         mode="current",
         generated_at="2026-04-17 10:00:00",
-        items=[item, extra],
+        items=[item, extra, outsider],
         failed_sources=[SourceFailure(source_id="toutiao", source_name="今日头条", reason="timeout")],
-        new_items=[item],
+        new_items=[item, outsider],
         standalone_sections=[
             StandaloneSection(key="producthunt", label="Product Hunt", items=[extra]),
         ],
-        summary={"total_items": 2, "total_new_items": 1},
+        summary={"total_items": 3, "total_new_items": 2},
     )
     selection = SelectionResult(
         strategy="keyword",
         groups=[SelectionGroup(key="ai", label="AI", items=[item, extra], position=0)],
         selected_items=[item, extra],
-        total_candidates=2,
+        total_candidates=3,
         total_selected=2,
         diagnostics={"group_count": 1, "matched_candidates": 2},
     )
@@ -81,7 +93,8 @@ class HotlistReportAssemblerTest(unittest.TestCase):
 
         self.assertEqual(report.selection, selection)
         self.assertEqual(report.insight, insight)
-        self.assertEqual(report.new_items, snapshot.new_items)
+        self.assertEqual(report.new_items, [snapshot.new_items[0]])
+        self.assertEqual(report.selection.selected_new_items, [snapshot.new_items[0]])
         self.assertEqual(report.standalone_sections, snapshot.standalone_sections)
         self.assertEqual(report.display_regions, ["hotlist", "new_items", "standalone", "ai_analysis"])
         self.assertEqual(report.meta["mode"], "current")
@@ -89,7 +102,7 @@ class HotlistReportAssemblerTest(unittest.TestCase):
         self.assertEqual(report.meta["timezone"], "Asia/Hong_Kong")
         self.assertEqual(report.meta["selection_strategy"], "keyword")
         self.assertEqual(report.meta["insight_strategy"], "ai")
-        self.assertEqual(report.meta["total_items"], 2)
+        self.assertEqual(report.meta["total_items"], 3)
         self.assertEqual(report.meta["total_selected"], 2)
         self.assertEqual(report.meta["total_new_items"], 1)
         self.assertEqual(report.meta["total_failed_sources"], 1)

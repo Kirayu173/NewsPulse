@@ -35,6 +35,8 @@ class HotlistReportAssembler:
     ) -> RenderableReport:
         """Combine stage outputs into a renderable report payload."""
 
+        selected_new_items = selection.resolve_selected_new_items(snapshot.new_items)
+        selection.selected_new_items = list(selected_new_items)
         meta = RenderReportMeta(
             mode=snapshot.mode,
             generated_at=snapshot.generated_at,
@@ -45,7 +47,7 @@ class HotlistReportAssembler:
             insight_strategy=insight.strategy,
             total_items=snapshot.item_count,
             total_selected=selection.total_selected,
-            total_new_items=len(snapshot.new_items),
+            total_new_items=len(selected_new_items),
             total_standalone_sections=len(snapshot.standalone_sections),
             total_failed_sources=len(snapshot.failed_sources),
             snapshot_summary=dict(snapshot.summary),
@@ -64,7 +66,7 @@ class HotlistReportAssembler:
             meta=meta.to_dict(),
             selection=selection,
             insight=insight,
-            new_items=list(snapshot.new_items),
+            new_items=list(selected_new_items),
             standalone_sections=list(snapshot.standalone_sections),
             display_regions=list(self.display_regions),
         )

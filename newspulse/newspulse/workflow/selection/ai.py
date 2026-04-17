@@ -440,7 +440,7 @@ class AISelectionStrategy:
             groups.sort(key=lambda group: (-len(group.items), group.position, group.label.lower()))
 
         selected_items = self._flatten_selected_items(groups)
-        return SelectionResult(
+        result = SelectionResult(
             strategy="ai",
             groups=groups,
             selected_items=selected_items,
@@ -451,6 +451,8 @@ class AISelectionStrategy:
                 "group_count": len(groups),
             },
         )
+        result.selected_new_items = result.resolve_selected_new_items(getattr(snapshot, "new_items", []))
+        return result
 
     def _collect_best_matches(
         self,

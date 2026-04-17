@@ -11,14 +11,9 @@ from newspulse.ai import AIAnalysisResult
 from newspulse.core.scheduler import ResolvedSchedule
 from newspulse.core import (
     Scheduler,
-    count_word_frequency,
     detect_latest_new_titles,
-    load_frequency_words,
-    matches_word_groups,
     read_all_today_titles,
 )
-from newspulse.notification import NotificationDispatcher, split_content_into_batches
-from newspulse.report import generate_html_report, prepare_report_data, render_html_content
 from newspulse.storage import get_storage_manager
 from newspulse.workflow.delivery import DeliveryService, GenericWebhookDeliveryAdapter
 from newspulse.workflow.insight import InsightService, to_ai_analysis_result
@@ -26,7 +21,6 @@ from newspulse.workflow.localization import LocalizationService
 from newspulse.workflow.render import HTMLRenderAdapter, HotlistReportAssembler, NotificationRenderAdapter, RenderService
 from newspulse.utils.time import (
     DEFAULT_TIMEZONE,
-    convert_time_for_display,
     format_date_folder,
     format_time_filename,
     get_configured_time,
@@ -130,10 +124,6 @@ class AppContext:
     def get_time_display(self) -> str:
         return get_current_time_display(self.timezone)
 
-    @staticmethod
-    def convert_time_display(time_str: str) -> str:
-        return convert_time_for_display(time_str)
-
     def get_storage_manager(self):
         if self._storage_manager is None:
             self._storage_manager = get_storage_manager(
@@ -164,163 +154,6 @@ class AppContext:
 
     def is_first_crawl(self) -> bool:
         return self.get_storage_manager().is_first_crawl_today()
-
-    def load_frequency_words(self, frequency_file: Optional[str] = None) -> Tuple[List[Dict], List[str], List[str]]:
-        return load_frequency_words(frequency_file, config_root=self.config_root)
-
-    def matches_word_groups(
-        self,
-        title: str,
-        word_groups: List[Dict],
-        filter_words: List[str],
-        global_filters: Optional[List[str]] = None,
-    ) -> bool:
-        return matches_word_groups(title, word_groups, filter_words, global_filters)
-
-    def count_frequency(
-        self,
-        results: Dict,
-        word_groups: List[Dict],
-        filter_words: List[str],
-        id_to_name: Dict,
-        title_info: Optional[Dict] = None,
-        new_titles: Optional[Dict] = None,
-        mode: str = "daily",
-        global_filters: Optional[List[str]] = None,
-        quiet: bool = False,
-    ) -> Tuple[List[Dict], int]:
-        return count_word_frequency(
-            results=results,
-            word_groups=word_groups,
-            filter_words=filter_words,
-            id_to_name=id_to_name,
-            title_info=title_info,
-            rank_threshold=self.rank_threshold,
-            new_titles=new_titles,
-            mode=mode,
-            global_filters=global_filters,
-            weight_config=self.weight_config,
-            max_news_per_keyword=self.config.get("MAX_NEWS_PER_KEYWORD", 0),
-            sort_by_position_first=self.config.get("SORT_BY_POSITION_FIRST", False),
-            is_first_crawl_func=self.is_first_crawl,
-            convert_time_func=self.convert_time_display,
-            quiet=quiet,
-        )
-
-    def prepare_report(
-        self,
-        stats: List[Dict],
-        failed_ids: Optional[List] = None,
-        new_titles: Optional[Dict] = None,
-        id_to_name: Optional[Dict] = None,
-        mode: str = "daily",
-        frequency_file: Optional[str] = None,
-    ) -> Dict:
-        return prepare_report_data(
-            stats=stats,
-            failed_ids=failed_ids,
-            new_titles=new_titles,
-            id_to_name=id_to_name,
-            mode=mode,
-            rank_threshold=self.rank_threshold,
-            matches_word_groups_func=self.matches_word_groups,
-            load_frequency_words_func=lambda: self.load_frequency_words(frequency_file),
-            show_new_section=self.show_new_section,
-        )
-
-    def generate_html(
-        self,
-        stats: List[Dict],
-        total_titles: int,
-        failed_ids: Optional[List] = None,
-        new_titles: Optional[Dict] = None,
-        id_to_name: Optional[Dict] = None,
-        mode: str = "daily",
-        update_info: Optional[Dict] = None,
-        ai_analysis: Optional[Any] = None,
-        standalone_data: Optional[Dict] = None,
-        frequency_file: Optional[str] = None,
-    ) -> str:
-        return generate_html_report(
-            stats=stats,
-            total_titles=total_titles,
-            failed_ids=failed_ids,
-            new_titles=new_titles,
-            id_to_name=id_to_name,
-            mode=mode,
-            update_info=update_info,
-            rank_threshold=self.rank_threshold,
-            output_dir=str(self.get_data_dir()),
-            date_folder=self.format_date(),
-            time_filename=self.format_time(),
-            render_html_func=lambda *args, **kwargs: self.render_html(
-                *args,
-                ai_analysis=ai_analysis,
-                standalone_data=standalone_data,
-                **kwargs,
-            ),
-            matches_word_groups_func=self.matches_word_groups,
-            load_frequency_words_func=lambda: self.load_frequency_words(frequency_file),
-        )
-
-    def render_html(
-        self,
-        report_data: Dict,
-        total_titles: int,
-        mode: str = "daily",
-        update_info: Optional[Dict] = None,
-        ai_analysis: Optional[Any] = None,
-        standalone_data: Optional[Dict] = None,
-    ) -> str:
-        return render_html_content(
-            report_data=report_data,
-            total_titles=total_titles,
-            mode=mode,
-            update_info=update_info,
-            region_order=self.region_order,
-            get_time_func=self.get_time,
-            display_mode=self.display_mode,
-            ai_analysis=ai_analysis,
-            show_new_section=self.show_new_section,
-            standalone_data=standalone_data,
-        )
-
-    def split_content(
-        self,
-        report_data: Dict,
-        format_type: str,
-        update_info: Optional[Dict] = None,
-        max_bytes: Optional[int] = None,
-        mode: str = "daily",
-        ai_content: Optional[str] = None,
-        standalone_data: Optional[Dict] = None,
-        ai_stats: Optional[Dict] = None,
-        report_type: str = "热点分析报告",
-    ) -> List[str]:
-        return split_content_into_batches(
-            report_data=report_data,
-            format_type=format_type,
-            update_info=update_info,
-            max_bytes=max_bytes,
-            mode=mode,
-            batch_sizes={"default": self.config.get("MESSAGE_BATCH_SIZE", 4000)},
-            region_order=self.region_order,
-            get_time_func=self.get_time,
-            timezone=self.timezone,
-            display_mode=self.display_mode,
-            ai_content=ai_content,
-            standalone_data=standalone_data,
-            rank_threshold=self.rank_threshold,
-            ai_stats=ai_stats,
-            report_type=report_type,
-            show_new_section=self.show_new_section,
-        )
-
-    def create_notification_dispatcher(self) -> NotificationDispatcher:
-        return NotificationDispatcher(
-            config=self.config,
-            split_content_func=self.split_content,
-        )
 
     def create_scheduler(self) -> Scheduler:
         if self._scheduler is None:

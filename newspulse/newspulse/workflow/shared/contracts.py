@@ -95,9 +95,21 @@ class SelectionResult:
     strategy: str
     groups: List[SelectionGroup] = field(default_factory=list)
     selected_items: List[HotlistItem] = field(default_factory=list)
+    selected_new_items: List[HotlistItem] = field(default_factory=list)
     total_candidates: int = 0
     total_selected: int = 0
     diagnostics: Dict[str, Any] = field(default_factory=dict)
+
+    def resolve_selected_new_items(self, snapshot_new_items: List[HotlistItem]) -> List[HotlistItem]:
+        """Return snapshot new items after applying the selection-stage filter."""
+
+        if not snapshot_new_items:
+            return list(self.selected_new_items)
+        if not self.selected_items:
+            return []
+
+        selected_ids = {str(item.news_item_id) for item in self.selected_items}
+        return [item for item in snapshot_new_items if str(item.news_item_id) in selected_ids]
 
 
 @dataclass
