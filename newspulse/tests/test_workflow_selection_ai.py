@@ -1,8 +1,10 @@
 import json
 import textwrap
 import unittest
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from zoneinfo import ZoneInfo
 
 from newspulse.storage.base import NewsData, NewsItem
 from newspulse.storage.local import LocalStorageBackend
@@ -11,6 +13,17 @@ from newspulse.workflow.selection.models import AIActiveTag, AIBatchNewsItem
 from newspulse.workflow.selection.service import SelectionService
 from newspulse.workflow.shared.options import SelectionAIOptions, SelectionOptions, SnapshotOptions
 from newspulse.workflow.snapshot.service import SnapshotService
+
+
+TEST_TIMEZONE = ZoneInfo("Asia/Shanghai")
+
+
+def _today_str() -> str:
+    return datetime.now(TEST_TIMEZONE).date().isoformat()
+
+
+def _today_at(time_text: str) -> str:
+    return f"{_today_str()} {time_text}"
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -59,10 +72,11 @@ def _build_storage(tmp: str) -> LocalStorageBackend:
 
 
 def _seed_hotlist(storage: LocalStorageBackend) -> None:
+    crawl_time = _today_at("10:00:00")
     storage.save_news_data(
         NewsData(
-            date="2026-04-17",
-            crawl_time="2026-04-17 10:00:00",
+            date=_today_str(),
+            crawl_time=crawl_time,
             items={
                 "hackernews": [
                     NewsItem(
@@ -72,10 +86,10 @@ def _seed_hotlist(storage: LocalStorageBackend) -> None:
                         rank=1,
                         url="https://example.com/openai",
                         mobile_url="https://m.example.com/openai",
-                        crawl_time="2026-04-17 10:00:00",
+                        crawl_time=crawl_time,
                         ranks=[1],
-                        first_time="2026-04-17 10:00:00",
-                        last_time="2026-04-17 10:00:00",
+                        first_time=crawl_time,
+                        last_time=crawl_time,
                         count=1,
                     ),
                     NewsItem(
@@ -85,10 +99,10 @@ def _seed_hotlist(storage: LocalStorageBackend) -> None:
                         rank=2,
                         url="https://example.com/github",
                         mobile_url="https://m.example.com/github",
-                        crawl_time="2026-04-17 10:00:00",
+                        crawl_time=crawl_time,
                         ranks=[2],
-                        first_time="2026-04-17 10:00:00",
-                        last_time="2026-04-17 10:00:00",
+                        first_time=crawl_time,
+                        last_time=crawl_time,
                         count=1,
                     ),
                     NewsItem(
@@ -98,10 +112,10 @@ def _seed_hotlist(storage: LocalStorageBackend) -> None:
                         rank=3,
                         url="https://example.com/nba",
                         mobile_url="https://m.example.com/nba",
-                        crawl_time="2026-04-17 10:00:00",
+                        crawl_time=crawl_time,
                         ranks=[3],
-                        first_time="2026-04-17 10:00:00",
-                        last_time="2026-04-17 10:00:00",
+                        first_time=crawl_time,
+                        last_time=crawl_time,
                         count=1,
                     ),
                 ]

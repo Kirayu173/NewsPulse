@@ -3,7 +3,6 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from newspulse.report.generator import prepare_report_data
 from newspulse.report.sections.hotlist import render_hotlist_stats_html
 from newspulse.workflow.selection.legacy import selection_result_to_legacy_stats
 from newspulse.workflow.selection.service import SelectionService
@@ -43,7 +42,7 @@ class SelectionServiceTest(unittest.TestCase):
                     HotlistItem(
                         news_item_id="1",
                         source_id="s1",
-                        source_name="平台1",
+                        source_name="Platform 1",
                         title="AI launches new model",
                         url="https://example.com/a",
                         ranks=[2, 1],
@@ -56,7 +55,7 @@ class SelectionServiceTest(unittest.TestCase):
                     HotlistItem(
                         news_item_id="2",
                         source_id="s1",
-                        source_name="平台1",
+                        source_name="Platform 1",
                         title="AI startup raises funding",
                         url="https://example.com/b",
                         ranks=[5],
@@ -68,7 +67,7 @@ class SelectionServiceTest(unittest.TestCase):
                     HotlistItem(
                         news_item_id="3",
                         source_id="s2",
-                        source_name="平台2",
+                        source_name="Platform 2",
                         title="Open source database release",
                         url="https://example.com/c",
                         ranks=[3],
@@ -80,7 +79,7 @@ class SelectionServiceTest(unittest.TestCase):
                     HotlistItem(
                         news_item_id="4",
                         source_id="s2",
-                        source_name="平台2",
+                        source_name="Platform 2",
                         title="Ignore this AI rumor",
                         url="https://example.com/d",
                         ranks=[1],
@@ -114,20 +113,14 @@ class SelectionServiceTest(unittest.TestCase):
             self.assertEqual([group.label for group in result.groups], ["AI", "OpenSource"])
             self.assertEqual([item.title for item in result.groups[0].items], ["AI launches new model"])
             self.assertEqual([item.title for item in result.groups[1].items], ["Open source database release"])
-            self.assertEqual(
-                [item.news_item_id for item in result.selected_items],
-                ["1", "3"],
-            )
+            self.assertEqual([item.news_item_id for item in result.selected_items], ["1", "3"])
             self.assertEqual(result.diagnostics["matched_candidates"], 3)
 
             legacy_stats = selection_result_to_legacy_stats(result, display_mode="keyword", rank_threshold=5)
             self.assertEqual([stat["word"] for stat in legacy_stats], ["AI", "OpenSource"])
             self.assertEqual(legacy_stats[0]["count"], 2)
-            self.assertEqual(legacy_stats[0]["titles"][0]["is_new"], True)
-            self.assertEqual(
-                legacy_stats[0]["titles"][0]["time_display"],
-                "[2026-04-17 09:00:00 ~ 2026-04-17 10:00:00]",
-            )
+            self.assertTrue(legacy_stats[0]["titles"][0]["is_new"])
+            self.assertEqual(legacy_stats[0]["titles"][0]["time_display"], "[2026-04-17 09:00:00 ~ 2026-04-17 10:00:00]")
 
     def test_keyword_selection_can_sort_by_group_position(self):
         with TemporaryDirectory() as tmp:
@@ -148,54 +141,23 @@ class SelectionServiceTest(unittest.TestCase):
                 mode="daily",
                 generated_at="2026-04-17 11:00:00",
                 items=[
-                    HotlistItem(
-                        news_item_id="1",
-                        source_id="s1",
-                        source_name="平台1",
-                        title="Later item one",
-                        ranks=[5],
-                        current_rank=5,
-                    ),
-                    HotlistItem(
-                        news_item_id="2",
-                        source_id="s1",
-                        source_name="平台1",
-                        title="Later item two",
-                        ranks=[6],
-                        current_rank=6,
-                    ),
-                    HotlistItem(
-                        news_item_id="3",
-                        source_id="s1",
-                        source_name="平台1",
-                        title="Earlier item",
-                        ranks=[1],
-                        current_rank=1,
-                    ),
+                    HotlistItem(news_item_id="1", source_id="s1", source_name="Platform 1", title="Later item one", ranks=[5], current_rank=5),
+                    HotlistItem(news_item_id="2", source_id="s1", source_name="Platform 1", title="Later item two", ranks=[6], current_rank=6),
+                    HotlistItem(news_item_id="3", source_id="s1", source_name="Platform 1", title="Earlier item", ranks=[1], current_rank=1),
                 ],
             )
 
-            service = SelectionService(
-                config_root=str(config_root),
-                sort_by_position_first=True,
-            )
-            result = service.run(
-                snapshot,
-                SelectionOptions(strategy="keyword", frequency_file="ordered.txt"),
-            )
+            service = SelectionService(config_root=str(config_root), sort_by_position_first=True)
+            result = service.run(snapshot, SelectionOptions(strategy="keyword", frequency_file="ordered.txt"))
 
             self.assertEqual([group.label for group in result.groups], ["Later", "Earlier"])
             self.assertEqual(result.total_selected, 3)
 
-            platform_stats = selection_result_to_legacy_stats(
-                result,
-                display_mode="platform",
-                rank_threshold=5,
-            )
-            self.assertEqual([stat["word"] for stat in platform_stats], ["平台1"])
+            platform_stats = selection_result_to_legacy_stats(result, display_mode="platform", rank_threshold=5)
+            self.assertEqual([stat["word"] for stat in platform_stats], ["Platform 1"])
             self.assertEqual(platform_stats[0]["titles"][0]["matched_keyword"], "Earlier")
 
-    def test_legacy_stats_adapter_remains_compatible_with_existing_report_rendering(self):
+    def test_legacy_stats_adapter_remains_compatible_with_section_renderer(self):
         with TemporaryDirectory() as tmp:
             config_root = Path(tmp) / "config"
             _write_text(
@@ -214,7 +176,7 @@ class SelectionServiceTest(unittest.TestCase):
                     HotlistItem(
                         news_item_id="1",
                         source_id="s1",
-                        source_name="平台1",
+                        source_name="Platform 1",
                         title="AI launches new model",
                         url="https://example.com/a",
                         mobile_url="https://m.example.com/a",
@@ -229,16 +191,12 @@ class SelectionServiceTest(unittest.TestCase):
             )
 
             service = SelectionService(config_root=str(config_root))
-            result = service.run(
-                snapshot,
-                SelectionOptions(strategy="keyword", frequency_file="render.txt"),
-            )
+            result = service.run(snapshot, SelectionOptions(strategy="keyword", frequency_file="render.txt"))
             legacy_stats = selection_result_to_legacy_stats(result, display_mode="keyword", rank_threshold=5)
-            report_data = prepare_report_data(legacy_stats, mode="current")
-            html = render_hotlist_stats_html(report_data["stats"], display_mode="keyword")
+            html = render_hotlist_stats_html(legacy_stats, display_mode="keyword")
 
-            self.assertEqual(report_data["stats"][0]["titles"][0]["title"], "AI launches new model")
-            self.assertIn("平台1", html)
+            self.assertEqual(legacy_stats[0]["titles"][0]["title"], "AI launches new model")
+            self.assertIn("Platform 1", html)
             self.assertIn("news-item new", html)
             self.assertIn("09:00~10:00", html)
 

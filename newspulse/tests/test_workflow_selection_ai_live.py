@@ -1,7 +1,9 @@
 import os
 import unittest
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from zoneinfo import ZoneInfo
 
 from newspulse.core.loader import load_config
 from newspulse.storage.base import NewsData, NewsItem
@@ -9,6 +11,17 @@ from newspulse.storage.local import LocalStorageBackend
 from newspulse.workflow.selection.service import SelectionService
 from newspulse.workflow.shared.options import SelectionAIOptions, SelectionOptions, SnapshotOptions
 from newspulse.workflow.snapshot.service import SnapshotService
+
+
+TEST_TIMEZONE = ZoneInfo("Asia/Shanghai")
+
+
+def _today_str() -> str:
+    return datetime.now(TEST_TIMEZONE).date().isoformat()
+
+
+def _today_at(time_text: str) -> str:
+    return f"{_today_str()} {time_text}"
 
 
 def _load_dotenv(path: Path) -> None:
@@ -48,8 +61,8 @@ class LiveAISelectionStrategyTest(unittest.TestCase):
             try:
                 storage.save_news_data(
                     NewsData(
-                        date="2026-04-17",
-                        crawl_time="2026-04-17 10:00:00",
+                        date=_today_str(),
+                        crawl_time=_today_at("10:00:00"),
                         items={
                             "hackernews": [
                                 NewsItem(
@@ -59,10 +72,10 @@ class LiveAISelectionStrategyTest(unittest.TestCase):
                                     rank=1,
                                     url="https://example.com/openai-live",
                                     mobile_url="https://m.example.com/openai-live",
-                                    crawl_time="2026-04-17 10:00:00",
+                                    crawl_time=_today_at("10:00:00"),
                                     ranks=[1],
-                                    first_time="2026-04-17 10:00:00",
-                                    last_time="2026-04-17 10:00:00",
+                                    first_time=_today_at("10:00:00"),
+                                    last_time=_today_at("10:00:00"),
                                     count=1,
                                 ),
                                 NewsItem(
@@ -72,10 +85,10 @@ class LiveAISelectionStrategyTest(unittest.TestCase):
                                     rank=2,
                                     url="https://example.com/github-live",
                                     mobile_url="https://m.example.com/github-live",
-                                    crawl_time="2026-04-17 10:00:00",
+                                    crawl_time=_today_at("10:00:00"),
                                     ranks=[2],
-                                    first_time="2026-04-17 10:00:00",
-                                    last_time="2026-04-17 10:00:00",
+                                    first_time=_today_at("10:00:00"),
+                                    last_time=_today_at("10:00:00"),
                                     count=1,
                                 ),
                                 NewsItem(
@@ -85,10 +98,10 @@ class LiveAISelectionStrategyTest(unittest.TestCase):
                                     rank=3,
                                     url="https://example.com/nba-live",
                                     mobile_url="https://m.example.com/nba-live",
-                                    crawl_time="2026-04-17 10:00:00",
+                                    crawl_time=_today_at("10:00:00"),
                                     ranks=[3],
-                                    first_time="2026-04-17 10:00:00",
-                                    last_time="2026-04-17 10:00:00",
+                                    first_time=_today_at("10:00:00"),
+                                    last_time=_today_at("10:00:00"),
                                     count=1,
                                 ),
                             ]

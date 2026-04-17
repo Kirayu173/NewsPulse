@@ -9,6 +9,10 @@ from newspulse.storage import get_storage_manager
 from newspulse.storage.base import NewsData, NewsItem
 
 
+def _today_at(ctx: AppContext, time_text: str) -> str:
+    return f"{ctx.format_date()} {time_text}"
+
+
 def _load_dotenv(path: Path) -> None:
     if not path.exists():
         return
@@ -64,8 +68,8 @@ class LiveAppContextSelectionStageTest(unittest.TestCase):
             try:
                 ctx.get_storage_manager().save_news_data(
                     NewsData(
-                        date="2026-04-17",
-                        crawl_time="2026-04-17 10:00:00",
+                        date=ctx.format_date(),
+                        crawl_time=_today_at(ctx, "10:00:00"),
                         items={
                             "hackernews": [
                                 NewsItem(
@@ -75,10 +79,10 @@ class LiveAppContextSelectionStageTest(unittest.TestCase):
                                     rank=1,
                                     url="https://example.com/openai-live",
                                     mobile_url="https://m.example.com/openai-live",
-                                    crawl_time="2026-04-17 10:00:00",
+                                    crawl_time=_today_at(ctx, "10:00:00"),
                                     ranks=[1],
-                                    first_time="2026-04-17 10:00:00",
-                                    last_time="2026-04-17 10:00:00",
+                                    first_time=_today_at(ctx, "10:00:00"),
+                                    last_time=_today_at(ctx, "10:00:00"),
                                     count=1,
                                 ),
                                 NewsItem(
@@ -88,10 +92,10 @@ class LiveAppContextSelectionStageTest(unittest.TestCase):
                                     rank=2,
                                     url="https://example.com/github-live",
                                     mobile_url="https://m.example.com/github-live",
-                                    crawl_time="2026-04-17 10:00:00",
+                                    crawl_time=_today_at(ctx, "10:00:00"),
                                     ranks=[2],
-                                    first_time="2026-04-17 10:00:00",
-                                    last_time="2026-04-17 10:00:00",
+                                    first_time=_today_at(ctx, "10:00:00"),
+                                    last_time=_today_at(ctx, "10:00:00"),
                                     count=1,
                                 ),
                                 NewsItem(
@@ -101,10 +105,10 @@ class LiveAppContextSelectionStageTest(unittest.TestCase):
                                     rank=3,
                                     url="https://example.com/nba-live",
                                     mobile_url="https://m.example.com/nba-live",
-                                    crawl_time="2026-04-17 10:00:00",
+                                    crawl_time=_today_at(ctx, "10:00:00"),
                                     ranks=[3],
-                                    first_time="2026-04-17 10:00:00",
-                                    last_time="2026-04-17 10:00:00",
+                                    first_time=_today_at(ctx, "10:00:00"),
+                                    last_time=_today_at(ctx, "10:00:00"),
                                     count=1,
                                 ),
                             ]

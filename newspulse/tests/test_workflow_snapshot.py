@@ -1,10 +1,23 @@
 import unittest
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from zoneinfo import ZoneInfo
 
 from newspulse.storage import StorageManager, convert_crawl_results_to_news_data
 from newspulse.workflow.shared.options import SnapshotOptions
 from newspulse.workflow.snapshot.service import SnapshotService
+
+
+TEST_TIMEZONE = ZoneInfo("Asia/Shanghai")
+
+
+def _today_str() -> str:
+    return datetime.now(TEST_TIMEZONE).date().isoformat()
+
+
+def _today_at(time_text: str) -> str:
+    return f"{_today_str()} {time_text}"
 
 
 def _save_crawl(storage: StorageManager, crawl_time: str, results: dict, failed_ids=None) -> None:
@@ -13,7 +26,7 @@ def _save_crawl(storage: StorageManager, crawl_time: str, results: dict, failed_
         id_to_name={"s1": "平台1", "s2": "平台2"},
         failed_ids=list(failed_ids or []),
         crawl_time=crawl_time,
-        crawl_date="2026-04-17",
+        crawl_date=_today_str(),
     )
     ok = storage.save_news_data(data)
     if not ok:
@@ -35,7 +48,7 @@ class SnapshotServiceTest(unittest.TestCase):
             try:
                 _save_crawl(
                     storage,
-                    "2026-04-17 09:00:00",
+                    _today_at("09:00:00"),
                     {
                         "s1": {
                             "Alpha": {"ranks": [1], "url": "https://example.com/a", "mobileUrl": ""},
@@ -48,7 +61,7 @@ class SnapshotServiceTest(unittest.TestCase):
                 )
                 _save_crawl(
                     storage,
-                    "2026-04-17 10:00:00",
+                    _today_at("10:00:00"),
                     {
                         "s1": {
                             "Alpha": {"ranks": [2], "url": "https://example.com/a", "mobileUrl": ""},
@@ -88,8 +101,8 @@ class SnapshotServiceTest(unittest.TestCase):
                 self.assertEqual(daily_alpha.ranks, [1, 2])
                 self.assertEqual(current_alpha.ranks, [1, 2])
                 self.assertEqual(current_alpha.count, 2)
-                self.assertEqual(current_alpha.first_time, "2026-04-17 09:00:00")
-                self.assertEqual(current_alpha.last_time, "2026-04-17 10:00:00")
+                self.assertEqual(current_alpha.first_time, _today_at("09:00:00"))
+                self.assertEqual(current_alpha.last_time, _today_at("10:00:00"))
                 self.assertEqual(len(current_alpha.rank_timeline), 2)
                 self.assertEqual(current_charlie.news_item_id, incremental_charlie.news_item_id)
                 self.assertTrue(incremental_charlie.is_new)
@@ -102,7 +115,7 @@ class SnapshotServiceTest(unittest.TestCase):
             try:
                 _save_crawl(
                     storage,
-                    "2026-04-17 09:00:00",
+                    _today_at("09:00:00"),
                     {
                         "s1": {
                             "Alpha": {"ranks": [1], "url": "https://example.com/a", "mobileUrl": ""},
@@ -133,7 +146,7 @@ class SnapshotServiceTest(unittest.TestCase):
             try:
                 _save_crawl(
                     storage,
-                    "2026-04-17 09:00:00",
+                    _today_at("09:00:00"),
                     {
                         "s1": {
                             "Alpha": {"ranks": [1], "url": "https://example.com/a", "mobileUrl": ""},

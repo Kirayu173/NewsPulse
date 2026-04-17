@@ -15,8 +15,7 @@ from newspulse.notification.splitter import (
     split_content_into_batches,
     DEFAULT_BATCH_SIZES,
 )
-from newspulse.notification.senders import send_prepared_generic_webhook, send_to_generic_webhook
-from newspulse.notification.dispatcher import NotificationDispatcher
+from newspulse.notification.senders import send_prepared_generic_webhook
 
 __all__ = [
     "get_batch_header",
@@ -26,6 +25,4 @@ __all__ = [
     "split_content_into_batches",
     "DEFAULT_BATCH_SIZES",
     "send_prepared_generic_webhook",
-    "send_to_generic_webhook",
-    "NotificationDispatcher",
 ]

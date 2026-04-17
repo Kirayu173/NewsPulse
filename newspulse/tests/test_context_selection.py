@@ -103,10 +103,12 @@ def _build_config(config_root: Path, output_dir: Path) -> dict:
 
 
 def _seed_hotlist(ctx: AppContext) -> None:
+    date_str = ctx.format_date()
+    crawl_time = f"{date_str} 10:00:00"
     ctx.get_storage_manager().save_news_data(
         NewsData(
-            date="2026-04-17",
-            crawl_time="2026-04-17 10:00:00",
+            date=date_str,
+            crawl_time=crawl_time,
             items={
                 "hackernews": [
                     NewsItem(
@@ -116,10 +118,10 @@ def _seed_hotlist(ctx: AppContext) -> None:
                         rank=1,
                         url="https://example.com/openai",
                         mobile_url="https://m.example.com/openai",
-                        crawl_time="2026-04-17 10:00:00",
+                        crawl_time=crawl_time,
                         ranks=[1],
-                        first_time="2026-04-17 10:00:00",
-                        last_time="2026-04-17 10:00:00",
+                        first_time=crawl_time,
+                        last_time=crawl_time,
                         count=1,
                     ),
                     NewsItem(
@@ -129,10 +131,10 @@ def _seed_hotlist(ctx: AppContext) -> None:
                         rank=2,
                         url="https://example.com/github",
                         mobile_url="https://m.example.com/github",
-                        crawl_time="2026-04-17 10:00:00",
+                        crawl_time=crawl_time,
                         ranks=[2],
-                        first_time="2026-04-17 10:00:00",
-                        last_time="2026-04-17 10:00:00",
+                        first_time=crawl_time,
+                        last_time=crawl_time,
                         count=1,
                     ),
                     NewsItem(
@@ -142,10 +144,10 @@ def _seed_hotlist(ctx: AppContext) -> None:
                         rank=3,
                         url="https://example.com/startup",
                         mobile_url="https://m.example.com/startup",
-                        crawl_time="2026-04-17 10:00:00",
+                        crawl_time=crawl_time,
                         ranks=[3],
-                        first_time="2026-04-17 10:00:00",
-                        last_time="2026-04-17 10:00:00",
+                        first_time=crawl_time,
+                        last_time=crawl_time,
                         count=1,
                     ),
                 ]
@@ -274,8 +276,8 @@ class AppContextSelectionStageTest(unittest.TestCase):
                 self.assertIsInstance(ai_selection, SelectionResult)
                 self.assertEqual(keyword_selection.strategy, "keyword")
                 self.assertEqual(ai_selection.strategy, "ai")
-                self.assertTrue(ctx.convert_selection_to_report_data(keyword_selection))
-                self.assertTrue(ctx.convert_selection_to_report_data(ai_selection))
+                self.assertTrue(keyword_selection.groups)
+                self.assertTrue(ai_selection.groups)
             finally:
                 ctx.cleanup()
 

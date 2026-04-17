@@ -105,6 +105,7 @@ class AppContextTest(unittest.TestCase):
         self.assertFalse(hasattr(AppContext, "render_html"))
         self.assertFalse(hasattr(AppContext, "split_content"))
         self.assertFalse(hasattr(AppContext, "create_notification_dispatcher"))
+        self.assertFalse(hasattr(AppContext, "convert_selection_to_report_data"))
 
 
 if __name__ == "__main__":

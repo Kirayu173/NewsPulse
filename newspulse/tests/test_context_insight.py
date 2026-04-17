@@ -155,10 +155,14 @@ def _build_context(tmp: str, *, ai_mode: str = "follow_report", max_news: int = 
     return ctx
 
 
+def _today_at(ctx: AppContext, time_text: str) -> str:
+    return f"{ctx.format_date()} {time_text}"
+
+
 def _save_crawl(ctx: AppContext, crawl_time: str, items: dict[str, list[NewsItem]]) -> None:
     ctx.get_storage_manager().save_news_data(
         NewsData(
-            date="2026-04-17",
+            date=ctx.format_date(),
             crawl_time=crawl_time,
             items=items,
             id_to_name={"hackernews": "Hacker News", "producthunt": "Product Hunt"},
@@ -170,7 +174,7 @@ def _save_crawl(ctx: AppContext, crawl_time: str, items: dict[str, list[NewsItem
 def _seed_single_crawl(ctx: AppContext) -> None:
     _save_crawl(
         ctx,
-        "2026-04-17 10:00:00",
+        _today_at(ctx, "10:00:00"),
         {
             "hackernews": [
                 NewsItem(
@@ -180,10 +184,10 @@ def _seed_single_crawl(ctx: AppContext) -> None:
                     rank=1,
                     url="https://example.com/openai",
                     mobile_url="https://m.example.com/openai",
-                    crawl_time="2026-04-17 10:00:00",
+                    crawl_time=_today_at(ctx, "10:00:00"),
                     ranks=[1],
-                    first_time="2026-04-17 10:00:00",
-                    last_time="2026-04-17 10:00:00",
+                    first_time=_today_at(ctx, "10:00:00"),
+                    last_time=_today_at(ctx, "10:00:00"),
                     count=1,
                     rank_timeline=[{"time": "10:00", "rank": 1}],
                 ),
@@ -196,10 +200,10 @@ def _seed_single_crawl(ctx: AppContext) -> None:
                     rank=2,
                     url="https://example.com/startup",
                     mobile_url="https://m.example.com/startup",
-                    crawl_time="2026-04-17 10:00:00",
+                    crawl_time=_today_at(ctx, "10:00:00"),
                     ranks=[2],
-                    first_time="2026-04-17 10:00:00",
-                    last_time="2026-04-17 10:00:00",
+                    first_time=_today_at(ctx, "10:00:00"),
+                    last_time=_today_at(ctx, "10:00:00"),
                     count=1,
                     rank_timeline=[{"time": "10:00", "rank": 2}],
                 ),
@@ -211,7 +215,7 @@ def _seed_single_crawl(ctx: AppContext) -> None:
 def _seed_two_crawls(ctx: AppContext) -> None:
     _save_crawl(
         ctx,
-        "2026-04-17 09:00:00",
+        _today_at(ctx, "09:00:00"),
         {
             "hackernews": [
                 NewsItem(
@@ -221,10 +225,10 @@ def _seed_two_crawls(ctx: AppContext) -> None:
                     rank=1,
                     url="https://example.com/morning",
                     mobile_url="https://m.example.com/morning",
-                    crawl_time="2026-04-17 09:00:00",
+                    crawl_time=_today_at(ctx, "09:00:00"),
                     ranks=[1],
-                    first_time="2026-04-17 09:00:00",
-                    last_time="2026-04-17 09:00:00",
+                    first_time=_today_at(ctx, "09:00:00"),
+                    last_time=_today_at(ctx, "09:00:00"),
                     count=1,
                     rank_timeline=[{"time": "09:00", "rank": 1}],
                 ),
@@ -233,7 +237,7 @@ def _seed_two_crawls(ctx: AppContext) -> None:
     )
     _save_crawl(
         ctx,
-        "2026-04-17 10:00:00",
+        _today_at(ctx, "10:00:00"),
         {
             "hackernews": [
                 NewsItem(
@@ -243,10 +247,10 @@ def _seed_two_crawls(ctx: AppContext) -> None:
                     rank=1,
                     url="https://example.com/later",
                     mobile_url="https://m.example.com/later",
-                    crawl_time="2026-04-17 10:00:00",
+                    crawl_time=_today_at(ctx, "10:00:00"),
                     ranks=[1],
-                    first_time="2026-04-17 10:00:00",
-                    last_time="2026-04-17 10:00:00",
+                    first_time=_today_at(ctx, "10:00:00"),
+                    last_time=_today_at(ctx, "10:00:00"),
                     count=1,
                     rank_timeline=[{"time": "10:00", "rank": 1}],
                 ),
@@ -259,10 +263,10 @@ def _seed_two_crawls(ctx: AppContext) -> None:
                     rank=2,
                     url="https://example.com/roundup",
                     mobile_url="https://m.example.com/roundup",
-                    crawl_time="2026-04-17 10:00:00",
+                    crawl_time=_today_at(ctx, "10:00:00"),
                     ranks=[2],
-                    first_time="2026-04-17 10:00:00",
-                    last_time="2026-04-17 10:00:00",
+                    first_time=_today_at(ctx, "10:00:00"),
+                    last_time=_today_at(ctx, "10:00:00"),
                     count=1,
                     rank_timeline=[{"time": "10:00", "rank": 2}],
                 ),

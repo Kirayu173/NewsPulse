@@ -16,6 +16,10 @@ from newspulse.workflow.selection.service import SelectionService
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate
 
 
+def _today_at(ctx: AppContext, time_text: str) -> str:
+    return f"{ctx.format_date()} {time_text}"
+
+
 def _write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(textwrap.dedent(content).strip(), encoding="utf-8")
@@ -278,8 +282,8 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
     def _seed_hotlist(self, ctx: AppContext) -> None:
         ctx.get_storage_manager().save_news_data(
             NewsData(
-                date="2026-04-17",
-                crawl_time="2026-04-17 10:00:00",
+                date=ctx.format_date(),
+                crawl_time=_today_at(ctx, "10:00:00"),
                 items={
                     "hackernews": [
                         NewsItem(
@@ -289,10 +293,10 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                             rank=1,
                             url="https://example.com/openai",
                             mobile_url="https://m.example.com/openai",
-                            crawl_time="2026-04-17 10:00:00",
+                            crawl_time=_today_at(ctx, "10:00:00"),
                             ranks=[1],
-                            first_time="2026-04-17 10:00:00",
-                            last_time="2026-04-17 10:00:00",
+                            first_time=_today_at(ctx, "10:00:00"),
+                            last_time=_today_at(ctx, "10:00:00"),
                             count=1,
                             rank_timeline=[{"time": "10:00", "rank": 1}],
                         ),
@@ -303,10 +307,10 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                             rank=3,
                             url="https://example.com/nba",
                             mobile_url="https://m.example.com/nba",
-                            crawl_time="2026-04-17 10:00:00",
+                            crawl_time=_today_at(ctx, "10:00:00"),
                             ranks=[3],
-                            first_time="2026-04-17 10:00:00",
-                            last_time="2026-04-17 10:00:00",
+                            first_time=_today_at(ctx, "10:00:00"),
+                            last_time=_today_at(ctx, "10:00:00"),
                             count=1,
                             rank_timeline=[{"time": "10:00", "rank": 3}],
                         ),
@@ -319,10 +323,10 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                             rank=2,
                             url="https://example.com/startup",
                             mobile_url="https://m.example.com/startup",
-                            crawl_time="2026-04-17 10:00:00",
+                            crawl_time=_today_at(ctx, "10:00:00"),
                             ranks=[2],
-                            first_time="2026-04-17 10:00:00",
-                            last_time="2026-04-17 10:00:00",
+                            first_time=_today_at(ctx, "10:00:00"),
+                            last_time=_today_at(ctx, "10:00:00"),
                             count=1,
                             rank_timeline=[{"time": "10:00", "rank": 2}],
                         )

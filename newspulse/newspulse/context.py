@@ -576,16 +576,6 @@ class AppContext:
             channels.append("generic_webhook")
         return channels
 
-    def convert_selection_to_report_data(self, selection_result: SelectionResult) -> List[Dict]:
-        """Adapt native workflow selection output back into the current legacy stats structure."""
-
-        return SelectionService.to_legacy_stats(
-            selection_result,
-            display_mode=self.display_mode,
-            rank_threshold=self.rank_threshold,
-            weight_config=self.weight_config,
-        )
-
     def cleanup(self):
         if self._storage_manager:
             self._storage_manager.cleanup_old_data()
