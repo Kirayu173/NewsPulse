@@ -22,6 +22,7 @@ from newspulse.notification import NotificationDispatcher, split_content_into_ba
 from newspulse.report import generate_html_report, prepare_report_data, render_html_content
 from newspulse.storage import get_storage_manager
 from newspulse.workflow.insight import InsightService, to_ai_analysis_result
+from newspulse.workflow.render import HotlistReportAssembler
 from newspulse.utils.time import (
     DEFAULT_TIMEZONE,
     convert_time_for_display,
@@ -31,7 +32,7 @@ from newspulse.utils.time import (
     get_current_time_display,
 )
 from newspulse.workflow.selection import SelectionService
-from newspulse.workflow.shared.contracts import HotlistSnapshot, InsightResult, SelectionResult
+from newspulse.workflow.shared.contracts import HotlistSnapshot, InsightResult, RenderableReport, SelectionResult
 from newspulse.workflow.shared.options import InsightOptions, SelectionAIOptions, SelectionOptions, SnapshotOptions
 from newspulse.workflow.snapshot import SnapshotService
 
@@ -441,6 +442,15 @@ class AppContext:
             config_root=str(self.config_root),
         )
 
+    def create_report_assembler(self) -> HotlistReportAssembler:
+        """Create the renderable report assembler for the current project config."""
+
+        return HotlistReportAssembler(
+            display_regions=self.region_order,
+            timezone=self.timezone,
+            display_mode=self.display_mode,
+        )
+
     def build_insight_options(
         self,
         *,
@@ -542,6 +552,19 @@ class AppContext:
             self.get_storage_manager().record_period_execution(self.format_date(), schedule.period_key, "analyze")
 
         return insight, legacy_result
+
+    def assemble_renderable_report(
+        self,
+        snapshot: HotlistSnapshot,
+        selection: SelectionResult,
+        insight: InsightResult,
+        *,
+        report_assembler: Optional[HotlistReportAssembler] = None,
+    ) -> RenderableReport:
+        """Assemble a render-ready workflow report from native stage outputs."""
+
+        assembler = report_assembler or self.create_report_assembler()
+        return assembler.assemble(snapshot, selection, insight)
 
     def convert_selection_to_report_data(self, selection_result: SelectionResult) -> List[Dict]:
         """Adapt native workflow selection output back into the current legacy stats structure."""
