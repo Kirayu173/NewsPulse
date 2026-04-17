@@ -151,6 +151,196 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["AI"]["TIMEOUT"], 120)
             self.assertEqual(config["AI"]["NUM_RETRIES"], 1)
 
+    def test_load_config_supports_workflow_stage_sections_and_ai_operations(self):
+        with TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            config_dir = workspace / "config"
+            config_file = config_dir / "config.yaml"
+            _write_text(config_dir / "ai_analysis_prompt.txt", "[user]\nanalysis")
+            _write_text(config_dir / "ai_translation_prompt.txt", "[user]\ntranslate")
+            _write_text(config_dir / "ai_filter" / "prompt.txt", "[user]\nfilter")
+            _write_text(config_dir / "ai_filter" / "extract_prompt.txt", "[user]\nextract")
+            _write_text(config_dir / "ai_filter" / "update_tags_prompt.txt", "[user]\nupdate")
+            _write_text(
+                config_file,
+                """
+                app:
+                  timezone: Asia/Shanghai
+                schedule:
+                  enabled: false
+                  preset: always_on
+                workflow:
+                  selection:
+                    strategy: ai
+                    frequency_file: topics.txt
+                    priority_sort_enabled: true
+                    ai:
+                      interests_file: founders.txt
+                      batch_size: 25
+                      batch_interval: 1.5
+                      min_score: 0.65
+                      reclassify_threshold: 0.55
+                      fallback_to_keyword: false
+                  insight:
+                    enabled: true
+                    strategy: ai
+                    mode: daily
+                    max_items: 9
+                    include_standalone: true
+                    include_rank_timeline: true
+                    language: Japanese
+                  localization:
+                    enabled: true
+                    strategy: ai
+                    language: English
+                    scope:
+                      selection_titles: false
+                      new_items: true
+                      standalone: false
+                      insight_sections: true
+                ai:
+                  runtime:
+                    model: openai/base-model
+                    api_key: base-key
+                    api_base: https://base.example/v1
+                    timeout: 111
+                    temperature: 0.3
+                    max_tokens: 4000
+                    num_retries: 2
+                  operations:
+                    selection:
+                      prompt_file: ai_filter/prompt.txt
+                      extract_prompt_file: ai_filter/extract_prompt.txt
+                      update_tags_prompt_file: ai_filter/update_tags_prompt.txt
+                      model: openai/selection-model
+                      timeout: 222
+                      extra_params:
+                        top_p: 0.9
+                    insight:
+                      prompt_file: ai_analysis_prompt.txt
+                      api_key: insight-key
+                      temperature: 0.8
+                    localization:
+                      prompt_file: ai_translation_prompt.txt
+                      api_base: https://translation.example/v1
+                      num_retries: 0
+                """,
+            )
+
+            with patch.dict(os.environ, {}, clear=True):
+                config = load_config(str(config_file))
+
+            self.assertEqual(config["WORKFLOW"]["SELECTION"]["STRATEGY"], "ai")
+            self.assertEqual(config["WORKFLOW"]["SELECTION"]["FREQUENCY_FILE"], "topics.txt")
+            self.assertTrue(config["WORKFLOW"]["SELECTION"]["PRIORITY_SORT_ENABLED"])
+            self.assertEqual(config["WORKFLOW"]["SELECTION"]["AI"]["INTERESTS_FILE"], "founders.txt")
+            self.assertEqual(config["WORKFLOW"]["SELECTION"]["AI"]["BATCH_SIZE"], 25)
+            self.assertAlmostEqual(config["WORKFLOW"]["SELECTION"]["AI"]["BATCH_INTERVAL"], 1.5)
+            self.assertAlmostEqual(config["WORKFLOW"]["SELECTION"]["AI"]["MIN_SCORE"], 0.65)
+            self.assertAlmostEqual(config["WORKFLOW"]["SELECTION"]["AI"]["RECLASSIFY_THRESHOLD"], 0.55)
+            self.assertFalse(config["WORKFLOW"]["SELECTION"]["AI"]["FALLBACK_TO_KEYWORD"])
+
+            self.assertTrue(config["WORKFLOW"]["INSIGHT"]["ENABLED"])
+            self.assertEqual(config["WORKFLOW"]["INSIGHT"]["STRATEGY"], "ai")
+            self.assertEqual(config["WORKFLOW"]["INSIGHT"]["MODE"], "daily")
+            self.assertEqual(config["WORKFLOW"]["INSIGHT"]["MAX_ITEMS"], 9)
+            self.assertTrue(config["WORKFLOW"]["INSIGHT"]["INCLUDE_STANDALONE"])
+            self.assertTrue(config["WORKFLOW"]["INSIGHT"]["INCLUDE_RANK_TIMELINE"])
+            self.assertEqual(config["WORKFLOW"]["INSIGHT"]["LANGUAGE"], "Japanese")
+
+            self.assertTrue(config["WORKFLOW"]["LOCALIZATION"]["ENABLED"])
+            self.assertEqual(config["WORKFLOW"]["LOCALIZATION"]["STRATEGY"], "ai")
+            self.assertEqual(config["WORKFLOW"]["LOCALIZATION"]["LANGUAGE"], "English")
+            self.assertFalse(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["SELECTION_TITLES"])
+            self.assertTrue(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["NEW_ITEMS"])
+            self.assertFalse(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["STANDALONE"])
+            self.assertTrue(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["INSIGHT_SECTIONS"])
+
+            self.assertEqual(config["FILTER"]["METHOD"], "ai")
+            self.assertEqual(config["FILTER"]["FREQUENCY_FILE"], "topics.txt")
+            self.assertEqual(config["AI_ANALYSIS"]["STRATEGY"], "ai")
+            self.assertEqual(config["AI_ANALYSIS"]["PROMPT_FILE"], str(config_dir / "ai_analysis_prompt.txt"))
+            self.assertEqual(config["AI_TRANSLATION"]["STRATEGY"], "ai")
+            self.assertEqual(config["AI_TRANSLATION"]["PROMPT_FILE"], str(config_dir / "ai_translation_prompt.txt"))
+            self.assertFalse(config["AI_TRANSLATION"]["SCOPE"]["HOTLIST"])
+            self.assertTrue(config["AI_TRANSLATION"]["SCOPE"]["NEW_ITEMS"])
+            self.assertTrue(config["AI_TRANSLATION"]["SCOPE"]["INSIGHT"])
+            self.assertEqual(config["AI_FILTER"]["PROMPT_FILE"], str(config_dir / "ai_filter" / "prompt.txt"))
+            self.assertEqual(config["AI_FILTER"]["EXTRA_PARAMS"], {"top_p": 0.9})
+            self.assertFalse(config["AI_FILTER"]["FALLBACK_TO_KEYWORD"])
+
+            self.assertEqual(config["AI"]["MODEL"], "openai/base-model")
+            self.assertEqual(config["AI_FILTER_MODEL"]["MODEL"], "openai/selection-model")
+            self.assertEqual(config["AI_FILTER_MODEL"]["TIMEOUT"], 222)
+            self.assertEqual(config["AI_ANALYSIS_MODEL"]["API_KEY"], "insight-key")
+            self.assertEqual(config["AI_ANALYSIS_MODEL"]["TEMPERATURE"], 0.8)
+            self.assertEqual(config["AI_TRANSLATION_MODEL"]["API_BASE"], "https://translation.example/v1")
+            self.assertEqual(config["AI_TRANSLATION_MODEL"]["NUM_RETRIES"], 0)
+
+    def test_load_config_maps_legacy_stage_sections_into_workflow(self):
+        with TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            config_dir = workspace / "config"
+            config_file = config_dir / "config.yaml"
+            _write_text(config_dir / "ai_analysis_prompt.txt", "[user]\nanalysis")
+            _write_text(config_dir / "ai_translation_prompt.txt", "[user]\ntranslate")
+            _write_text(config_dir / "ai_filter" / "prompt.txt", "[user]\nfilter")
+            _write_text(config_dir / "ai_filter" / "extract_prompt.txt", "[user]\nextract")
+            _write_text(config_dir / "ai_filter" / "update_tags_prompt.txt", "[user]\nupdate")
+            _write_text(
+                config_file,
+                """
+                app:
+                  timezone: Asia/Shanghai
+                schedule:
+                  enabled: false
+                  preset: always_on
+                ai:
+                  model: openai/base-model
+                filter:
+                  method: ai
+                  priority_sort_enabled: true
+                ai_filter:
+                  interests_file: ai.txt
+                  batch_size: 12
+                  batch_interval: 3
+                  min_score: 0.7
+                ai_analysis:
+                  enabled: true
+                  mode: current
+                  max_news_for_analysis: 4
+                  include_standalone: true
+                  include_rank_timeline: false
+                  language: Chinese
+                  prompt_file: ai_analysis_prompt.txt
+                ai_translation:
+                  enabled: true
+                  language: German
+                  prompt_file: ai_translation_prompt.txt
+                  scope:
+                    hotlist: false
+                    standalone: true
+                    insight: true
+                """,
+            )
+
+            with patch.dict(os.environ, {}, clear=True):
+                config = load_config(str(config_file))
+
+            self.assertEqual(config["WORKFLOW"]["SELECTION"]["STRATEGY"], "ai")
+            self.assertTrue(config["WORKFLOW"]["SELECTION"]["PRIORITY_SORT_ENABLED"])
+            self.assertEqual(config["WORKFLOW"]["SELECTION"]["AI"]["INTERESTS_FILE"], "ai.txt")
+            self.assertEqual(config["WORKFLOW"]["SELECTION"]["AI"]["BATCH_SIZE"], 12)
+            self.assertTrue(config["WORKFLOW"]["INSIGHT"]["ENABLED"])
+            self.assertEqual(config["WORKFLOW"]["INSIGHT"]["STRATEGY"], "ai")
+            self.assertEqual(config["WORKFLOW"]["INSIGHT"]["MODE"], "current")
+            self.assertEqual(config["WORKFLOW"]["INSIGHT"]["MAX_ITEMS"], 4)
+            self.assertEqual(config["WORKFLOW"]["LOCALIZATION"]["LANGUAGE"], "German")
+            self.assertFalse(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["SELECTION_TITLES"])
+            self.assertFalse(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["NEW_ITEMS"])
+            self.assertTrue(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["STANDALONE"])
+            self.assertTrue(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["INSIGHT_SECTIONS"])
+
 
 class FrequencyWordsPathTest(unittest.TestCase):
     def test_load_frequency_words_resolves_custom_short_name_from_config_root(self):

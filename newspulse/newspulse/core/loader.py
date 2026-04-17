@@ -13,6 +13,35 @@ from newspulse.utils.time import DEFAULT_TIMEZONE
 
 
 DEFAULT_REGION_ORDER = ["hotlist", "new_items", "standalone", "ai_analysis"]
+_MISSING = object()
+
+
+def _get_section(mapping: Dict[str, Any], *keys: str) -> Dict[str, Any]:
+    current: Any = mapping
+    for key in keys:
+        if not isinstance(current, dict):
+            return {}
+        current = current.get(key, {})
+    return current if isinstance(current, dict) else {}
+
+
+def _get_present_value(mapping: Dict[str, Any], key: str):
+    if isinstance(mapping, dict) and key in mapping:
+        return mapping[key]
+    return _MISSING
+
+
+def _coalesce(*values: Any, default: Any = None) -> Any:
+    for value in values:
+        if value is not _MISSING and value is not None:
+            return value
+    return default
+
+
+def _merge_preferred(primary: Dict[str, Any], fallback: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(fallback or {})
+    merged.update(primary or {})
+    return merged
 
 
 def _get_env_bool(key: str) -> Optional[bool]:
@@ -187,7 +216,7 @@ def _load_display_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _load_ai_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
-    ai = config_data.get("ai", {})
+    ai = _get_section(config_data, "ai", "runtime") or config_data.get("ai", {})
     timeout_env = _get_env_int_or_none("AI_TIMEOUT")
     return {
         "MODEL": _get_env_first("AI_MODEL", "MODEL") or ai.get("model", ""),
@@ -236,74 +265,367 @@ def _merge_ai_runtime_config(base_ai_config: Dict[str, Any], section_config: Dic
     return merged
 
 
-def _load_ai_analysis_config(config_data: Dict[str, Any], config_root: Path) -> Dict[str, Any]:
-    ai_analysis = config_data.get("ai_analysis", {})
-    enabled_env = _get_env_bool("AI_ANALYSIS_ENABLED")
-    return {
-        "ENABLED": ai_analysis.get("enabled", False) if enabled_env is None else enabled_env,
-        "LANGUAGE": ai_analysis.get("language", "Chinese"),
-        "PROMPT_FILE": str(resolve_prompt_path(ai_analysis.get("prompt_file", "ai_analysis_prompt.txt"), config_root=config_root)),
-        "MODE": ai_analysis.get("mode", "follow_report"),
-        "MAX_NEWS_FOR_ANALYSIS": ai_analysis.get("max_news_for_analysis", 50),
-        "INCLUDE_RANK_TIMELINE": ai_analysis.get("include_rank_timeline", False),
-        "INCLUDE_STANDALONE": ai_analysis.get("include_standalone", False),
-    }
+def _get_ai_operation_overrides(config_data: Dict[str, Any], operation_key: str, legacy_section_key: str) -> Dict[str, Any]:
+    operation = _get_section(config_data, "ai", "operations", operation_key)
+    legacy_section = config_data.get(legacy_section_key, {})
+    return _merge_preferred(operation, legacy_section)
 
 
-def _load_ai_translation_config(config_data: Dict[str, Any], config_root: Path) -> Dict[str, Any]:
-    translation = config_data.get("ai_translation", {})
-    enabled_env = _get_env_bool("AI_TRANSLATION_ENABLED")
-    scope = translation.get("scope", {})
+def _load_workflow_selection_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
+    selection = _get_section(config_data, "workflow", "selection")
+    selection_ai = _get_section(selection, "ai")
+    legacy_filter = config_data.get("filter", {})
+    legacy_ai_filter = config_data.get("ai_filter", {})
+
+    env_ai_filter = _get_env_bool("AI_FILTER_ENABLED")
+    strategy = str(
+        _coalesce(
+            _get_present_value(selection, "strategy"),
+            _get_present_value(legacy_filter, "method"),
+            default="keyword",
+        )
+        or "keyword"
+    ).strip() or "keyword"
+    if env_ai_filter is True:
+        strategy = "ai"
+    elif strategy == "keyword" and _get_present_value(selection, "strategy") is _MISSING and _get_present_value(legacy_filter, "method") is _MISSING:
+        if bool(
+            _coalesce(
+                _get_present_value(selection_ai, "enabled"),
+                _get_present_value(legacy_ai_filter, "enabled"),
+                default=False,
+            )
+        ):
+            strategy = "ai"
+
     return {
-        "ENABLED": translation.get("enabled", False) if enabled_env is None else enabled_env,
-        "LANGUAGE": _get_env_str("AI_TRANSLATION_LANGUAGE") or translation.get("language", "English"),
-        "PROMPT_FILE": str(resolve_prompt_path(translation.get("prompt_file", "ai_translation_prompt.txt"), config_root=config_root)),
-        "SCOPE": {
-            "HOTLIST": scope.get("hotlist", True),
-            "STANDALONE": scope.get("standalone", True),
+        "STRATEGY": strategy,
+        "FREQUENCY_FILE": _coalesce(
+            _get_present_value(selection, "frequency_file"),
+            _get_present_value(legacy_filter, "frequency_file"),
+            default=None,
+        ),
+        "PRIORITY_SORT_ENABLED": bool(
+            _coalesce(
+                _get_present_value(selection, "priority_sort_enabled"),
+                _get_present_value(legacy_filter, "priority_sort_enabled"),
+                default=False,
+            )
+        ),
+        "AI": {
+            "INTERESTS_FILE": _coalesce(
+                _get_present_value(selection_ai, "interests_file"),
+                _get_present_value(legacy_ai_filter, "interests_file"),
+                default=None,
+            ),
+            "BATCH_SIZE": int(
+                _coalesce(
+                    _get_present_value(selection_ai, "batch_size"),
+                    _get_present_value(legacy_ai_filter, "batch_size"),
+                    default=200,
+                )
+            ),
+            "BATCH_INTERVAL": float(
+                _coalesce(
+                    _get_present_value(selection_ai, "batch_interval"),
+                    _get_present_value(legacy_ai_filter, "batch_interval"),
+                    default=5,
+                )
+            ),
+            "MIN_SCORE": float(
+                _coalesce(
+                    _get_present_value(selection_ai, "min_score"),
+                    _get_present_value(legacy_ai_filter, "min_score"),
+                    default=0,
+                )
+                or 0
+            ),
+            "RECLASSIFY_THRESHOLD": float(
+                _coalesce(
+                    _get_present_value(selection_ai, "reclassify_threshold"),
+                    _get_present_value(legacy_ai_filter, "reclassify_threshold"),
+                    default=0.6,
+                )
+            ),
+            "FALLBACK_TO_KEYWORD": bool(
+                _coalesce(
+                    _get_present_value(selection_ai, "fallback_to_keyword"),
+                    _get_present_value(legacy_ai_filter, "fallback_to_keyword"),
+                    default=True,
+                )
+            ),
         },
     }
 
 
-def _load_ai_filter_config(config_data: Dict[str, Any], config_root: Path) -> Dict[str, Any]:
-    ai_filter = config_data.get("ai_filter", {})
+def _load_workflow_insight_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
+    insight = _get_section(config_data, "workflow", "insight")
+    legacy_analysis = config_data.get("ai_analysis", {})
+    enabled_env = _get_env_bool("AI_ANALYSIS_ENABLED")
+    enabled = bool(
+        _coalesce(
+            _get_present_value(insight, "enabled"),
+            _get_present_value(legacy_analysis, "enabled"),
+            default=False,
+        )
+        if enabled_env is None
+        else enabled_env
+    )
+
     return {
-        "BATCH_SIZE": ai_filter.get("batch_size", 200),
-        "BATCH_INTERVAL": ai_filter.get("batch_interval", 5),
-        "TIMEOUT": ai_filter.get("timeout"),
-        "NUM_RETRIES": ai_filter.get("num_retries"),
-        "INTERESTS_FILE": ai_filter.get("interests_file"),
-        "PROMPT_FILE": str(resolve_prompt_path(ai_filter.get("prompt_file", "prompt.txt"), config_root=config_root, config_subdir="ai_filter")),
-        "EXTRACT_PROMPT_FILE": str(resolve_prompt_path(ai_filter.get("extract_prompt_file", "extract_prompt.txt"), config_root=config_root, config_subdir="ai_filter")),
-        "UPDATE_TAGS_PROMPT_FILE": str(resolve_prompt_path(ai_filter.get("update_tags_prompt_file", "update_tags_prompt.txt"), config_root=config_root, config_subdir="ai_filter")),
-        "RECLASSIFY_THRESHOLD": ai_filter.get("reclassify_threshold", 0.6),
-        "MIN_SCORE": float(ai_filter.get("min_score", 0)),
+        "ENABLED": enabled,
+        "STRATEGY": str(
+            _coalesce(
+                _get_present_value(insight, "strategy"),
+                _get_present_value(legacy_analysis, "strategy"),
+                default="ai" if enabled else "noop",
+            )
+            or ("ai" if enabled else "noop")
+        ).strip()
+        or ("ai" if enabled else "noop"),
+        "LANGUAGE": str(
+            _coalesce(
+                _get_present_value(insight, "language"),
+                _get_present_value(legacy_analysis, "language"),
+                default="Chinese",
+            )
+            or "Chinese"
+        ),
+        "MODE": str(
+            _coalesce(
+                _get_present_value(insight, "mode"),
+                _get_present_value(legacy_analysis, "mode"),
+                default="follow_report",
+            )
+            or "follow_report"
+        ),
+        "MAX_ITEMS": int(
+            _coalesce(
+                _get_present_value(insight, "max_items"),
+                _get_present_value(legacy_analysis, "max_news_for_analysis"),
+                default=50,
+            )
+        ),
+        "INCLUDE_RANK_TIMELINE": bool(
+            _coalesce(
+                _get_present_value(insight, "include_rank_timeline"),
+                _get_present_value(legacy_analysis, "include_rank_timeline"),
+                default=False,
+            )
+        ),
+        "INCLUDE_STANDALONE": bool(
+            _coalesce(
+                _get_present_value(insight, "include_standalone"),
+                _get_present_value(legacy_analysis, "include_standalone"),
+                default=False,
+            )
+        ),
+    }
+
+
+def _load_workflow_localization_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
+    localization = _get_section(config_data, "workflow", "localization")
+    localization_scope = _get_section(localization, "scope")
+    legacy_translation = config_data.get("ai_translation", {})
+    legacy_scope = _get_section(legacy_translation, "scope")
+    enabled_env = _get_env_bool("AI_TRANSLATION_ENABLED")
+    enabled = bool(
+        _coalesce(
+            _get_present_value(localization, "enabled"),
+            _get_present_value(legacy_translation, "enabled"),
+            default=False,
+        )
+        if enabled_env is None
+        else enabled_env
+    )
+
+    return {
+        "ENABLED": enabled,
+        "STRATEGY": str(
+            _coalesce(
+                _get_present_value(localization, "strategy"),
+                _get_present_value(legacy_translation, "strategy"),
+                default="ai" if enabled else "noop",
+            )
+            or ("ai" if enabled else "noop")
+        ).strip()
+        or ("ai" if enabled else "noop"),
+        "LANGUAGE": _get_env_str("AI_TRANSLATION_LANGUAGE")
+        or str(
+            _coalesce(
+                _get_present_value(localization, "language"),
+                _get_present_value(legacy_translation, "language"),
+                default="English",
+            )
+            or "English"
+        ),
+        "SCOPE": {
+            "SELECTION_TITLES": bool(
+                _coalesce(
+                    _get_present_value(localization_scope, "selection_titles"),
+                    _get_present_value(legacy_scope, "hotlist"),
+                    default=True,
+                )
+            ),
+            "NEW_ITEMS": bool(
+                _coalesce(
+                    _get_present_value(localization_scope, "new_items"),
+                    _get_present_value(legacy_scope, "new_items"),
+                    _get_present_value(legacy_scope, "hotlist"),
+                    default=True,
+                )
+            ),
+            "STANDALONE": bool(
+                _coalesce(
+                    _get_present_value(localization_scope, "standalone"),
+                    _get_present_value(legacy_scope, "standalone"),
+                    default=True,
+                )
+            ),
+            "INSIGHT_SECTIONS": bool(
+                _coalesce(
+                    _get_present_value(localization_scope, "insight_sections"),
+                    _get_present_value(legacy_scope, "insight"),
+                    default=False,
+                )
+            ),
+        },
+    }
+
+
+def _load_workflow_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "SELECTION": _load_workflow_selection_config(config_data),
+        "INSIGHT": _load_workflow_insight_config(config_data),
+        "LOCALIZATION": _load_workflow_localization_config(config_data),
+    }
+
+
+def _load_ai_selection_operation_config(config_data: Dict[str, Any], config_root: Path) -> Dict[str, Any]:
+    operation = _get_ai_operation_overrides(config_data, "selection", "ai_filter")
+    return {
+        "PROMPT_FILE": str(
+            resolve_prompt_path(
+                str(_coalesce(_get_present_value(operation, "prompt_file"), default="prompt.txt")),
+                config_root=config_root,
+                config_subdir="ai_filter",
+            )
+        ),
+        "EXTRACT_PROMPT_FILE": str(
+            resolve_prompt_path(
+                str(_coalesce(_get_present_value(operation, "extract_prompt_file"), default="extract_prompt.txt")),
+                config_root=config_root,
+                config_subdir="ai_filter",
+            )
+        ),
+        "UPDATE_TAGS_PROMPT_FILE": str(
+            resolve_prompt_path(
+                str(_coalesce(_get_present_value(operation, "update_tags_prompt_file"), default="update_tags_prompt.txt")),
+                config_root=config_root,
+                config_subdir="ai_filter",
+            )
+        ),
+        "TIMEOUT": _coalesce(_get_present_value(operation, "timeout"), default=None),
+        "NUM_RETRIES": _coalesce(_get_present_value(operation, "num_retries"), default=None),
+        "EXTRA_PARAMS": _coalesce(_get_present_value(operation, "extra_params"), default={}),
     }
 
 
 def _load_ai_analysis_model_config(config_data: Dict[str, Any], base_ai_config: Dict[str, Any]) -> Dict[str, Any]:
-    return _merge_ai_runtime_config(base_ai_config, config_data.get("ai_analysis", {}), "AI_ANALYSIS")
+    return _merge_ai_runtime_config(base_ai_config, _get_ai_operation_overrides(config_data, "insight", "ai_analysis"), "AI_ANALYSIS")
 
 
 def _load_ai_translation_model_config(config_data: Dict[str, Any], base_ai_config: Dict[str, Any]) -> Dict[str, Any]:
-    return _merge_ai_runtime_config(base_ai_config, config_data.get("ai_translation", {}), "AI_TRANSLATION")
+    return _merge_ai_runtime_config(
+        base_ai_config,
+        _get_ai_operation_overrides(config_data, "localization", "ai_translation"),
+        "AI_TRANSLATION",
+    )
 
 
 def _load_ai_filter_model_config(config_data: Dict[str, Any], base_ai_config: Dict[str, Any]) -> Dict[str, Any]:
-    return _merge_ai_runtime_config(base_ai_config, config_data.get("ai_filter", {}), "AI_FILTER")
+    return _merge_ai_runtime_config(base_ai_config, _get_ai_operation_overrides(config_data, "selection", "ai_filter"), "AI_FILTER")
 
 
-def _load_filter_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
-    filter_cfg = config_data.get("filter", {})
-    env_ai_filter = _get_env_bool("AI_FILTER_ENABLED")
-    method = filter_cfg.get("method", "keyword")
-    if env_ai_filter is True:
-        method = "ai"
-    if method == "keyword" and not filter_cfg.get("method") and config_data.get("ai_filter", {}).get("enabled", False):
-        method = "ai"
+def _load_ai_insight_operation_config(config_data: Dict[str, Any], config_root: Path) -> Dict[str, Any]:
+    operation = _get_ai_operation_overrides(config_data, "insight", "ai_analysis")
     return {
-        "METHOD": method,
-        "PRIORITY_SORT_ENABLED": filter_cfg.get("priority_sort_enabled", False),
+        "PROMPT_FILE": str(
+            resolve_prompt_path(
+                str(_coalesce(_get_present_value(operation, "prompt_file"), default="ai_analysis_prompt.txt")),
+                config_root=config_root,
+            )
+        ),
+    }
+
+
+def _load_ai_localization_operation_config(config_data: Dict[str, Any], config_root: Path) -> Dict[str, Any]:
+    operation = _get_ai_operation_overrides(config_data, "localization", "ai_translation")
+    return {
+        "PROMPT_FILE": str(
+            resolve_prompt_path(
+                str(_coalesce(_get_present_value(operation, "prompt_file"), default="ai_translation_prompt.txt")),
+                config_root=config_root,
+            )
+        ),
+    }
+
+
+def _load_ai_analysis_config(workflow_config: Dict[str, Any], operation_config: Dict[str, Any]) -> Dict[str, Any]:
+    insight = workflow_config["INSIGHT"]
+    return {
+        "ENABLED": insight["ENABLED"],
+        "STRATEGY": insight["STRATEGY"],
+        "LANGUAGE": insight["LANGUAGE"],
+        "PROMPT_FILE": operation_config["PROMPT_FILE"],
+        "MODE": insight["MODE"],
+        "MAX_NEWS_FOR_ANALYSIS": insight["MAX_ITEMS"],
+        "INCLUDE_RANK_TIMELINE": insight["INCLUDE_RANK_TIMELINE"],
+        "INCLUDE_STANDALONE": insight["INCLUDE_STANDALONE"],
+    }
+
+
+def _load_ai_translation_config(workflow_config: Dict[str, Any], operation_config: Dict[str, Any]) -> Dict[str, Any]:
+    localization = workflow_config["LOCALIZATION"]
+    scope = localization["SCOPE"]
+    return {
+        "ENABLED": localization["ENABLED"],
+        "STRATEGY": localization["STRATEGY"],
+        "LANGUAGE": localization["LANGUAGE"],
+        "PROMPT_FILE": operation_config["PROMPT_FILE"],
+        "SCOPE": {
+            "HOTLIST": scope["SELECTION_TITLES"],
+            "NEW_ITEMS": scope["NEW_ITEMS"],
+            "STANDALONE": scope["STANDALONE"],
+            "INSIGHT": scope["INSIGHT_SECTIONS"],
+        },
+    }
+
+
+def _load_ai_filter_config(workflow_config: Dict[str, Any], operation_config: Dict[str, Any]) -> Dict[str, Any]:
+    selection_ai = workflow_config["SELECTION"]["AI"]
+    return {
+        "BATCH_SIZE": selection_ai["BATCH_SIZE"],
+        "BATCH_INTERVAL": selection_ai["BATCH_INTERVAL"],
+        "TIMEOUT": operation_config.get("TIMEOUT"),
+        "NUM_RETRIES": operation_config.get("NUM_RETRIES"),
+        "EXTRA_PARAMS": operation_config.get("EXTRA_PARAMS", {}),
+        "INTERESTS_FILE": selection_ai["INTERESTS_FILE"],
+        "PROMPT_FILE": operation_config["PROMPT_FILE"],
+        "EXTRACT_PROMPT_FILE": operation_config["EXTRACT_PROMPT_FILE"],
+        "UPDATE_TAGS_PROMPT_FILE": operation_config["UPDATE_TAGS_PROMPT_FILE"],
+        "RECLASSIFY_THRESHOLD": selection_ai["RECLASSIFY_THRESHOLD"],
+        "MIN_SCORE": selection_ai["MIN_SCORE"],
+        "FALLBACK_TO_KEYWORD": selection_ai["FALLBACK_TO_KEYWORD"],
+    }
+
+
+def _load_filter_config(workflow_config: Dict[str, Any]) -> Dict[str, Any]:
+    selection = workflow_config["SELECTION"]
+    return {
+        "METHOD": selection["STRATEGY"],
+        "FREQUENCY_FILE": selection.get("FREQUENCY_FILE"),
+        "PRIORITY_SORT_ENABLED": selection["PRIORITY_SORT_ENABLED"],
     }
 
 
@@ -376,15 +698,21 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     config["WEIGHT_CONFIG"] = _load_weight_config(config_data)
     config["PLATFORMS"] = config_data.get("platforms", {}).get("sources", [])
 
+    workflow_config = _load_workflow_config(config_data)
+    selection_operation_config = _load_ai_selection_operation_config(config_data, layout.config_root)
+    insight_operation_config = _load_ai_insight_operation_config(config_data, layout.config_root)
+    localization_operation_config = _load_ai_localization_operation_config(config_data, layout.config_root)
+
+    config["WORKFLOW"] = workflow_config
     config["AI"] = _load_ai_config(config_data)
-    config["AI_ANALYSIS"] = _load_ai_analysis_config(config_data, layout.config_root)
+    config["AI_ANALYSIS"] = _load_ai_analysis_config(workflow_config, insight_operation_config)
     config["AI_ANALYSIS_MODEL"] = _load_ai_analysis_model_config(config_data, config["AI"])
-    config["AI_TRANSLATION"] = _load_ai_translation_config(config_data, layout.config_root)
+    config["AI_TRANSLATION"] = _load_ai_translation_config(workflow_config, localization_operation_config)
     config["AI_TRANSLATION_MODEL"] = _load_ai_translation_model_config(config_data, config["AI"])
-    config["AI_FILTER"] = _load_ai_filter_config(config_data, layout.config_root)
+    config["AI_FILTER"] = _load_ai_filter_config(workflow_config, selection_operation_config)
     config["AI_FILTER_MODEL"] = _load_ai_filter_model_config(config_data, config["AI"])
 
-    config["FILTER"] = _load_filter_config(config_data)
+    config["FILTER"] = _load_filter_config(workflow_config)
     config["DISPLAY"] = _load_display_config(config_data)
     config["STORAGE"] = _load_storage_config(config_data)
     config.update(_load_webhook_config(config_data))

@@ -375,10 +375,11 @@ class AppContext:
         """Build workflow selection options from the current app config."""
 
         ai_filter_config = self.ai_filter_config
+        filter_config = self.config.get("FILTER", {})
         effective_interests_file = interests_file or ai_filter_config.get("INTERESTS_FILE") or "ai_interests.txt"
         return SelectionOptions(
             strategy=strategy or self.filter_method,
-            frequency_file=frequency_file,
+            frequency_file=frequency_file or filter_config.get("FREQUENCY_FILE"),
             priority_sort_enabled=self.ai_priority_sort_enabled,
             ai=SelectionAIOptions(
                 interests_file=effective_interests_file,
@@ -502,12 +503,13 @@ class AppContext:
 
         analysis_config = self.config.get("AI_ANALYSIS", {})
         enabled = bool(analysis_config.get("ENABLED", False))
+        configured_strategy = str(analysis_config.get("STRATEGY", "ai" if enabled else "noop") or ("ai" if enabled else "noop")).strip()
         requested_mode = str(analysis_config.get("MODE", "follow_report") or "follow_report").strip()
         effective_mode = requested_mode if requested_mode in {"daily", "current", "incremental"} else report_mode
 
         return InsightOptions(
             enabled=enabled,
-            strategy="ai" if enabled else "noop",
+            strategy=configured_strategy or ("ai" if enabled else "noop"),
             mode=effective_mode,
             max_items=int(analysis_config.get("MAX_NEWS_FOR_ANALYSIS", 50) or 50),
             include_standalone=bool(analysis_config.get("INCLUDE_STANDALONE", False)),
@@ -528,14 +530,16 @@ class AppContext:
         translation_config = self.config.get("AI_TRANSLATION", {})
         enabled = bool(translation_config.get("ENABLED", False))
         scope = translation_config.get("SCOPE", {})
+        hotlist_scope = bool(scope.get("HOTLIST", True))
+        new_items_scope = bool(scope.get("NEW_ITEMS", hotlist_scope))
 
         return LocalizationOptions(
             enabled=enabled,
-            strategy=strategy or ("ai" if enabled else "noop"),
+            strategy=strategy or str(translation_config.get("STRATEGY", "ai" if enabled else "noop") or ("ai" if enabled else "noop")),
             language=str(translation_config.get("LANGUAGE", "English")),
             scope=LocalizationScope(
-                selection_titles=bool(scope.get("HOTLIST", True)),
-                new_items=bool(scope.get("HOTLIST", True)),
+                selection_titles=hotlist_scope,
+                new_items=new_items_scope,
                 standalone=bool(scope.get("STANDALONE", True)),
                 insight_sections=bool(scope.get("INSIGHT", False)),
             ),
