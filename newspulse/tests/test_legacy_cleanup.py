@@ -5,6 +5,8 @@ import newspulse.notification as notification_pkg
 import newspulse.report as report_pkg
 import newspulse.storage as storage_pkg
 import newspulse.workflow as workflow_pkg
+import newspulse.workflow.insight as insight_pkg
+import newspulse.workflow.selection as selection_pkg
 
 
 class LegacyCleanupTest(unittest.TestCase):
@@ -24,6 +26,14 @@ class LegacyCleanupTest(unittest.TestCase):
         self.assertFalse(hasattr(workflow_pkg, "LegacyRenderContext"))
         with self.assertRaises(ModuleNotFoundError):
             importlib.import_module("newspulse.workflow.render.legacy")
+
+    def test_workflow_packages_no_longer_export_insight_or_selection_legacy_adapters(self):
+        self.assertFalse(hasattr(insight_pkg, "to_ai_analysis_result"))
+        self.assertFalse(hasattr(selection_pkg, "selection_result_to_legacy_stats"))
+        with self.assertRaises(ModuleNotFoundError):
+            importlib.import_module("newspulse.workflow.insight.legacy")
+        with self.assertRaises(ModuleNotFoundError):
+            importlib.import_module("newspulse.workflow.selection.legacy")
 
 
 if __name__ == "__main__":

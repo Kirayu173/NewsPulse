@@ -416,7 +416,7 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
             interests_file="interests.txt" if selection_strategy == "ai" else None,
             selection_service=selection_service,
         )
-        insight, legacy = ctx.run_insight_stage(
+        insight = ctx.run_insight_stage(
             report_mode="daily",
             snapshot=snapshot,
             selection=selection,
@@ -429,7 +429,7 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
         localized = ctx.run_localization_stage(report, localization_service=localization_service)
         render_result = ctx.run_render_stage(localized, emit_html=True, emit_notification=True)
         delivery_result = ctx.run_delivery_stage(render_result.payloads, delivery_service=delivery_service)
-        return snapshot, selection, insight, legacy, localized, render_result, delivery_result
+        return snapshot, selection, insight, localized, render_result, delivery_result
 
     def test_end_to_end_runs_with_all_ai_disabled(self):
         with TemporaryDirectory() as tmp:
@@ -437,7 +437,7 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
             sender = RecordingSender()
             try:
                 self._seed_hotlist(ctx)
-                _, selection, insight, legacy, localized, render_result, delivery_result = self._run_pipeline(
+                _, selection, insight, localized, render_result, delivery_result = self._run_pipeline(
                     ctx,
                     selection_strategy="keyword",
                     delivery_service=self._build_delivery_service(ctx, sender),
@@ -446,7 +446,6 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                 joined_payload = "\n".join(payload.content for payload in render_result.payloads)
                 self.assertEqual(selection.strategy, "keyword")
                 self.assertEqual(insight.strategy, "noop")
-                self.assertIsNone(legacy)
                 self.assertEqual(localized.translation_meta["strategy"], "noop")
                 self.assertEqual(
                     [item.title for item in selection.selected_new_items],
@@ -467,7 +466,7 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
             sender = RecordingSender()
             try:
                 self._seed_hotlist(ctx)
-                _, selection, insight, legacy, localized, render_result, _ = self._run_pipeline(
+                _, selection, insight, localized, render_result, _ = self._run_pipeline(
                     ctx,
                     selection_strategy="ai",
                     selection_service=self._build_ai_selection_service(ctx),
@@ -478,7 +477,6 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                 self.assertEqual(selection.strategy, "ai")
                 self.assertGreaterEqual(selection.total_selected, 2)
                 self.assertEqual(insight.strategy, "noop")
-                self.assertIsNone(legacy)
                 self.assertEqual(localized.translation_meta["strategy"], "noop")
                 self.assertIn("OpenAI launches a new coding agent", joined_payload)
                 self.assertNotIn("NBA finals schedule announced", joined_payload)
@@ -496,7 +494,7 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
             sender = RecordingSender()
             try:
                 self._seed_hotlist(ctx)
-                _, selection, insight, legacy, _, render_result, delivery_result = self._run_pipeline(
+                _, selection, insight, _, render_result, delivery_result = self._run_pipeline(
                     ctx,
                     selection_strategy="ai",
                     selection_service=self._build_ai_selection_service(ctx),
@@ -507,7 +505,7 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                 joined_payload = "\n".join(payload.content for payload in render_result.payloads)
                 self.assertEqual(selection.strategy, "ai")
                 self.assertTrue(insight.enabled)
-                self.assertTrue(legacy.success)
+                self.assertEqual(insight.diagnostics["analyzed_items"], 2)
                 self.assertIn("AI tools keep dominating the developer conversation.", render_result.html.content)
                 self.assertIn("AI tools keep dominating the developer conversation.", joined_payload)
                 self.assertNotIn("NBA finals schedule announced", render_result.html.content)
@@ -524,7 +522,7 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
             sender = RecordingSender()
             try:
                 self._seed_hotlist(ctx)
-                _, _, _, _, localized, render_result, delivery_result = self._run_pipeline(
+                _, _, _, localized, render_result, delivery_result = self._run_pipeline(
                     ctx,
                     selection_strategy="keyword",
                     insight_service=self._build_ai_insight_service(ctx),

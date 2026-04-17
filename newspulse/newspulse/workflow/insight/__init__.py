@@ -2,7 +2,6 @@
 """Insight stage package."""
 
 from newspulse.workflow.insight.ai import AIInsightStrategy
-from newspulse.workflow.insight.legacy import to_ai_analysis_result
 from newspulse.workflow.insight.models import (
     DEFAULT_SECTION_TEMPLATES,
     InsightPromptPayload,
@@ -20,5 +19,4 @@ __all__ = [
     "InsightService",
     "NoopInsightStrategy",
     "build_summary",
-    "to_ai_analysis_result",
 ]

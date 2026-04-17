@@ -334,7 +334,7 @@ class AppContextInsightStageTest(unittest.TestCase):
             finally:
                 ctx.cleanup()
 
-    def test_run_insight_stage_returns_native_result_and_legacy_adapter_output(self):
+    def test_run_insight_stage_returns_only_native_result(self):
         with TemporaryDirectory() as tmp:
             ctx = _build_context(tmp)
             try:
@@ -345,7 +345,7 @@ class AppContextInsightStageTest(unittest.TestCase):
                     frequency_file="topics.txt",
                 )
                 client = CaptureInsightClient()
-                insight, legacy = ctx.run_insight_stage(
+                insight = ctx.run_insight_stage(
                     report_mode="current",
                     snapshot=snapshot,
                     selection=selection,
@@ -355,10 +355,10 @@ class AppContextInsightStageTest(unittest.TestCase):
                 )
 
                 self.assertTrue(insight.enabled)
-                self.assertEqual(legacy.ai_mode, "current")
-                self.assertTrue(legacy.success)
-                self.assertEqual(legacy.analyzed_news, 2)
-                self.assertIn("Product Hunt", legacy.standalone_summaries)
+                self.assertEqual(insight.strategy, "ai")
+                self.assertEqual(insight.diagnostics["report_mode"], "current")
+                self.assertEqual(insight.diagnostics["analyzed_items"], 2)
+                self.assertIn("standalone:Product Hunt", [section.key for section in insight.sections])
                 self.assertIn("OpenAI launches a new coding agent", client.calls[0])
                 self.assertIn("Startup launches a new AI productivity app", client.calls[0])
             finally:
@@ -377,7 +377,7 @@ class AppContextInsightStageTest(unittest.TestCase):
                 self.assertEqual(selection.total_selected, 2)
 
                 client = CaptureInsightClient()
-                insight, legacy = ctx.run_insight_stage(
+                insight = ctx.run_insight_stage(
                     report_mode="current",
                     snapshot=snapshot,
                     selection=selection,
@@ -387,8 +387,8 @@ class AppContextInsightStageTest(unittest.TestCase):
                 )
 
                 self.assertTrue(insight.enabled)
-                self.assertEqual(legacy.ai_mode, "daily")
-                self.assertEqual(legacy.analyzed_news, 3)
+                self.assertEqual(insight.diagnostics["report_mode"], "daily")
+                self.assertEqual(insight.diagnostics["analyzed_items"], 3)
                 self.assertIn("Morning AI launch roundup", client.calls[0])
                 self.assertIn("Later AI agent release", client.calls[0])
             finally:
@@ -405,7 +405,7 @@ class AppContextInsightStageTest(unittest.TestCase):
                     frequency_file="topics.txt",
                 )
 
-                disabled_insight, disabled_legacy = ctx.run_insight_stage(
+                disabled_insight = ctx.run_insight_stage(
                     report_mode="current",
                     snapshot=snapshot,
                     selection=selection,
@@ -414,7 +414,7 @@ class AppContextInsightStageTest(unittest.TestCase):
                     schedule=SimpleNamespace(analyze=False, once_analyze=False, period_key=None, period_name=None),
                 )
                 self.assertFalse(disabled_insight.enabled)
-                self.assertIsNone(disabled_legacy)
+                self.assertTrue(disabled_insight.diagnostics["skipped"])
 
                 client = CaptureInsightClient()
                 schedule = SimpleNamespace(
@@ -423,7 +423,7 @@ class AppContextInsightStageTest(unittest.TestCase):
                     period_key="morning",
                     period_name="Morning",
                 )
-                _, legacy = ctx.run_insight_stage(
+                insight = ctx.run_insight_stage(
                     report_mode="current",
                     snapshot=snapshot,
                     selection=selection,
@@ -433,7 +433,7 @@ class AppContextInsightStageTest(unittest.TestCase):
                     insight_service=_build_insight_service(ctx, client),
                 )
 
-                self.assertTrue(legacy.success)
+                self.assertTrue(insight.enabled)
                 self.assertTrue(ctx.get_storage_manager().has_period_executed(ctx.format_date(), "morning", "analyze"))
             finally:
                 ctx.cleanup()

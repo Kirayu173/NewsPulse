@@ -7,7 +7,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from newspulse.ai import AIAnalysisResult
 from newspulse.core.scheduler import ResolvedSchedule
 from newspulse.core import (
     Scheduler,
@@ -16,7 +15,7 @@ from newspulse.core import (
 )
 from newspulse.storage import get_storage_manager
 from newspulse.workflow.delivery import DeliveryService, GenericWebhookDeliveryAdapter
-from newspulse.workflow.insight import InsightService, to_ai_analysis_result
+from newspulse.workflow.insight import InsightService
 from newspulse.workflow.localization import LocalizationService
 from newspulse.workflow.render import HTMLRenderAdapter, HotlistReportAssembler, NotificationRenderAdapter, RenderService
 from newspulse.utils.time import (
@@ -441,6 +440,17 @@ class AppContext:
             diagnostics=diagnostics,
         )
 
+    @staticmethod
+    def _is_successful_insight_result(insight: InsightResult) -> bool:
+        diagnostics = dict(insight.diagnostics or {})
+        return (
+            insight.enabled
+            and bool(insight.sections)
+            and not bool(diagnostics.get("skipped"))
+            and not bool(diagnostics.get("error"))
+            and not bool(diagnostics.get("parse_error"))
+        )
+
     def run_insight_stage(
         self,
         *,
@@ -453,27 +463,28 @@ class AppContext:
         schedule: Optional[ResolvedSchedule] = None,
         selection_service: Optional[SelectionService] = None,
         insight_service: Optional[InsightService] = None,
-    ) -> Tuple[InsightResult, Optional[AIAnalysisResult]]:
-        """Run the native insight stage and adapt the result for the current render pipeline."""
+    ) -> InsightResult:
+        """Run the native insight stage and return only the native insight result."""
 
         options = self.build_insight_options(report_mode=report_mode)
         if not options.enabled or options.strategy == "noop":
-            return self._build_noop_insight_result("insight stage disabled", report_mode=report_mode, schedule=schedule), None
+            return self._build_noop_insight_result("insight stage disabled", report_mode=report_mode, schedule=schedule)
 
         if schedule is not None:
             if not schedule.analyze:
-                return self._build_noop_insight_result("insight stage disabled by schedule", report_mode=report_mode, schedule=schedule), None
+                return self._build_noop_insight_result(
+                    "insight stage disabled by schedule",
+                    report_mode=report_mode,
+                    schedule=schedule,
+                )
 
             if schedule.once_analyze and schedule.period_key:
                 date_str = self.format_date()
                 if self.get_storage_manager().has_period_executed(date_str, schedule.period_key, "analyze"):
-                    return (
-                        self._build_noop_insight_result(
-                            f"insight stage already executed for {schedule.period_name or schedule.period_key}",
-                            report_mode=report_mode,
-                            schedule=schedule,
-                        ),
-                        None,
+                    return self._build_noop_insight_result(
+                        f"insight stage already executed for {schedule.period_name or schedule.period_key}",
+                        report_mode=report_mode,
+                        schedule=schedule,
                     )
 
         selection_mode = options.mode
@@ -488,19 +499,11 @@ class AppContext:
 
         runner = insight_service or self.create_insight_service()
         insight = runner.run(snapshot, selection, options)
-        legacy_result = to_ai_analysis_result(
-            insight,
-            total_news=selection.total_selected,
-            analyzed_news=int(insight.diagnostics.get("analyzed_items", 0) or 0),
-            max_news_limit=options.max_items,
-            hotlist_count=selection.total_selected,
-            ai_mode=options.mode,
-        )
 
-        if legacy_result and legacy_result.success and schedule is not None and schedule.once_analyze and schedule.period_key:
+        if self._is_successful_insight_result(insight) and schedule is not None and schedule.once_analyze and schedule.period_key:
             self.get_storage_manager().record_period_execution(self.format_date(), schedule.period_key, "analyze")
 
-        return insight, legacy_result
+        return insight
 
     def assemble_renderable_report(
         self,

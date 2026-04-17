@@ -104,7 +104,7 @@ class FakeContext:
 
     def run_insight_stage(self, **kwargs):
         self.calls.append(("insight", kwargs))
-        return self.insight, SimpleNamespace(success=True)
+        return self.insight
 
     def assemble_renderable_report(self, snapshot, selection, insight):
         self.calls.append(("assemble", snapshot, selection, insight))

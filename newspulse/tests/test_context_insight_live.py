@@ -96,7 +96,7 @@ class LiveAppContextInsightStageTest(unittest.TestCase):
             total_selected=2,
         )
 
-        insight, legacy = ctx.run_insight_stage(
+        insight = ctx.run_insight_stage(
             report_mode="current",
             snapshot=snapshot,
             selection=selection,
@@ -105,10 +105,9 @@ class LiveAppContextInsightStageTest(unittest.TestCase):
 
         self.assertTrue(insight.enabled)
         self.assertEqual(insight.strategy, "ai")
-        self.assertTrue(legacy.success)
-        self.assertEqual(legacy.ai_mode, "current")
-        self.assertTrue(legacy.raw_response.strip())
-        self.assertTrue(legacy.core_trends or legacy.signals or legacy.outlook_strategy)
+        self.assertEqual(insight.diagnostics["report_mode"], "current")
+        self.assertTrue(insight.raw_response.strip())
+        self.assertTrue(any(section.content for section in insight.sections))
 
 
 if __name__ == "__main__":

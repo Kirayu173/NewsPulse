@@ -5,7 +5,6 @@ from tempfile import TemporaryDirectory
 
 from newspulse.report.sections.hotlist import render_hotlist_stats_html
 from newspulse.workflow import build_render_view_model
-from newspulse.workflow.selection.legacy import selection_result_to_legacy_stats
 from newspulse.workflow.selection.service import SelectionService
 from newspulse.workflow.shared.contracts import HotlistItem, HotlistSnapshot, InsightResult, LocalizedReport, RenderableReport
 from newspulse.workflow.shared.options import SelectionOptions
@@ -117,11 +116,25 @@ class SelectionServiceTest(unittest.TestCase):
             self.assertEqual([item.news_item_id for item in result.selected_items], ["1", "3"])
             self.assertEqual(result.diagnostics["matched_candidates"], 3)
 
-            legacy_stats = selection_result_to_legacy_stats(result, display_mode="keyword", rank_threshold=5)
-            self.assertEqual([stat["word"] for stat in legacy_stats], ["AI", "OpenSource"])
-            self.assertEqual(legacy_stats[0]["count"], 2)
-            self.assertTrue(legacy_stats[0]["titles"][0]["is_new"])
-            self.assertEqual(legacy_stats[0]["titles"][0]["time_display"], "[2026-04-17 09:00:00 ~ 2026-04-17 10:00:00]")
+            view_model = build_render_view_model(
+                LocalizedReport(
+                    base_report=RenderableReport(
+                        meta={"mode": "current", "report_type": "实时报告"},
+                        selection=result,
+                        insight=InsightResult(),
+                        display_regions=["hotlist"],
+                    )
+                ),
+                display_mode="keyword",
+                rank_threshold=5,
+            )
+            self.assertEqual([group.label for group in view_model.hotlist_groups], ["AI", "OpenSource"])
+            self.assertEqual(view_model.hotlist_groups[0].count, 2)
+            self.assertTrue(view_model.hotlist_groups[0].items[0].is_new)
+            self.assertEqual(
+                view_model.hotlist_groups[0].items[0].time_display,
+                "[2026-04-17 09:00:00 ~ 2026-04-17 10:00:00]",
+            )
 
     def test_keyword_selection_can_sort_by_group_position(self):
         with TemporaryDirectory() as tmp:
@@ -154,9 +167,20 @@ class SelectionServiceTest(unittest.TestCase):
             self.assertEqual([group.label for group in result.groups], ["Later", "Earlier"])
             self.assertEqual(result.total_selected, 3)
 
-            platform_stats = selection_result_to_legacy_stats(result, display_mode="platform", rank_threshold=5)
-            self.assertEqual([stat["word"] for stat in platform_stats], ["Platform 1"])
-            self.assertEqual(platform_stats[0]["titles"][0]["matched_keyword"], "Earlier")
+            view_model = build_render_view_model(
+                LocalizedReport(
+                    base_report=RenderableReport(
+                        meta={"mode": "daily", "report_type": "每日报告"},
+                        selection=result,
+                        insight=InsightResult(),
+                        display_regions=["hotlist"],
+                    )
+                ),
+                display_mode="platform",
+                rank_threshold=5,
+            )
+            self.assertEqual([group.label for group in view_model.hotlist_groups], ["Platform 1"])
+            self.assertEqual(view_model.hotlist_groups[0].items[0].matched_keyword, "Earlier")
 
     def test_keyword_selection_result_feeds_native_render_section_model(self):
         with TemporaryDirectory() as tmp:

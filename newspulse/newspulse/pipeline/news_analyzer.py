@@ -279,7 +279,7 @@ class NewsAnalyzer:
         )
         self._log_selection_result(selection)
 
-        insight, _ = self.ctx.run_insight_stage(
+        insight = self.ctx.run_insight_stage(
             report_mode=self.report_mode,
             snapshot=snapshot,
             selection=selection,
