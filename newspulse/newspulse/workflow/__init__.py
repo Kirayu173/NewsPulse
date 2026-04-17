@@ -39,6 +39,12 @@ from newspulse.workflow.render import (
     RenderReportMeta,
     RenderService,
 )
+from newspulse.workflow.delivery import (
+    ChannelDeliveryResult,
+    DeliveryResult,
+    DeliveryService,
+    GenericWebhookDeliveryAdapter,
+)
 
 WORKFLOW_STAGE_NAMES = (
     "snapshot",
@@ -120,7 +126,11 @@ __all__ = [
     "WORKFLOW_STAGE_NAMES",
     "DeliveryOptions",
     "DeliveryPayload",
+    "DeliveryResult",
     "DeliveryStage",
+    "DeliveryService",
+    "GenericWebhookDeliveryAdapter",
+    "ChannelDeliveryResult",
     "HTMLArtifact",
     "HTMLRenderAdapter",
     "HotlistItem",

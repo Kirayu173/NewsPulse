@@ -1,108 +1,61 @@
 ﻿# coding=utf-8
-"""Notification dispatcher for webhook channels."""
+"""Notification dispatcher for prepared delivery payloads."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
+from collections import defaultdict
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Sequence
 
 from newspulse.core.config import limit_accounts, parse_multi_account_config
+from newspulse.notification.batch import add_batch_headers
 
-from .senders import send_to_generic_webhook
+from .senders import send_prepared_generic_webhook
 
 if TYPE_CHECKING:
-    from newspulse.ai import AIAnalysisResult, AITranslator
+    from newspulse.ai import AIAnalysisResult
+    from newspulse.workflow.shared.contracts import DeliveryPayload
 
 
 class NotificationDispatcher:
-    """Dispatch translated report content to configured channels."""
+    """Dispatch prepared payloads to configured channels."""
 
     def __init__(
         self,
         config: Dict[str, Any],
-        get_time_func: Callable,
-        split_content_func: Callable,
-        translator: Optional["AITranslator"] = None,
+        split_content_func: Optional[Callable] = None,
+        generic_webhook_sender: Callable[..., bool] = send_prepared_generic_webhook,
     ):
         self.config = config
-        self.get_time_func = get_time_func
         self.split_content_func = split_content_func
         self.max_accounts = config.get("MAX_ACCOUNTS_PER_CHANNEL", 3)
-        self.translator = translator
+        self.generic_webhook_sender = generic_webhook_sender
 
-    def translate_content(
+    def dispatch_payloads(
         self,
-        report_data: Dict,
-        standalone_data: Optional[Dict] = None,
-        display_regions: Optional[Dict] = None,
-    ) -> tuple:
-        if not self.translator or not self.translator.enabled:
-            return report_data, standalone_data
+        payloads: Sequence["DeliveryPayload"],
+        *,
+        proxy_url: Optional[str] = None,
+        dry_run: bool = False,
+    ) -> Dict[str, bool]:
+        """Dispatch already-rendered payloads to their target channels."""
 
-        import copy
+        grouped: dict[str, list["DeliveryPayload"]] = defaultdict(list)
+        for payload in payloads:
+            channel = str(getattr(payload, "channel", "")).strip()
+            if channel:
+                grouped[channel].append(payload)
 
-        print(f"[翻译] 正在翻译推送内容到 {self.translator.target_language}...")
-        scope = self.translator.scope
-        display_regions = display_regions or {}
-
-        report_data = copy.deepcopy(report_data)
-        standalone_data = copy.deepcopy(standalone_data) if standalone_data else None
-
-        titles_to_translate = []
-        title_locations = []
-
-        if scope.get("HOTLIST", True) and display_regions.get("HOTLIST", True):
-            for stat_idx, stat in enumerate(report_data.get("stats", [])):
-                for title_idx, title_data in enumerate(stat.get("titles", [])):
-                    titles_to_translate.append(title_data.get("title", ""))
-                    title_locations.append(("stats", stat_idx, title_idx))
-
-            for source_idx, source in enumerate(report_data.get("new_titles", [])):
-                for title_idx, title_data in enumerate(source.get("titles", [])):
-                    titles_to_translate.append(title_data.get("title", ""))
-                    title_locations.append(("new_titles", source_idx, title_idx))
-
-        if standalone_data and scope.get("STANDALONE", True) and display_regions.get("STANDALONE", False):
-            for plat_idx, platform in enumerate(standalone_data.get("platforms", [])):
-                for item_idx, item in enumerate(platform.get("items", [])):
-                    titles_to_translate.append(item.get("title", ""))
-                    title_locations.append(("standalone_platforms", plat_idx, item_idx))
-
-        if not titles_to_translate:
-            print("[翻译] 没有可翻译的标题")
-            return report_data, standalone_data
-
-        print(f"[翻译] 共 {len(titles_to_translate)} 条标题待翻译")
-        result = self.translator.translate_batch(titles_to_translate)
-
-        if result.success_count == 0:
-            error = result.results[0].error if result.results else "未知错误"
-            print(f"[翻译] 翻译失败: {error}")
-            return report_data, standalone_data
-
-        print(f"[翻译] 翻译完成: {result.success_count}/{result.total_count} 条")
-
-        if self.config.get("DEBUG", False):
-            if result.prompt:
-                print("[翻译][DEBUG] === 完整 AI Prompt ===")
-                print(result.prompt)
-                print("[翻译][DEBUG] === Prompt 结束 ===")
-            if result.raw_response:
-                print("[翻译][DEBUG] === AI 原始响应 ===")
-                print(result.raw_response)
-                print("[翻译][DEBUG] === 原始响应结束 ===")
-
-        for i, (loc_type, idx1, idx2) in enumerate(title_locations):
-            if i >= len(result.results) or not result.results[i].success:
+        results: Dict[str, bool] = {}
+        for channel, channel_payloads in grouped.items():
+            if channel == "generic_webhook":
+                results[channel] = self._dispatch_generic_webhook_payloads(
+                    channel_payloads,
+                    proxy_url=proxy_url,
+                    dry_run=dry_run,
+                )
                 continue
-            translated = result.results[i].translated_text
-            if loc_type == "stats":
-                report_data["stats"][idx1]["titles"][idx2]["title"] = translated
-            elif loc_type == "new_titles":
-                report_data["new_titles"][idx1]["titles"][idx2]["title"] = translated
-            elif loc_type == "standalone_platforms" and standalone_data:
-                standalone_data["platforms"][idx1]["items"][idx2]["title"] = translated
-
-        return report_data, standalone_data
+            results[channel] = False
+        return results
 
     def dispatch_all(
         self,
@@ -116,51 +69,108 @@ class NotificationDispatcher:
         standalone_data: Optional[Dict] = None,
         skip_translation: bool = False,
     ) -> Dict[str, bool]:
+        """Legacy compatibility wrapper scheduled for removal in later stages."""
+
         del html_file_path
-        results: Dict[str, bool] = {}
+        del skip_translation
         display_regions = self.config.get("DISPLAY", {}).get("REGIONS", {})
+        report_data, ai_analysis, standalone_data = self._apply_display_regions(
+            report_data,
+            display_regions,
+            ai_analysis,
+            standalone_data,
+        )
 
-        if not skip_translation:
-            report_data, standalone_data = self.translate_content(
-                report_data,
-                standalone_data=standalone_data,
-                display_regions=display_regions,
-            )
+        payloads = self._build_legacy_payloads(
+            report_data=report_data,
+            report_type=report_type,
+            update_info=update_info,
+            mode=mode,
+            ai_analysis=ai_analysis,
+            standalone_data=standalone_data,
+        )
+        return self.dispatch_payloads(payloads, proxy_url=proxy_url)
 
-        if self.config.get("GENERIC_WEBHOOK_URL"):
-            results["generic_webhook"] = self._send_generic_webhook(
-                report_data,
-                report_type,
-                update_info,
-                proxy_url,
-                mode,
-                ai_analysis,
-                display_regions,
-                standalone_data,
-            )
-
-        return results
-
-    def _send_to_multi_accounts(
+    def _build_legacy_payloads(
         self,
-        channel_name: str,
-        config_value: str,
-        send_func: Callable[..., bool],
-        **kwargs,
-    ) -> bool:
-        accounts = parse_multi_account_config(config_value)
-        if not accounts:
-            return False
+        *,
+        report_data: Dict,
+        report_type: str,
+        update_info: Optional[Dict],
+        mode: str,
+        ai_analysis: Optional["AIAnalysisResult"],
+        standalone_data: Optional[Dict],
+    ) -> list["DeliveryPayload"]:
+        if self.split_content_func is None:
+            raise ValueError("split_content_func is required for legacy dispatch_all")
 
-        accounts = limit_accounts(accounts, self.max_accounts, channel_name)
-        results = []
-        for i, account in enumerate(accounts):
-            if not account:
-                continue
-            account_label = f"账号{i + 1}" if len(accounts) > 1 else ""
-            results.append(send_func(account, account_label=account_label, **kwargs))
+        from newspulse.workflow.shared.contracts import DeliveryPayload
 
-        return any(results) if results else False
+        payloads: list[DeliveryPayload] = []
+        if self.config.get("GENERIC_WEBHOOK_URL"):
+            batches = self._build_generic_webhook_batches(
+                report_data=report_data,
+                report_type=report_type,
+                update_info=update_info,
+                mode=mode,
+                ai_analysis=ai_analysis,
+                standalone_data=standalone_data,
+            )
+            for index, content in enumerate(batches, start=1):
+                payloads.append(
+                    DeliveryPayload(
+                        channel="generic_webhook",
+                        title=report_type,
+                        content=content,
+                        metadata={
+                            "mode": mode,
+                            "batch_index": index,
+                            "batch_total": len(batches),
+                            "legacy_dispatch": True,
+                            "has_batch_headers": True,
+                        },
+                    )
+                )
+        return payloads
+
+    def _build_generic_webhook_batches(
+        self,
+        *,
+        report_data: Dict,
+        report_type: str,
+        update_info: Optional[Dict],
+        mode: str,
+        ai_analysis: Optional["AIAnalysisResult"],
+        standalone_data: Optional[Dict],
+    ) -> list[str]:
+        ai_content = None
+        ai_stats = None
+        if ai_analysis:
+            from newspulse.ai.formatter import get_ai_analysis_renderer
+
+            ai_content = get_ai_analysis_renderer("wework")(ai_analysis)
+            if getattr(ai_analysis, "success", False):
+                ai_stats = {
+                    "total_news": getattr(ai_analysis, "total_news", 0),
+                    "analyzed_news": getattr(ai_analysis, "analyzed_news", 0),
+                    "max_news_limit": getattr(ai_analysis, "max_news_limit", 0),
+                    "hotlist_count": getattr(ai_analysis, "hotlist_count", 0),
+                    "ai_mode": getattr(ai_analysis, "ai_mode", ""),
+                }
+
+        template_overhead = 200
+        batches = self.split_content_func(
+            report_data,
+            "wework",
+            update_info,
+            max_bytes=self.config.get("MESSAGE_BATCH_SIZE", 4000) - template_overhead,
+            mode=mode,
+            ai_content=ai_content,
+            standalone_data=standalone_data,
+            ai_stats=ai_stats,
+            report_type=report_type,
+        )
+        return add_batch_headers(batches, "generic_webhook", self.config.get("MESSAGE_BATCH_SIZE", 4000))
 
     def _apply_display_regions(
         self,
@@ -178,31 +188,28 @@ class NotificationDispatcher:
             standalone_data if display_regions.get("STANDALONE", False) else None,
         )
 
-    def _send_generic_webhook(
+    def _dispatch_generic_webhook_payloads(
         self,
-        report_data: Dict,
-        report_type: str,
-        update_info: Optional[Dict],
-        proxy_url: Optional[str],
-        mode: str,
-        ai_analysis: Optional["AIAnalysisResult"] = None,
-        display_regions: Optional[Dict] = None,
-        standalone_data: Optional[Dict] = None,
+        payloads: Sequence["DeliveryPayload"],
+        *,
+        proxy_url: Optional[str] = None,
+        dry_run: bool = False,
     ) -> bool:
-        report_data, ai_analysis, standalone_data = self._apply_display_regions(
-            report_data,
-            display_regions,
-            ai_analysis,
-            standalone_data,
-        )
-        display_regions = display_regions or {}
-
         urls = parse_multi_account_config(self.config.get("GENERIC_WEBHOOK_URL", ""))
         templates = parse_multi_account_config(self.config.get("GENERIC_WEBHOOK_TEMPLATE", ""))
-        if not urls:
+        if not urls or not payloads:
             return False
 
         urls = limit_accounts(urls, self.max_accounts, "通用Webhook")
+        title = str(getattr(payloads[0], "title", "NewsPulse")) if payloads else "NewsPulse"
+        if payloads and bool(getattr(payloads[0], "metadata", {}).get("has_batch_headers", False)):
+            contents = [str(getattr(payload, "content", "")) for payload in payloads]
+        else:
+            contents = add_batch_headers(
+                [str(getattr(payload, "content", "")) for payload in payloads],
+                "generic_webhook",
+                self.config.get("MESSAGE_BATCH_SIZE", 4000),
+            )
         results = []
         for i, url in enumerate(urls):
             if not url:
@@ -216,22 +223,23 @@ class NotificationDispatcher:
                     template = templates[0]
 
             account_label = f"账号{i + 1}" if len(urls) > 1 else ""
-            result = send_to_generic_webhook(
-                webhook_url=url,
-                payload_template=template,
-                report_data=report_data,
-                report_type=report_type,
-                update_info=update_info,
-                proxy_url=proxy_url,
-                mode=mode,
-                account_label=account_label,
-                batch_size=self.config.get("MESSAGE_BATCH_SIZE", 4000),
-                batch_interval=self.config.get("BATCH_SEND_INTERVAL", 1.0),
-                split_content_func=self.split_content_func,
-                ai_analysis=ai_analysis,
-                display_regions=display_regions,
-                standalone_data=standalone_data,
-            )
-            results.append(result)
+            if dry_run:
+                print(f"通用Webhook{account_label} dry-run：跳过发送 {len(contents)} 个批次 [{title}]")
+                results.append(True)
+                continue
+
+            account_success = True
+            for content in contents:
+                if not self.generic_webhook_sender(
+                    webhook_url=url,
+                    payload_template=template,
+                    title=title,
+                    content=content,
+                    proxy_url=proxy_url,
+                    account_label=account_label,
+                ):
+                    account_success = False
+                    break
+            results.append(account_success)
 
         return any(results) if results else False

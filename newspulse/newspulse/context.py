@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from newspulse.ai import AIAnalysisResult, AITranslator
+from newspulse.ai import AIAnalysisResult
 from newspulse.ai.filter import AIFilter, AIFilterResult
 from newspulse.core.scheduler import ResolvedSchedule
 from newspulse.core import (
@@ -21,6 +21,7 @@ from newspulse.core import (
 from newspulse.notification import NotificationDispatcher, split_content_into_batches
 from newspulse.report import generate_html_report, prepare_report_data, render_html_content
 from newspulse.storage import get_storage_manager
+from newspulse.workflow.delivery import DeliveryService, GenericWebhookDeliveryAdapter
 from newspulse.workflow.insight import InsightService, to_ai_analysis_result
 from newspulse.workflow.localization import LocalizationService
 from newspulse.workflow.render import HTMLRenderAdapter, HotlistReportAssembler, NotificationRenderAdapter, RenderService
@@ -35,6 +36,7 @@ from newspulse.utils.time import (
 from newspulse.workflow.selection import SelectionService
 from newspulse.workflow.shared.contracts import HotlistSnapshot, InsightResult, LocalizedReport, RenderableReport, SelectionResult
 from newspulse.workflow.shared.options import (
+    DeliveryOptions,
     InsightOptions,
     LocalizationOptions,
     LocalizationScope,
@@ -320,16 +322,9 @@ class AppContext:
         )
 
     def create_notification_dispatcher(self) -> NotificationDispatcher:
-        translator = None
-        translation_config = self.config.get("AI_TRANSLATION", {})
-        if translation_config.get("ENABLED", False):
-            translator = AITranslator(translation_config, self.ai_translation_model_config)
-
         return NotificationDispatcher(
             config=self.config,
-            get_time_func=self.get_time,
             split_content_func=self.split_content,
-            translator=translator,
         )
 
     def create_scheduler(self) -> Scheduler:
@@ -497,6 +492,12 @@ class AppContext:
             weight_config=self.weight_config,
         )
 
+    def create_delivery_service(self) -> DeliveryService:
+        """Create the workflow delivery service with the current project config."""
+
+        generic_webhook_adapter = GenericWebhookDeliveryAdapter(self.config)
+        return DeliveryService(generic_webhook_adapter=generic_webhook_adapter)
+
     def build_insight_options(
         self,
         *,
@@ -567,6 +568,28 @@ class AppContext:
             display_regions=list(display_regions or self.region_order),
             emit_html=True if emit_html is None else emit_html,
             emit_notification=bool(notification_channels) if emit_notification is None else emit_notification,
+            metadata=metadata,
+        )
+
+    def build_delivery_options(
+        self,
+        *,
+        enabled: Optional[bool] = None,
+        channels: Optional[List[str]] = None,
+        dry_run: bool = False,
+        proxy_url: Optional[str] = None,
+    ) -> DeliveryOptions:
+        """Build workflow delivery options from the current app config."""
+
+        effective_channels = list(channels or self._get_render_notification_channels())
+        metadata: Dict[str, Any] = {}
+        if proxy_url:
+            metadata["proxy_url"] = proxy_url
+
+        return DeliveryOptions(
+            enabled=bool(self.config.get("ENABLE_NOTIFICATION", True)) if enabled is None else enabled,
+            channels=effective_channels,
+            dry_run=dry_run,
             metadata=metadata,
         )
 
@@ -693,6 +716,27 @@ class AppContext:
         )
         service = render_service or self.create_render_service()
         return service.run(report, options)
+
+    def run_delivery_stage(
+        self,
+        payloads,
+        *,
+        enabled: Optional[bool] = None,
+        channels: Optional[List[str]] = None,
+        dry_run: bool = False,
+        proxy_url: Optional[str] = None,
+        delivery_service: Optional[DeliveryService] = None,
+    ):
+        """Run the native delivery stage for prepared payloads."""
+
+        options = self.build_delivery_options(
+            enabled=enabled,
+            channels=channels,
+            dry_run=dry_run,
+            proxy_url=proxy_url,
+        )
+        service = delivery_service or self.create_delivery_service()
+        return service.run(payloads, options)
 
     def _get_render_notification_channels(self) -> List[str]:
         channels: List[str] = []
