@@ -29,7 +29,16 @@ from newspulse.workflow.shared.options import (
     SnapshotOptions,
     WorkflowOptions,
 )
-from newspulse.workflow.render import HotlistReportAssembler, RenderReportMeta
+from newspulse.workflow.render import (
+    HTMLArtifact,
+    HTMLRenderAdapter,
+    HotlistReportAssembler,
+    LegacyRenderContext,
+    NotificationRenderAdapter,
+    RenderArtifacts,
+    RenderReportMeta,
+    RenderService,
+)
 
 WORKFLOW_STAGE_NAMES = (
     "snapshot",
@@ -112,6 +121,8 @@ __all__ = [
     "DeliveryOptions",
     "DeliveryPayload",
     "DeliveryStage",
+    "HTMLArtifact",
+    "HTMLRenderAdapter",
     "HotlistItem",
     "HotlistSnapshot",
     "HotlistReportAssembler",
@@ -119,12 +130,16 @@ __all__ = [
     "InsightResult",
     "InsightSection",
     "InsightStage",
+    "LegacyRenderContext",
     "LocalizationOptions",
     "LocalizationScope",
     "LocalizationStage",
     "LocalizedReport",
+    "NotificationRenderAdapter",
     "RenderOptions",
+    "RenderArtifacts",
     "RenderReportMeta",
+    "RenderService",
     "RenderStage",
     "RenderableReport",
     "ReportAssembler",

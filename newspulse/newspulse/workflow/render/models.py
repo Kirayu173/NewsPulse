@@ -6,6 +6,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from newspulse.workflow.shared.contracts import DeliveryPayload
+
 
 DEFAULT_RENDER_REGIONS = [
     "hotlist",
@@ -63,3 +65,32 @@ class RenderReportMeta:
             "insight_diagnostics": dict(self.insight_diagnostics),
             "failed_sources": [dict(item) for item in self.failed_sources],
         }
+
+
+@dataclass(frozen=True)
+class LegacyRenderContext:
+    """Legacy adapter payload consumed by the current HTML and notification renderers."""
+
+    report_data: dict[str, Any] = field(default_factory=dict)
+    standalone_data: dict[str, Any] | None = None
+    ai_analysis: Any = None
+    total_titles: int = 0
+    mode: str = "daily"
+    report_type: str = "热点报告"
+
+
+@dataclass(frozen=True)
+class HTMLArtifact:
+    """HTML render artifact produced by the render stage."""
+
+    file_path: str = ""
+    content: str = ""
+
+
+@dataclass(frozen=True)
+class RenderArtifacts:
+    """Combined render outputs used by the downstream delivery stage."""
+
+    html: HTMLArtifact = field(default_factory=HTMLArtifact)
+    payloads: list[DeliveryPayload] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)

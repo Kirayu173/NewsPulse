@@ -23,7 +23,7 @@ from newspulse.report import generate_html_report, prepare_report_data, render_h
 from newspulse.storage import get_storage_manager
 from newspulse.workflow.insight import InsightService, to_ai_analysis_result
 from newspulse.workflow.localization import LocalizationService
-from newspulse.workflow.render import HotlistReportAssembler
+from newspulse.workflow.render import HTMLRenderAdapter, HotlistReportAssembler, NotificationRenderAdapter, RenderService
 from newspulse.utils.time import (
     DEFAULT_TIMEZONE,
     convert_time_for_display,
@@ -38,6 +38,7 @@ from newspulse.workflow.shared.options import (
     InsightOptions,
     LocalizationOptions,
     LocalizationScope,
+    RenderOptions,
     SelectionAIOptions,
     SelectionOptions,
     SnapshotOptions,
@@ -467,6 +468,35 @@ class AppContext:
             ai_runtime_config=self.ai_translation_model_config,
         )
 
+    def create_render_service(self) -> RenderService:
+        """Create the workflow render service with the current project config."""
+
+        html_adapter = HTMLRenderAdapter(
+            output_dir=str(self.get_data_dir()),
+            get_time_func=self.get_time,
+            date_folder_func=self.format_date,
+            time_filename_func=self.format_time,
+            region_order=self.region_order,
+            display_mode=self.display_mode,
+            show_new_section=self.show_new_section,
+        )
+        notification_adapter = NotificationRenderAdapter(
+            notification_channels=self._get_render_notification_channels(),
+            get_time_func=self.get_time,
+            region_order=self.region_order,
+            display_mode=self.display_mode,
+            rank_threshold=self.rank_threshold,
+            batch_size=self.config.get("MESSAGE_BATCH_SIZE", 4000),
+            show_new_section=self.show_new_section,
+        )
+        return RenderService(
+            html_adapter=html_adapter,
+            notification_adapter=notification_adapter,
+            display_mode=self.display_mode,
+            rank_threshold=self.rank_threshold,
+            weight_config=self.weight_config,
+        )
+
     def build_insight_options(
         self,
         *,
@@ -516,6 +546,28 @@ class AppContext:
             metadata={
                 "legacy_scope": dict(scope),
             },
+        )
+
+    def build_render_options(
+        self,
+        *,
+        emit_html: Optional[bool] = None,
+        emit_notification: Optional[bool] = None,
+        display_regions: Optional[List[str]] = None,
+        update_info: Optional[Dict[str, Any]] = None,
+    ) -> RenderOptions:
+        """Build workflow render options from the current app config."""
+
+        notification_channels = self._get_render_notification_channels()
+        metadata: Dict[str, Any] = {}
+        if update_info:
+            metadata["update_info"] = dict(update_info)
+
+        return RenderOptions(
+            display_regions=list(display_regions or self.region_order),
+            emit_html=True if emit_html is None else emit_html,
+            emit_notification=bool(notification_channels) if emit_notification is None else emit_notification,
+            metadata=metadata,
         )
 
     @staticmethod
@@ -620,6 +672,33 @@ class AppContext:
         options = self.build_localization_options(strategy=strategy)
         service = localization_service or self.create_localization_service()
         return service.run(report, options)
+
+    def run_render_stage(
+        self,
+        report: LocalizedReport,
+        *,
+        emit_html: Optional[bool] = None,
+        emit_notification: Optional[bool] = None,
+        display_regions: Optional[List[str]] = None,
+        update_info: Optional[Dict[str, Any]] = None,
+        render_service: Optional[RenderService] = None,
+    ):
+        """Run the native render stage for the localized report."""
+
+        options = self.build_render_options(
+            emit_html=emit_html,
+            emit_notification=emit_notification,
+            display_regions=display_regions,
+            update_info=update_info,
+        )
+        service = render_service or self.create_render_service()
+        return service.run(report, options)
+
+    def _get_render_notification_channels(self) -> List[str]:
+        channels: List[str] = []
+        if self.config.get("GENERIC_WEBHOOK_URL"):
+            channels.append("generic_webhook")
+        return channels
 
     def convert_selection_to_report_data(self, selection_result: SelectionResult) -> List[Dict]:
         """Adapt native workflow selection output back into the current legacy stats structure."""
