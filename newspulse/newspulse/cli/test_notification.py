@@ -92,9 +92,7 @@ def run_test_notification(config: Dict) -> bool:
 
         dispatcher = NotificationDispatcher(
             config=test_config,
-            get_time_func=test_ctx.get_time,
             split_content_func=test_ctx.split_content,
-            translator=None,
         )
 
         report_data = _build_test_report_data(test_ctx)
