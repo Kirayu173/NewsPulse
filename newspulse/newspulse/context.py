@@ -22,6 +22,7 @@ from newspulse.notification import NotificationDispatcher, split_content_into_ba
 from newspulse.report import generate_html_report, prepare_report_data, render_html_content
 from newspulse.storage import get_storage_manager
 from newspulse.workflow.insight import InsightService, to_ai_analysis_result
+from newspulse.workflow.localization import LocalizationService
 from newspulse.workflow.render import HotlistReportAssembler
 from newspulse.utils.time import (
     DEFAULT_TIMEZONE,
@@ -32,8 +33,15 @@ from newspulse.utils.time import (
     get_current_time_display,
 )
 from newspulse.workflow.selection import SelectionService
-from newspulse.workflow.shared.contracts import HotlistSnapshot, InsightResult, RenderableReport, SelectionResult
-from newspulse.workflow.shared.options import InsightOptions, SelectionAIOptions, SelectionOptions, SnapshotOptions
+from newspulse.workflow.shared.contracts import HotlistSnapshot, InsightResult, LocalizedReport, RenderableReport, SelectionResult
+from newspulse.workflow.shared.options import (
+    InsightOptions,
+    LocalizationOptions,
+    LocalizationScope,
+    SelectionAIOptions,
+    SelectionOptions,
+    SnapshotOptions,
+)
 from newspulse.workflow.snapshot import SnapshotService
 
 
@@ -451,6 +459,14 @@ class AppContext:
             display_mode=self.display_mode,
         )
 
+    def create_localization_service(self) -> LocalizationService:
+        """Create the workflow localization service with the current project config."""
+
+        return LocalizationService(
+            ai_translation_config=self.config.get("AI_TRANSLATION", {}),
+            ai_runtime_config=self.ai_translation_model_config,
+        )
+
     def build_insight_options(
         self,
         *,
@@ -473,6 +489,32 @@ class AppContext:
             metadata={
                 "requested_mode": requested_mode,
                 "report_mode": report_mode,
+            },
+        )
+
+    def build_localization_options(
+        self,
+        *,
+        strategy: Optional[str] = None,
+    ) -> LocalizationOptions:
+        """Build workflow localization options from the current app config."""
+
+        translation_config = self.config.get("AI_TRANSLATION", {})
+        enabled = bool(translation_config.get("ENABLED", False))
+        scope = translation_config.get("SCOPE", {})
+
+        return LocalizationOptions(
+            enabled=enabled,
+            strategy=strategy or ("ai" if enabled else "noop"),
+            language=str(translation_config.get("LANGUAGE", "English")),
+            scope=LocalizationScope(
+                selection_titles=bool(scope.get("HOTLIST", True)),
+                new_items=bool(scope.get("HOTLIST", True)),
+                standalone=bool(scope.get("STANDALONE", True)),
+                insight_sections=bool(scope.get("INSIGHT", False)),
+            ),
+            metadata={
+                "legacy_scope": dict(scope),
             },
         )
 
@@ -565,6 +607,19 @@ class AppContext:
 
         assembler = report_assembler or self.create_report_assembler()
         return assembler.assemble(snapshot, selection, insight)
+
+    def run_localization_stage(
+        self,
+        report: RenderableReport,
+        *,
+        strategy: Optional[str] = None,
+        localization_service: Optional[LocalizationService] = None,
+    ) -> LocalizedReport:
+        """Run the native localization stage for the assembled renderable report."""
+
+        options = self.build_localization_options(strategy=strategy)
+        service = localization_service or self.create_localization_service()
+        return service.run(report, options)
 
     def convert_selection_to_report_data(self, selection_result: SelectionResult) -> List[Dict]:
         """Adapt native workflow selection output back into the current legacy stats structure."""
