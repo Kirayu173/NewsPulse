@@ -4,9 +4,8 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Callable, List, Optional
 
-from newspulse.ai.formatter import render_ai_analysis_html_rich
 from newspulse.report.helpers import html_escape
 from newspulse.report.sections import (
     add_section_divider,
@@ -14,6 +13,10 @@ from newspulse.report.sections import (
     render_new_titles_html,
     render_standalone_html,
 )
+from newspulse.workflow.render.insight import render_insight_html_rich
+
+if TYPE_CHECKING:
+    from newspulse.workflow.render.models import RenderViewModel
 
 
 def _mode_label(mode: str) -> str:
@@ -38,16 +41,11 @@ def _render_failed_section(failed_ids: List[str]) -> str:
 
 
 def render_html_content(
-    report_data: Dict,
-    total_titles: int,
-    mode: str = "daily",
-    update_info: Optional[Dict] = None,
+    view_model: "RenderViewModel",
+    update_info: Optional[dict] = None,
     *,
     region_order: Optional[List[str]] = None,
     get_time_func: Optional[Callable[[], datetime]] = None,
-    display_mode: str = "keyword",
-    standalone_data: Optional[Dict] = None,
-    ai_analysis: Optional[Any] = None,
     show_new_section: bool = True,
 ) -> str:
     """Render the hotlist report as a standalone HTML page."""
@@ -56,16 +54,13 @@ def render_html_content(
         region_order = ["hotlist", "new_items", "standalone", "ai_analysis"]
 
     now = get_time_func() if get_time_func else datetime.now()
-    failed_section = _render_failed_section(report_data.get("failed_ids", []))
-    hotlist_html = render_hotlist_stats_html(report_data.get("stats", []), display_mode=display_mode)
+    failed_section = _render_failed_section(view_model.failed_source_names)
+    hotlist_html = render_hotlist_stats_html(view_model.hotlist_groups, display_mode=view_model.display_mode)
     new_items_html = ""
     if show_new_section:
-        new_items_html = render_new_titles_html(
-            report_data.get("new_titles", []),
-            report_data.get("total_new_count", 0),
-        )
-    standalone_html = render_standalone_html(standalone_data)
-    ai_html = render_ai_analysis_html_rich(ai_analysis) if ai_analysis else ""
+        new_items_html = render_new_titles_html(view_model.new_item_groups, view_model.total_new_items)
+    standalone_html = render_standalone_html(view_model.standalone_groups)
+    ai_html = render_insight_html_rich(view_model.insight)
 
     region_contents = {
         "hotlist": hotlist_html,
@@ -544,11 +539,11 @@ def render_html_content(
             <div class="header-grid">
                 <div class="header-card">
                     <div class="header-card-label">模式</div>
-                    <div class="header-card-value">{html_escape(_mode_label(mode))}</div>
+                    <div class="header-card-value">{html_escape(_mode_label(view_model.mode))}</div>
                 </div>
                 <div class="header-card">
                     <div class="header-card-label">标题数</div>
-                    <div class="header-card-value">{total_titles}</div>
+                    <div class="header-card-value">{view_model.total_titles}</div>
                 </div>
                 <div class="header-card">
                     <div class="header-card-label">生成时间</div>

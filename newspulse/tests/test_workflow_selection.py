@@ -4,9 +4,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from newspulse.report.sections.hotlist import render_hotlist_stats_html
+from newspulse.workflow import build_render_view_model
 from newspulse.workflow.selection.legacy import selection_result_to_legacy_stats
 from newspulse.workflow.selection.service import SelectionService
-from newspulse.workflow.shared.contracts import HotlistItem, HotlistSnapshot
+from newspulse.workflow.shared.contracts import HotlistItem, HotlistSnapshot, InsightResult, LocalizedReport, RenderableReport
 from newspulse.workflow.shared.options import SelectionOptions
 
 
@@ -157,7 +158,7 @@ class SelectionServiceTest(unittest.TestCase):
             self.assertEqual([stat["word"] for stat in platform_stats], ["Platform 1"])
             self.assertEqual(platform_stats[0]["titles"][0]["matched_keyword"], "Earlier")
 
-    def test_legacy_stats_adapter_remains_compatible_with_section_renderer(self):
+    def test_keyword_selection_result_feeds_native_render_section_model(self):
         with TemporaryDirectory() as tmp:
             config_root = Path(tmp) / "config"
             _write_text(
@@ -192,10 +193,21 @@ class SelectionServiceTest(unittest.TestCase):
 
             service = SelectionService(config_root=str(config_root))
             result = service.run(snapshot, SelectionOptions(strategy="keyword", frequency_file="render.txt"))
-            legacy_stats = selection_result_to_legacy_stats(result, display_mode="keyword", rank_threshold=5)
-            html = render_hotlist_stats_html(legacy_stats, display_mode="keyword")
+            localized = LocalizedReport(
+                base_report=RenderableReport(
+                    meta={
+                        "mode": "current",
+                        "report_type": "实时报告",
+                    },
+                    selection=result,
+                    insight=InsightResult(),
+                    display_regions=["hotlist"],
+                )
+            )
+            view_model = build_render_view_model(localized, display_mode="keyword", rank_threshold=5)
+            html = render_hotlist_stats_html(view_model.hotlist_groups, display_mode=view_model.display_mode)
 
-            self.assertEqual(legacy_stats[0]["titles"][0]["title"], "AI launches new model")
+            self.assertEqual(view_model.hotlist_groups[0].items[0].title, "AI launches new model")
             self.assertIn("Platform 1", html)
             self.assertIn("news-item new", html)
             self.assertIn("09:00~10:00", html)

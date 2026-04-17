@@ -5,8 +5,7 @@ from __future__ import annotations
 
 from newspulse.utils.time import convert_time_for_display
 from newspulse.workflow.render.html import HTMLRenderAdapter
-from newspulse.workflow.render.legacy import localized_report_to_legacy_context
-from newspulse.workflow.render.models import HTMLArtifact, RenderArtifacts
+from newspulse.workflow.render.models import HTMLArtifact, RenderArtifacts, build_render_view_model
 from newspulse.workflow.render.notification import NotificationRenderAdapter
 from newspulse.workflow.shared.contracts import LocalizedReport
 from newspulse.workflow.shared.options import RenderOptions
@@ -38,7 +37,7 @@ class RenderService:
 
         region_order = self._resolve_region_order(report, options)
         show_new_section = "new_items" in region_order
-        legacy_context = localized_report_to_legacy_context(
+        view_model = build_render_view_model(
             report,
             display_mode=self.display_mode,
             rank_threshold=self.rank_threshold,
@@ -49,8 +48,7 @@ class RenderService:
 
         html_artifact = (
             self.html_adapter.run(
-                report,
-                legacy_context,
+                view_model,
                 update_info=update_info,
                 region_order=region_order,
                 show_new_section=show_new_section,
@@ -60,8 +58,7 @@ class RenderService:
         )
         payloads = (
             self.notification_adapter.run(
-                report,
-                legacy_context,
+                view_model,
                 update_info=update_info,
                 region_order=region_order,
                 show_new_section=show_new_section,
@@ -71,8 +68,8 @@ class RenderService:
         )
 
         metadata = {
-            "mode": legacy_context.mode,
-            "report_type": legacy_context.report_type,
+            "mode": view_model.mode,
+            "report_type": view_model.report_type,
             "display_regions": list(region_order),
             "payload_count": len(payloads),
             "html_enabled": options.emit_html,

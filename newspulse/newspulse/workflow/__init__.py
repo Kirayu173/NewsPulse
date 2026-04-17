@@ -33,11 +33,12 @@ from newspulse.workflow.render import (
     HTMLArtifact,
     HTMLRenderAdapter,
     HotlistReportAssembler,
-    LegacyRenderContext,
     NotificationRenderAdapter,
     RenderArtifacts,
     RenderReportMeta,
     RenderService,
+    RenderViewModel,
+    build_render_view_model,
 )
 from newspulse.workflow.delivery import (
     ChannelDeliveryResult,
@@ -140,7 +141,6 @@ __all__ = [
     "InsightResult",
     "InsightSection",
     "InsightStage",
-    "LegacyRenderContext",
     "LocalizationOptions",
     "LocalizationScope",
     "LocalizationStage",
@@ -149,6 +149,7 @@ __all__ = [
     "RenderOptions",
     "RenderArtifacts",
     "RenderReportMeta",
+    "RenderViewModel",
     "RenderService",
     "RenderStage",
     "RenderableReport",
@@ -163,4 +164,5 @@ __all__ = [
     "SourceFailure",
     "StandaloneSection",
     "WorkflowOptions",
+    "build_render_view_model",
 ]

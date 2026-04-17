@@ -7,12 +7,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from newspulse.report import render_html_content
-from newspulse.workflow.render.models import HTMLArtifact, LegacyRenderContext
-from newspulse.workflow.shared.contracts import LocalizedReport
+from newspulse.workflow.render.models import HTMLArtifact, RenderViewModel
 
 
 class HTMLRenderAdapter:
-    """Render a localized workflow report into the current HTML output structure."""
+    """Render a native render view model into the HTML output structure."""
 
     def __init__(
         self,
@@ -35,8 +34,7 @@ class HTMLRenderAdapter:
 
     def run(
         self,
-        report: LocalizedReport,
-        legacy_context: LegacyRenderContext,
+        view_model: RenderViewModel,
         *,
         update_info: dict[str, Any] | None = None,
         region_order: list[str] | None = None,
@@ -44,20 +42,14 @@ class HTMLRenderAdapter:
     ) -> HTMLArtifact:
         """Render and persist the HTML report."""
 
-        del report
-        mode = legacy_context.mode
+        mode = view_model.mode
         effective_region_order = list(region_order or self.region_order)
         effective_show_new_section = self.show_new_section if show_new_section is None else show_new_section
         html_content = render_html_content(
-            report_data=legacy_context.report_data,
-            total_titles=legacy_context.total_titles,
-            mode=mode,
+            view_model,
             update_info=update_info,
             region_order=effective_region_order,
             get_time_func=self.get_time_func,
-            display_mode=self.display_mode,
-            standalone_data=legacy_context.standalone_data,
-            ai_analysis=legacy_context.ai_analysis,
             show_new_section=effective_show_new_section,
         )
 

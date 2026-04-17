@@ -4,6 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from newspulse.context import AppContext
+from newspulse.notification import split_content_into_batches
 from newspulse.workflow import (
     HotlistItem,
     HTMLRenderAdapter,
@@ -16,6 +17,7 @@ from newspulse.workflow import (
     SelectionGroup,
     SelectionResult,
     StandaloneSection,
+    build_render_view_model,
 )
 from newspulse.workflow.shared.options import RenderOptions
 
@@ -89,6 +91,46 @@ def _build_localized_report() -> LocalizedReport:
 
 
 class WorkflowRenderServiceTest(unittest.TestCase):
+    def test_native_render_view_model_localizes_sections_without_legacy_context(self):
+        report = _build_localized_report()
+
+        view_model = build_render_view_model(
+            report,
+            display_mode="keyword",
+            rank_threshold=5,
+        )
+
+        self.assertEqual(view_model.total_titles, 2)
+        self.assertEqual(view_model.mode, "current")
+        self.assertEqual(view_model.report_type, "实时报告")
+        self.assertEqual(view_model.hotlist_groups[0].items[0].title, "ZH:OpenAI launches a new coding agent")
+        self.assertEqual(view_model.new_item_groups[0].items[0].title, "ZH:OpenAI launches a new coding agent")
+        self.assertEqual(view_model.standalone_groups[0].items[0].title, "ZH:Startup launches AI productivity app")
+        self.assertEqual(
+            view_model.insight.sections[0].content,
+            "ZH:AI tools keep dominating the developer conversation.",
+        )
+
+    def test_notification_splitter_consumes_native_render_view_model(self):
+        report = _build_localized_report()
+        view_model = build_render_view_model(
+            report,
+            display_mode="keyword",
+            rank_threshold=5,
+        )
+
+        batches = split_content_into_batches(
+            view_model,
+            format_type="wework",
+            max_bytes=8000,
+            get_time_func=lambda: datetime(2026, 4, 17, 10, 30, 0),
+        )
+
+        combined = "\n".join(batches)
+        self.assertTrue(batches)
+        self.assertIn("ZH:OpenAI launches a new coding agent", combined)
+        self.assertIn("ZH:AI tools keep dominating the developer conversation.", combined)
+
     def test_render_service_generates_html_and_delivery_payloads_from_localized_report(self):
         report = _build_localized_report()
         fixed_now = lambda: datetime(2026, 4, 17, 10, 30, 0)

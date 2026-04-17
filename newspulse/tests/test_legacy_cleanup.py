@@ -1,8 +1,10 @@
+import importlib
 import unittest
 
 import newspulse.notification as notification_pkg
 import newspulse.report as report_pkg
 import newspulse.storage as storage_pkg
+import newspulse.workflow as workflow_pkg
 
 
 class LegacyCleanupTest(unittest.TestCase):
@@ -17,6 +19,11 @@ class LegacyCleanupTest(unittest.TestCase):
         self.assertTrue(hasattr(notification_pkg, "send_prepared_generic_webhook"))
         self.assertFalse(hasattr(notification_pkg, "send_to_generic_webhook"))
         self.assertFalse(hasattr(notification_pkg, "NotificationDispatcher"))
+
+    def test_workflow_render_package_no_longer_exports_render_legacy_adapter(self):
+        self.assertFalse(hasattr(workflow_pkg, "LegacyRenderContext"))
+        with self.assertRaises(ModuleNotFoundError):
+            importlib.import_module("newspulse.workflow.render.legacy")
 
 
 if __name__ == "__main__":

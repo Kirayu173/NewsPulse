@@ -1,14 +1,18 @@
 # coding=utf-8
-"""Split hotlist notifications into size-limited batches."""
+"""Split native render notifications into size-limited batches."""
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
 from newspulse.notification.batch import truncate_at_line_boundary
 from newspulse.report.formatter import format_title_for_platform
 from newspulse.utils.time import DEFAULT_TIMEZONE
+from newspulse.workflow.render.insight import render_insight_markdown
+
+if TYPE_CHECKING:
+    from newspulse.workflow.render.models import RenderGroupView, RenderViewModel
 
 
 DEFAULT_BATCH_SIZES = {
@@ -44,16 +48,10 @@ def _section_separator(format_type: str, feishu_separator: str) -> str:
     return "\n\n"
 
 
-def _build_header(
-    total_titles: int,
-    format_type: str,
-    report_type: str,
-    now: datetime,
-    ai_stats: Optional[Dict],
-    mode: str,
-) -> str:
-    lines = [f"{_bold('匹配标题', format_type)} {total_titles}"]
+def _build_header(view_model: "RenderViewModel", format_type: str, now: datetime) -> str:
+    lines = [f"{_bold('匹配标题', format_type)} {view_model.total_titles}"]
 
+    ai_stats = view_model.insight.stats
     if ai_stats and ai_stats.get("analyzed_news", 0) > 0:
         analyzed_news = ai_stats.get("analyzed_news", 0)
         total_news = ai_stats.get("total_news", 0)
@@ -63,7 +61,7 @@ def _build_header(
             display_value = f"{analyzed_news}/{total_news}"
 
         mode_suffix = ""
-        if ai_mode and ai_mode != mode:
+        if ai_mode and ai_mode != view_model.mode:
             mode_map = {
                 "daily": "日报",
                 "current": "实时",
@@ -75,7 +73,7 @@ def _build_header(
     lines.extend(
         [
             f"{_bold('时间', format_type)} {now.strftime('%Y-%m-%d %H:%M:%S')}",
-            f"{_bold('类型', format_type)} {report_type}",
+            f"{_bold('类型', format_type)} {view_model.report_type}",
             "",
         ]
     )
@@ -119,30 +117,27 @@ def _build_footer(format_type: str, now: datetime, update_info: Optional[Dict]) 
     return "\n\n" + "\n".join(footer_lines)
 
 
-def _build_hotlist_section(report_data: Dict, format_type: str, display_mode: str) -> str:
-    stats = report_data.get("stats", [])
-    if not stats:
+def _build_hotlist_section(groups: list["RenderGroupView"], format_type: str, display_mode: str) -> str:
+    if not groups:
         return ""
 
-    total_items = sum(len(stat.get("titles", [])) for stat in stats if stat.get("count", 0) > 0)
+    total_items = sum(len(group.items) for group in groups if group.count > 0)
     if total_items <= 0:
         return ""
 
     section_title = "热榜关键词" if display_mode == "keyword" else "热榜平台"
     lines = [f"{_bold(section_title, format_type)} (共 {total_items} 条)", ""]
     channel = _channel_key(format_type)
-    total_groups = len(stats)
+    total_groups = len(groups)
 
-    for index, stat in enumerate(stats, start=1):
-        titles = stat.get("titles", [])
-        if not titles:
+    for index, group in enumerate(groups, start=1):
+        if not group.items:
             continue
-        word = stat.get("word", "未命名分组")
-        lines.append(f"[{index}/{total_groups}] {_bold(word, format_type)} · {stat.get('count', len(titles))}条")
-        for title_index, title_data in enumerate(titles, start=1):
+        lines.append(f"[{index}/{total_groups}] {_bold(group.label, format_type)} · {group.count or len(group.items)}条")
+        for title_index, item in enumerate(group.items, start=1):
             formatted = format_title_for_platform(
                 channel,
-                title_data,
+                item.to_formatter_payload(),
                 show_source=display_mode == "keyword",
                 show_keyword=display_mode != "keyword",
             )
@@ -152,71 +147,48 @@ def _build_hotlist_section(report_data: Dict, format_type: str, display_mode: st
     return "\n".join(lines).strip()
 
 
-def _build_new_items_section(report_data: Dict, format_type: str) -> str:
-    new_titles = report_data.get("new_titles", [])
-    total_new_count = report_data.get("total_new_count", 0)
-    if not new_titles or total_new_count <= 0:
+def _build_new_items_section(groups: list["RenderGroupView"], format_type: str, total_new_count: int) -> str:
+    if not groups or total_new_count <= 0:
         return ""
 
     lines = [f"{_bold('本次新增热点', format_type)} (共 {total_new_count} 条)", ""]
     channel = _channel_key(format_type)
-    for source in new_titles:
-        source_name = source.get("source_name", source.get("source_id", "未知来源"))
-        titles = source.get("titles", [])
-        if not titles:
+    for group in groups:
+        if not group.items:
             continue
-        lines.append(f"{_bold(source_name, format_type)} · {len(titles)}条")
-        for index, title_data in enumerate(titles, start=1):
-            formatted = format_title_for_platform(channel, title_data, show_source=False)
+        lines.append(f"{_bold(group.label, format_type)} · {len(group.items)}条")
+        for index, item in enumerate(group.items, start=1):
+            formatted = format_title_for_platform(channel, item.to_formatter_payload(), show_source=False)
             lines.append(f"  {index}. {formatted}")
         lines.append("")
 
     return "\n".join(lines).strip()
 
 
-def _build_standalone_section(
-    standalone_data: Optional[Dict],
-    format_type: str,
-    rank_threshold: int,
-) -> str:
-    if not standalone_data:
+def _build_standalone_section(groups: list["RenderGroupView"], format_type: str) -> str:
+    if not groups:
         return ""
 
-    platforms = standalone_data.get("platforms", [])
-    total_items = sum(len(platform.get("items", [])) for platform in platforms)
+    total_items = sum(len(group.items) for group in groups)
     if total_items <= 0:
         return ""
 
     lines = [f"{_bold('独立展示区', format_type)} (共 {total_items} 条)", ""]
     channel = _channel_key(format_type)
 
-    for platform in platforms:
-        platform_name = platform.get("name", platform.get("id", "未知平台"))
-        items = platform.get("items", [])
-        if not items:
+    for group in groups:
+        if not group.items:
             continue
-        lines.append(f"{_bold(platform_name, format_type)} · {len(items)}条")
-        for index, item in enumerate(items, start=1):
-            title_data = {
-                "title": item.get("title", ""),
-                "source_name": platform_name,
-                "time_display": item.get("time_display", ""),
-                "count": item.get("count", 1),
-                "ranks": item.get("ranks", []),
-                "rank_threshold": rank_threshold,
-                "url": item.get("url", ""),
-                "mobile_url": item.get("mobileUrl", item.get("mobile_url", "")),
-                "is_new": False,
-            }
-            formatted = format_title_for_platform(channel, title_data, show_source=False)
+        lines.append(f"{_bold(group.label, format_type)} · {len(group.items)}条")
+        for index, item in enumerate(group.items, start=1):
+            formatted = format_title_for_platform(channel, item.to_formatter_payload(), show_source=False)
             lines.append(f"  {index}. {formatted}")
         lines.append("")
 
     return "\n".join(lines).strip()
 
 
-def _build_failed_section(report_data: Dict, format_type: str) -> str:
-    failed_ids = report_data.get("failed_ids", [])
+def _build_failed_section(failed_ids: list[str], format_type: str) -> str:
     if not failed_ids:
         return ""
 
@@ -279,22 +251,15 @@ def _split_content_by_lines(content: str, footer: str, max_bytes: int, base_head
 
 
 def split_content_into_batches(
-    report_data: Dict,
+    view_model: "RenderViewModel",
     format_type: str,
     update_info: Optional[Dict] = None,
     max_bytes: Optional[int] = None,
-    mode: str = "daily",
     batch_sizes: Optional[Dict[str, int]] = None,
     feishu_separator: str = "---",
     region_order: Optional[List[str]] = None,
     get_time_func: Optional[Callable[[], datetime]] = None,
     timezone: str = DEFAULT_TIMEZONE,
-    display_mode: str = "keyword",
-    ai_content: Optional[str] = None,
-    standalone_data: Optional[Dict] = None,
-    rank_threshold: int = 10,
-    ai_stats: Optional[Dict] = None,
-    report_type: str = "热榜通知",
     show_new_section: bool = True,
 ) -> List[str]:
     del timezone
@@ -314,21 +279,19 @@ def split_content_into_batches(
             max_bytes = sizes.get("default", 4000)
 
     now = get_time_func() if get_time_func else datetime.now()
-    total_titles = sum(
-        len(stat.get("titles", []))
-        for stat in report_data.get("stats", [])
-        if stat.get("count", 0) > 0
-    )
-
-    header = _build_header(total_titles, format_type, report_type, now, ai_stats, mode)
+    header = _build_header(view_model, format_type, now)
     footer = _build_footer(format_type, now, update_info)
 
     sections = {
-        "hotlist": _build_hotlist_section(report_data, format_type, display_mode),
-        "new_items": _build_new_items_section(report_data, format_type) if show_new_section else "",
-        "standalone": _build_standalone_section(standalone_data, format_type, rank_threshold),
-        "ai_analysis": ai_content.strip() if ai_content else "",
-        "failed": _build_failed_section(report_data, format_type),
+        "hotlist": _build_hotlist_section(view_model.hotlist_groups, format_type, view_model.display_mode),
+        "new_items": (
+            _build_new_items_section(view_model.new_item_groups, format_type, view_model.total_new_items)
+            if show_new_section
+            else ""
+        ),
+        "standalone": _build_standalone_section(view_model.standalone_groups, format_type),
+        "ai_analysis": render_insight_markdown(view_model.insight).strip(),
+        "failed": _build_failed_section(view_model.failed_source_names, format_type),
     }
 
     ordered_sections: List[str] = []
@@ -340,7 +303,7 @@ def split_content_into_batches(
         ordered_sections.append(sections["failed"])
 
     if not ordered_sections:
-        body = header + _build_empty_message(mode) + "\n"
+        body = header + _build_empty_message(view_model.mode) + "\n"
         return _split_content_by_lines(body, footer, max_bytes, header)
 
     body = header + _section_separator(format_type, feishu_separator).join(ordered_sections) + "\n"
