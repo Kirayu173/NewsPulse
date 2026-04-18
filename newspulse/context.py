@@ -37,7 +37,6 @@ from newspulse.workflow.shared.options import (
     SnapshotOptions,
 )
 from newspulse.workflow.snapshot import SnapshotService
-from newspulse.workflow.snapshot.history import detect_latest_new_titles, read_all_today_titles
 
 
 class AppContext:
@@ -470,12 +469,6 @@ class AppContext:
         output_dir = self.get_data_dir() / subfolder / self.format_date()
         output_dir.mkdir(parents=True, exist_ok=True)
         return str(output_dir / filename)
-
-    def read_today_titles(self, platform_ids: Optional[List[str]] = None, quiet: bool = False) -> Tuple[Dict, Dict, Dict]:
-        return read_all_today_titles(self.get_storage_manager(), platform_ids, quiet=quiet)
-
-    def detect_new_titles(self, platform_ids: Optional[List[str]] = None, quiet: bool = False) -> Dict:
-        return detect_latest_new_titles(self.get_storage_manager(), platform_ids, quiet=quiet)
 
     def is_first_crawl(self) -> bool:
         return self.get_storage_manager().is_first_crawl_today()

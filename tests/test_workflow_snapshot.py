@@ -247,6 +247,80 @@ class SnapshotServiceTest(unittest.TestCase):
             storage.cleanup()
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_snapshot_service_keeps_failure_details_when_latest_crawl_has_no_items(self):
+        tmp = self._create_workspace_tmpdir()
+        storage = self._create_storage(tmp)
+        try:
+            failed_data = convert_crawl_batch_to_news_data(
+                crawl_batch=CrawlBatchResult(
+                    sources=[],
+                    failures=[
+                        SourceFetchFailure(
+                            source_id="s3",
+                            source_name="platform-3",
+                            resolved_source_id="s3",
+                            exception_type="TimeoutError",
+                            message="down",
+                            attempts=3,
+                        )
+                    ],
+                ),
+                crawl_time=_today_at("11:00:00"),
+                crawl_date=_today_str(),
+            )
+            self.assertTrue(storage.save_news_data(failed_data))
+
+            service = SnapshotService(
+                storage,
+                platform_ids=["s1", "s2", "s3"],
+                platform_names={"s1": "platform-1", "s2": "platform-2", "s3": "platform-3"},
+                standalone_platform_ids=["s2"],
+            )
+
+            current = service.build(SnapshotOptions(mode="current"))
+            incremental = service.build(SnapshotOptions(mode="incremental"))
+
+            self.assertEqual(current.items, [])
+            self.assertEqual(incremental.items, [])
+            self.assertEqual(current.failed_sources[0].source_id, "s3")
+            self.assertEqual(current.failed_sources[0].reason, "TimeoutError: down")
+            self.assertEqual(current.summary["total_failed_sources"], 1)
+            self.assertEqual(incremental.summary["total_new_items"], 0)
+        finally:
+            storage.cleanup()
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_snapshot_service_ignores_unavailable_standalone_platforms(self):
+        tmp = self._create_workspace_tmpdir()
+        storage = self._create_storage(tmp)
+        try:
+            _save_crawl(
+                storage,
+                _today_at("09:00:00"),
+                {
+                    "s1": {
+                        "Alpha": {"ranks": [1], "url": "https://example.com/a", "mobileUrl": ""},
+                    },
+                    "s2": {
+                        "Gamma": {"ranks": [1], "url": "https://example.com/g", "mobileUrl": ""},
+                    },
+                },
+            )
+
+            service = SnapshotService(
+                storage,
+                platform_ids=["s1"],
+                platform_names={"s1": "platform-1", "s2": "platform-2"},
+                standalone_platform_ids=["s2", "missing"],
+            )
+            snapshot = service.build(SnapshotOptions(mode="current"))
+
+            self.assertEqual([item.source_id for item in snapshot.items], ["s1"])
+            self.assertEqual(snapshot.standalone_sections, [])
+        finally:
+            storage.cleanup()
+            shutil.rmtree(tmp, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()
