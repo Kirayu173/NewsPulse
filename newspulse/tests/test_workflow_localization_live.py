@@ -35,11 +35,12 @@ class LiveWorkflowLocalizationStageTest(unittest.TestCase):
             self.skipTest("live AI tests disabled")
 
         config = load_config(str(project_root / "newspulse" / "config" / "config.yaml"))
-        config["AI_TRANSLATION"]["ENABLED"] = True
-        config["AI_TRANSLATION"]["LANGUAGE"] = "Chinese"
-        config["AI_TRANSLATION"]["SCOPE"]["HOTLIST"] = True
-        config["AI_TRANSLATION"]["SCOPE"]["STANDALONE"] = True
-        config["AI_TRANSLATION"]["SCOPE"]["INSIGHT"] = True
+        config["WORKFLOW"]["LOCALIZATION"]["ENABLED"] = True
+        config["WORKFLOW"]["LOCALIZATION"]["STRATEGY"] = "ai"
+        config["WORKFLOW"]["LOCALIZATION"]["LANGUAGE"] = "Chinese"
+        config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["SELECTION_TITLES"] = True
+        config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["STANDALONE"] = True
+        config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["INSIGHT_SECTIONS"] = True
         ctx = AppContext(config)
 
         item1 = HotlistItem(
