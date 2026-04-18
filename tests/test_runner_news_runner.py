@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from newspulse.pipeline.news_analyzer import NewsAnalyzer
+from newspulse.runner import NewsRunner
 from newspulse.workflow import (
     DeliveryPayload,
     HTMLArtifact,
@@ -129,19 +129,19 @@ class FakeContext:
         return Path("output")
 
 
-class NewsAnalyzerWorkflowStageTest(unittest.TestCase):
-    def _build_analyzer(self, ctx) -> NewsAnalyzer:
-        analyzer = NewsAnalyzer.__new__(NewsAnalyzer)
-        analyzer.ctx = ctx
-        analyzer.report_mode = "daily"
-        analyzer.frequency_file = None
-        analyzer.filter_method = None
-        analyzer.interests_file = None
-        analyzer.update_info = {"current_version": "1.0.0", "remote_version": "1.1.0"}
-        analyzer.proxy_url = "http://127.0.0.1:1080"
-        analyzer.is_github_actions = True
-        analyzer.is_docker_container = False
-        return analyzer
+class NewsRunnerWorkflowStageTest(unittest.TestCase):
+    def _build_runner(self, ctx) -> NewsRunner:
+        runner = NewsRunner.__new__(NewsRunner)
+        runner.ctx = ctx
+        runner.report_mode = "daily"
+        runner.frequency_file = None
+        runner.filter_method = None
+        runner.interests_file = None
+        runner.update_info = {"current_version": "1.0.0", "remote_version": "1.1.0"}
+        runner.proxy_url = "http://127.0.0.1:1080"
+        runner.is_github_actions = True
+        runner.is_docker_container = False
+        return runner
 
     def test_execute_mode_strategy_runs_native_stage_chain(self):
         snapshot, selection = _build_snapshot(mode="current", total_selected=1)
@@ -161,10 +161,10 @@ class NewsAnalyzerWorkflowStageTest(unittest.TestCase):
             payloads=[DeliveryPayload(channel="generic_webhook", title="实时报告", content="payload")],
         )
         ctx = FakeContext(snapshot, selection, scheduler, render_result)
-        analyzer = self._build_analyzer(ctx)
+        runner = self._build_runner(ctx)
 
-        html_file = analyzer._execute_mode_strategy(
-            analyzer._get_mode_strategy(),
+        html_file = runner._execute_mode_strategy(
+            runner._get_mode_strategy(),
             results={"ignored": {}},
             id_to_name={"ignored": "Ignored"},
             failed_ids=[],
@@ -201,10 +201,10 @@ class NewsAnalyzerWorkflowStageTest(unittest.TestCase):
             payloads=[],
         )
         ctx = FakeContext(snapshot, selection, scheduler, render_result)
-        analyzer = self._build_analyzer(ctx)
+        runner = self._build_runner(ctx)
 
-        analyzer._execute_mode_strategy(
-            analyzer._get_mode_strategy(),
+        runner._execute_mode_strategy(
+            runner._get_mode_strategy(),
             results={},
             id_to_name={},
             failed_ids=[],
@@ -217,7 +217,7 @@ class NewsAnalyzerWorkflowStageTest(unittest.TestCase):
         self.assertEqual(scheduler.recorded, [])
 
     def test_daily_notifiable_content_requires_selection_filtered_new_items(self):
-        analyzer = self._build_analyzer(SimpleNamespace())
+        runner = self._build_runner(SimpleNamespace())
         item = HotlistItem(
             news_item_id="nba-1",
             source_id="hackernews",
@@ -241,7 +241,7 @@ class NewsAnalyzerWorkflowStageTest(unittest.TestCase):
             total_selected=0,
         )
 
-        self.assertFalse(analyzer._has_valid_content(snapshot, selection))
+        self.assertFalse(runner._has_valid_content(snapshot, selection))
 
 
 if __name__ == "__main__":

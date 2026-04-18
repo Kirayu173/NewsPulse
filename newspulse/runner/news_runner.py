@@ -1,5 +1,5 @@
 # coding=utf-8
-"""Main NewsPulse pipeline implementation."""
+"""Main NewsPulse runner implementation."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from newspulse.utils.time import DEFAULT_TIMEZONE
 from newspulse.workflow.shared.contracts import DeliveryPayload, HotlistSnapshot, SelectionResult
 
 
-class NewsAnalyzer:
+class NewsRunner:
     """Coordinate crawling and native workflow stage orchestration."""
 
     MODE_STRATEGIES = {

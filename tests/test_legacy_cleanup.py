@@ -13,6 +13,8 @@ class LegacyCleanupTest(unittest.TestCase):
     def test_report_package_has_been_removed_after_render_consolidation(self):
         with self.assertRaises(ModuleNotFoundError):
             importlib.import_module("newspulse.report")
+        with self.assertRaises(ModuleNotFoundError):
+            importlib.import_module("newspulse.pipeline")
 
     def test_storage_package_no_longer_exports_sqlite_mixin_shim(self):
         self.assertFalse(hasattr(storage_pkg, "SQLiteStorageMixin"))

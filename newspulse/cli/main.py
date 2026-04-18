@@ -11,7 +11,7 @@ from newspulse.cli.test_notification import run_test_notification
 from newspulse.cli.versioning import check_all_versions
 from newspulse.core import load_config
 from newspulse.core.config_paths import get_config_layout, resolve_frequency_words_path
-from newspulse.pipeline import NewsAnalyzer
+from newspulse.runner import NewsRunner
 
 
 def main() -> None:
@@ -75,15 +75,15 @@ Examples:
                 configs_version_url,
             )
 
-        analyzer = NewsAnalyzer(config=config)
-        if analyzer.is_github_actions and need_update and remote_version:
-            analyzer.update_info = {
+        runner = NewsRunner(config=config)
+        if runner.is_github_actions and need_update and remote_version:
+            runner.update_info = {
                 "current_version": __version__,
                 "remote_version": remote_version,
             }
 
-        debug_mode = analyzer.ctx.config.get("DEBUG", False)
-        analyzer.run()
+        debug_mode = runner.ctx.config.get("DEBUG", False)
+        runner.run()
     except FileNotFoundError as e:
         layout = get_config_layout()
         print(f"Config file error: {e}")
