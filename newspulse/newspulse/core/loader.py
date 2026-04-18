@@ -38,12 +38,6 @@ def _coalesce(*values: Any, default: Any = None) -> Any:
     return default
 
 
-def _merge_preferred(primary: Dict[str, Any], fallback: Dict[str, Any]) -> Dict[str, Any]:
-    merged = dict(fallback or {})
-    merged.update(primary or {})
-    return merged
-
-
 def _get_env_bool(key: str) -> Optional[bool]:
     value = os.environ.get(key, "").strip().lower()
     if not value:
@@ -265,77 +259,57 @@ def _merge_ai_runtime_config(base_ai_config: Dict[str, Any], section_config: Dic
     return merged
 
 
-def _get_ai_operation_overrides(config_data: Dict[str, Any], operation_key: str, legacy_section_key: str) -> Dict[str, Any]:
-    operation = _get_section(config_data, "ai", "operations", operation_key)
-    legacy_section = config_data.get(legacy_section_key, {})
-    return _merge_preferred(operation, legacy_section)
+def _get_ai_operation_config(config_data: Dict[str, Any], operation_key: str) -> Dict[str, Any]:
+    return _get_section(config_data, "ai", "operations", operation_key)
 
 
 def _load_workflow_selection_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
     selection = _get_section(config_data, "workflow", "selection")
     selection_ai = _get_section(selection, "ai")
-    legacy_filter = config_data.get("filter", {})
-    legacy_ai_filter = config_data.get("ai_filter", {})
 
     env_ai_filter = _get_env_bool("AI_FILTER_ENABLED")
     strategy = str(
         _coalesce(
             _get_present_value(selection, "strategy"),
-            _get_present_value(legacy_filter, "method"),
             default="keyword",
         )
         or "keyword"
     ).strip() or "keyword"
     if env_ai_filter is True:
         strategy = "ai"
-    elif strategy == "keyword" and _get_present_value(selection, "strategy") is _MISSING and _get_present_value(legacy_filter, "method") is _MISSING:
-        if bool(
-            _coalesce(
-                _get_present_value(selection_ai, "enabled"),
-                _get_present_value(legacy_ai_filter, "enabled"),
-                default=False,
-            )
-        ):
-            strategy = "ai"
 
     return {
         "STRATEGY": strategy,
         "FREQUENCY_FILE": _coalesce(
             _get_present_value(selection, "frequency_file"),
-            _get_present_value(legacy_filter, "frequency_file"),
             default=None,
         ),
         "PRIORITY_SORT_ENABLED": bool(
             _coalesce(
                 _get_present_value(selection, "priority_sort_enabled"),
-                _get_present_value(legacy_filter, "priority_sort_enabled"),
                 default=False,
             )
         ),
         "AI": {
             "INTERESTS_FILE": _coalesce(
                 _get_present_value(selection_ai, "interests_file"),
-                _get_present_value(legacy_ai_filter, "interests_file"),
                 default=None,
             ),
             "BATCH_SIZE": int(
                 _coalesce(
                     _get_present_value(selection_ai, "batch_size"),
-                    _get_present_value(legacy_ai_filter, "batch_size"),
                     default=200,
                 )
             ),
             "BATCH_INTERVAL": float(
                 _coalesce(
                     _get_present_value(selection_ai, "batch_interval"),
-                    _get_present_value(legacy_ai_filter, "batch_interval"),
                     default=5,
                 )
             ),
             "MIN_SCORE": float(
                 _coalesce(
                     _get_present_value(selection_ai, "min_score"),
-                    _get_present_value(legacy_ai_filter, "min_score"),
                     default=0,
                 )
                 or 0
@@ -343,14 +317,12 @@ def _load_workflow_selection_config(config_data: Dict[str, Any]) -> Dict[str, An
             "RECLASSIFY_THRESHOLD": float(
                 _coalesce(
                     _get_present_value(selection_ai, "reclassify_threshold"),
-                    _get_present_value(legacy_ai_filter, "reclassify_threshold"),
                     default=0.6,
                 )
             ),
             "FALLBACK_TO_KEYWORD": bool(
                 _coalesce(
                     _get_present_value(selection_ai, "fallback_to_keyword"),
-                    _get_present_value(legacy_ai_filter, "fallback_to_keyword"),
                     default=True,
                 )
             ),
@@ -360,12 +332,10 @@ def _load_workflow_selection_config(config_data: Dict[str, Any]) -> Dict[str, An
 
 def _load_workflow_insight_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
     insight = _get_section(config_data, "workflow", "insight")
-    legacy_analysis = config_data.get("ai_analysis", {})
     enabled_env = _get_env_bool("AI_ANALYSIS_ENABLED")
     enabled = bool(
         _coalesce(
             _get_present_value(insight, "enabled"),
-            _get_present_value(legacy_analysis, "enabled"),
             default=False,
         )
         if enabled_env is None
@@ -377,7 +347,6 @@ def _load_workflow_insight_config(config_data: Dict[str, Any]) -> Dict[str, Any]
         "STRATEGY": str(
             _coalesce(
                 _get_present_value(insight, "strategy"),
-                _get_present_value(legacy_analysis, "strategy"),
                 default="ai" if enabled else "noop",
             )
             or ("ai" if enabled else "noop")
@@ -386,7 +355,6 @@ def _load_workflow_insight_config(config_data: Dict[str, Any]) -> Dict[str, Any]
         "LANGUAGE": str(
             _coalesce(
                 _get_present_value(insight, "language"),
-                _get_present_value(legacy_analysis, "language"),
                 default="Chinese",
             )
             or "Chinese"
@@ -394,7 +362,6 @@ def _load_workflow_insight_config(config_data: Dict[str, Any]) -> Dict[str, Any]
         "MODE": str(
             _coalesce(
                 _get_present_value(insight, "mode"),
-                _get_present_value(legacy_analysis, "mode"),
                 default="follow_report",
             )
             or "follow_report"
@@ -402,21 +369,18 @@ def _load_workflow_insight_config(config_data: Dict[str, Any]) -> Dict[str, Any]
         "MAX_ITEMS": int(
             _coalesce(
                 _get_present_value(insight, "max_items"),
-                _get_present_value(legacy_analysis, "max_news_for_analysis"),
                 default=50,
             )
         ),
         "INCLUDE_RANK_TIMELINE": bool(
             _coalesce(
                 _get_present_value(insight, "include_rank_timeline"),
-                _get_present_value(legacy_analysis, "include_rank_timeline"),
                 default=False,
             )
         ),
         "INCLUDE_STANDALONE": bool(
             _coalesce(
                 _get_present_value(insight, "include_standalone"),
-                _get_present_value(legacy_analysis, "include_standalone"),
                 default=False,
             )
         ),
@@ -426,13 +390,10 @@ def _load_workflow_insight_config(config_data: Dict[str, Any]) -> Dict[str, Any]
 def _load_workflow_localization_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
     localization = _get_section(config_data, "workflow", "localization")
     localization_scope = _get_section(localization, "scope")
-    legacy_translation = config_data.get("ai_translation", {})
-    legacy_scope = _get_section(legacy_translation, "scope")
     enabled_env = _get_env_bool("AI_TRANSLATION_ENABLED")
     enabled = bool(
         _coalesce(
             _get_present_value(localization, "enabled"),
-            _get_present_value(legacy_translation, "enabled"),
             default=False,
         )
         if enabled_env is None
@@ -444,7 +405,6 @@ def _load_workflow_localization_config(config_data: Dict[str, Any]) -> Dict[str,
         "STRATEGY": str(
             _coalesce(
                 _get_present_value(localization, "strategy"),
-                _get_present_value(legacy_translation, "strategy"),
                 default="ai" if enabled else "noop",
             )
             or ("ai" if enabled else "noop")
@@ -454,7 +414,6 @@ def _load_workflow_localization_config(config_data: Dict[str, Any]) -> Dict[str,
         or str(
             _coalesce(
                 _get_present_value(localization, "language"),
-                _get_present_value(legacy_translation, "language"),
                 default="English",
             )
             or "English"
@@ -463,29 +422,24 @@ def _load_workflow_localization_config(config_data: Dict[str, Any]) -> Dict[str,
             "SELECTION_TITLES": bool(
                 _coalesce(
                     _get_present_value(localization_scope, "selection_titles"),
-                    _get_present_value(legacy_scope, "hotlist"),
                     default=True,
                 )
             ),
             "NEW_ITEMS": bool(
                 _coalesce(
                     _get_present_value(localization_scope, "new_items"),
-                    _get_present_value(legacy_scope, "new_items"),
-                    _get_present_value(legacy_scope, "hotlist"),
                     default=True,
                 )
             ),
             "STANDALONE": bool(
                 _coalesce(
                     _get_present_value(localization_scope, "standalone"),
-                    _get_present_value(legacy_scope, "standalone"),
                     default=True,
                 )
             ),
             "INSIGHT_SECTIONS": bool(
                 _coalesce(
                     _get_present_value(localization_scope, "insight_sections"),
-                    _get_present_value(legacy_scope, "insight"),
                     default=False,
                 )
             ),
@@ -502,7 +456,7 @@ def _load_workflow_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _load_ai_selection_operation_config(config_data: Dict[str, Any], config_root: Path) -> Dict[str, Any]:
-    operation = _get_ai_operation_overrides(config_data, "selection", "ai_filter")
+    operation = _get_ai_operation_config(config_data, "selection")
     return {
         "PROMPT_FILE": str(
             resolve_prompt_path(
@@ -532,23 +486,23 @@ def _load_ai_selection_operation_config(config_data: Dict[str, Any], config_root
 
 
 def _load_ai_analysis_model_config(config_data: Dict[str, Any], base_ai_config: Dict[str, Any]) -> Dict[str, Any]:
-    return _merge_ai_runtime_config(base_ai_config, _get_ai_operation_overrides(config_data, "insight", "ai_analysis"), "AI_ANALYSIS")
+    return _merge_ai_runtime_config(base_ai_config, _get_ai_operation_config(config_data, "insight"), "AI_ANALYSIS")
 
 
 def _load_ai_translation_model_config(config_data: Dict[str, Any], base_ai_config: Dict[str, Any]) -> Dict[str, Any]:
     return _merge_ai_runtime_config(
         base_ai_config,
-        _get_ai_operation_overrides(config_data, "localization", "ai_translation"),
+        _get_ai_operation_config(config_data, "localization"),
         "AI_TRANSLATION",
     )
 
 
 def _load_ai_filter_model_config(config_data: Dict[str, Any], base_ai_config: Dict[str, Any]) -> Dict[str, Any]:
-    return _merge_ai_runtime_config(base_ai_config, _get_ai_operation_overrides(config_data, "selection", "ai_filter"), "AI_FILTER")
+    return _merge_ai_runtime_config(base_ai_config, _get_ai_operation_config(config_data, "selection"), "AI_FILTER")
 
 
 def _load_ai_insight_operation_config(config_data: Dict[str, Any], config_root: Path) -> Dict[str, Any]:
-    operation = _get_ai_operation_overrides(config_data, "insight", "ai_analysis")
+    operation = _get_ai_operation_config(config_data, "insight")
     return {
         "PROMPT_FILE": str(
             resolve_prompt_path(
@@ -560,7 +514,7 @@ def _load_ai_insight_operation_config(config_data: Dict[str, Any], config_root: 
 
 
 def _load_ai_localization_operation_config(config_data: Dict[str, Any], config_root: Path) -> Dict[str, Any]:
-    operation = _get_ai_operation_overrides(config_data, "localization", "ai_translation")
+    operation = _get_ai_operation_config(config_data, "localization")
     return {
         "PROMPT_FILE": str(
             resolve_prompt_path(

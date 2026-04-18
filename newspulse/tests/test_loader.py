@@ -118,22 +118,24 @@ class LoaderConfigRootTest(unittest.TestCase):
                   enabled: false
                   preset: always_on
                 ai:
-                  model: openai/base-model
-                  api_key: base-key
-                  timeout: 120
-                  temperature: 0.5
-                  max_tokens: 5000
-                  num_retries: 1
-                ai_analysis:
-                  model: openai/analysis-model
-                  timeout: 240
-                ai_translation:
-                  api_key: translation-key
-                  temperature: 0.2
-                ai_filter:
-                  timeout: 480
-                  num_retries: 0
-                  max_tokens: 2000
+                  runtime:
+                    model: openai/base-model
+                    api_key: base-key
+                    timeout: 120
+                    temperature: 0.5
+                    max_tokens: 5000
+                    num_retries: 1
+                  operations:
+                    insight:
+                      model: openai/analysis-model
+                      timeout: 240
+                    localization:
+                      api_key: translation-key
+                      temperature: 0.2
+                    selection:
+                      timeout: 480
+                      num_retries: 0
+                      max_tokens: 2000
                 """,
             )
 
@@ -277,7 +279,7 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["AI_TRANSLATION_MODEL"]["API_BASE"], "https://translation.example/v1")
             self.assertEqual(config["AI_TRANSLATION_MODEL"]["NUM_RETRIES"], 0)
 
-    def test_load_config_maps_legacy_stage_sections_into_workflow(self):
+    def test_load_config_prefers_workflow_stage_sections_over_legacy_stage_inputs(self):
         with TemporaryDirectory() as tmp:
             workspace = Path(tmp)
             config_dir = workspace / "config"
@@ -295,8 +297,42 @@ class LoaderConfigRootTest(unittest.TestCase):
                 schedule:
                   enabled: false
                   preset: always_on
+                workflow:
+                  selection:
+                    strategy: keyword
+                    priority_sort_enabled: false
+                    ai:
+                      interests_file: workflow.txt
+                      batch_size: 7
+                  insight:
+                    enabled: false
+                    strategy: noop
+                    mode: daily
+                    max_items: 3
+                    include_standalone: false
+                    include_rank_timeline: false
+                    language: Japanese
+                  localization:
+                    enabled: false
+                    strategy: noop
+                    language: English
+                    scope:
+                      selection_titles: true
+                      new_items: true
+                      standalone: false
+                      insight_sections: false
                 ai:
-                  model: openai/base-model
+                  runtime:
+                    model: openai/base-model
+                  operations:
+                    selection:
+                      prompt_file: ai_filter/prompt.txt
+                      extract_prompt_file: ai_filter/extract_prompt.txt
+                      update_tags_prompt_file: ai_filter/update_tags_prompt.txt
+                    insight:
+                      prompt_file: ai_analysis_prompt.txt
+                    localization:
+                      prompt_file: ai_translation_prompt.txt
                 filter:
                   method: ai
                   priority_sort_enabled: true
@@ -327,19 +363,23 @@ class LoaderConfigRootTest(unittest.TestCase):
             with patch.dict(os.environ, {}, clear=True):
                 config = load_config(str(config_file))
 
-            self.assertEqual(config["WORKFLOW"]["SELECTION"]["STRATEGY"], "ai")
-            self.assertTrue(config["WORKFLOW"]["SELECTION"]["PRIORITY_SORT_ENABLED"])
-            self.assertEqual(config["WORKFLOW"]["SELECTION"]["AI"]["INTERESTS_FILE"], "ai.txt")
-            self.assertEqual(config["WORKFLOW"]["SELECTION"]["AI"]["BATCH_SIZE"], 12)
-            self.assertTrue(config["WORKFLOW"]["INSIGHT"]["ENABLED"])
-            self.assertEqual(config["WORKFLOW"]["INSIGHT"]["STRATEGY"], "ai")
-            self.assertEqual(config["WORKFLOW"]["INSIGHT"]["MODE"], "current")
-            self.assertEqual(config["WORKFLOW"]["INSIGHT"]["MAX_ITEMS"], 4)
-            self.assertEqual(config["WORKFLOW"]["LOCALIZATION"]["LANGUAGE"], "German")
-            self.assertFalse(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["SELECTION_TITLES"])
-            self.assertFalse(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["NEW_ITEMS"])
-            self.assertTrue(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["STANDALONE"])
-            self.assertTrue(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["INSIGHT_SECTIONS"])
+            self.assertEqual(config["WORKFLOW"]["SELECTION"]["STRATEGY"], "keyword")
+            self.assertFalse(config["WORKFLOW"]["SELECTION"]["PRIORITY_SORT_ENABLED"])
+            self.assertEqual(config["WORKFLOW"]["SELECTION"]["AI"]["INTERESTS_FILE"], "workflow.txt")
+            self.assertEqual(config["WORKFLOW"]["SELECTION"]["AI"]["BATCH_SIZE"], 7)
+            self.assertFalse(config["WORKFLOW"]["INSIGHT"]["ENABLED"])
+            self.assertEqual(config["WORKFLOW"]["INSIGHT"]["STRATEGY"], "noop")
+            self.assertEqual(config["WORKFLOW"]["INSIGHT"]["MODE"], "daily")
+            self.assertEqual(config["WORKFLOW"]["INSIGHT"]["MAX_ITEMS"], 3)
+            self.assertEqual(config["WORKFLOW"]["LOCALIZATION"]["LANGUAGE"], "English")
+            self.assertTrue(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["SELECTION_TITLES"])
+            self.assertTrue(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["NEW_ITEMS"])
+            self.assertFalse(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["STANDALONE"])
+            self.assertFalse(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["INSIGHT_SECTIONS"])
+
+            self.assertEqual(config["FILTER"]["METHOD"], "keyword")
+            self.assertEqual(config["AI_ANALYSIS"]["STRATEGY"], "noop")
+            self.assertEqual(config["AI_TRANSLATION"]["STRATEGY"], "noop")
 
 
 class FrequencyWordsPathTest(unittest.TestCase):

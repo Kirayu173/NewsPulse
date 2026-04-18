@@ -86,55 +86,70 @@ notification:
       # 留空时默认发送：{"title": "...", "content": "..."}
       payload_template: ''
 
+workflow:
+  selection:
+    # `keyword`: 频率词匹配；`ai`: 基于兴趣文件的 AI 筛选。
+    strategy: ai
+    # 如需指定自定义频率词文件，可填写 `custom/keyword/<name>.txt` 或相对路径。
+    # 留空时默认使用 `frequency_words.txt`。
+    frequency_file:
+    # 为 true 时优先按词组优先级排序。
+    priority_sort_enabled: true
+    ai:
+      # 留空时默认使用 `ai_interests.txt`；也可填写 `custom/ai/<name>.txt`。
+      interests_file:
+      # AI 筛选的批处理与阈值配置。
+      batch_size: 10
+      batch_interval: 2
+      min_score: 0.7
+      reclassify_threshold: 0.6
+      fallback_to_keyword: true
+
+  insight:
+    enabled: true
+    strategy: ai
+    language: Chinese
+    # `follow_report` / `daily` / `current` / `incremental`
+    mode: follow_report
+    # 参与 AI 分析的最大热榜标题数。
+    max_items: 150
+    # 是否把独立展示区和排名时间线一起交给 AI。
+    include_standalone: true
+    include_rank_timeline: true
+
+  localization:
+    enabled: true
+    strategy: ai
+    language: 中文
+    scope:
+      # `selection_titles`: 主热榜区域；`standalone`: 独立展示区。
+      selection_titles: false
+      new_items: false
+      standalone: true
+      insight_sections: false
+
 ai:
-  # 全局默认 AI 模型配置；ai_analysis / ai_translation / ai_filter 会继承或覆盖它。
-  model: deepseek/deepseek-chat
-  api_key: ''
-  api_base: ''
-  timeout: 120
-  temperature: 0.5
-  max_tokens: 5000
-  num_retries: 1
-  fallback_models: []
-
-ai_analysis:
-  enabled: true
-  language: Chinese
-  prompt_file: ai_analysis_prompt.txt
-  # `follow_report` / `daily` / `current` / `incremental`
-  mode: follow_report
-  # 参与 AI 分析的最大热榜标题数。
-  max_news_for_analysis: 150
-  # 是否把独立展示区和排名时间线一起交给 AI。
-  include_standalone: true
-  include_rank_timeline: true
-
-ai_translation:
-  enabled: true
-  language: 中文
-  prompt_file: ai_translation_prompt.txt
-  scope:
-    # `hotlist`: 主热榜区域；`standalone`: 独立展示区。
-    hotlist: false
-    standalone: true
-
-ai_filter:
-  # AI 筛选的批处理与阈值配置。
-  batch_size: 10
-  batch_interval: 2
-  timeout: 480
-  num_retries: 0
-  min_score: 0.7
-  reclassify_threshold: 0.6
-  prompt_file: prompt.txt
-  extract_prompt_file: extract_prompt.txt
-  update_tags_prompt_file: update_tags_prompt.txt
-
-filter:
-  # `keyword`: 频率词匹配；`ai`: 基于兴趣文件的 AI 筛选。
-  method: ai
-  # 为 true 时优先按词组优先级排序。
-  priority_sort_enabled: true
+  runtime:
+    # 全局默认 AI runtime；selection / insight / localization 会继承或覆盖它。
+    model: deepseek/deepseek-chat
+    api_key: ''
+    api_base: ''
+    timeout: 120
+    temperature: 0.5
+    max_tokens: 5000
+    num_retries: 1
+    fallback_models: []
+  operations:
+    selection:
+      timeout: 480
+      num_retries: 0
+      prompt_file: prompt.txt
+      extract_prompt_file: extract_prompt.txt
+      update_tags_prompt_file: update_tags_prompt.txt
+    insight:
+      prompt_file: ai_analysis_prompt.txt
+    localization:
+      prompt_file: ai_translation_prompt.txt
 
 storage:
   # 当前运行时仅使用本地存储。

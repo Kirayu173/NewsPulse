@@ -46,6 +46,48 @@ class AppContextTest(unittest.TestCase):
         self.assertEqual(options.ai.min_score, 0.75)
         self.assertFalse(options.ai.fallback_to_keyword)
 
+    def test_build_selection_options_prefers_workflow_selection_config(self):
+        ctx = AppContext(
+            {
+                "WORKFLOW": {
+                    "SELECTION": {
+                        "STRATEGY": "ai",
+                        "FREQUENCY_FILE": "workflow-topics.txt",
+                        "PRIORITY_SORT_ENABLED": False,
+                        "AI": {
+                            "INTERESTS_FILE": "workflow-focus.txt",
+                            "BATCH_SIZE": 9,
+                            "BATCH_INTERVAL": 2,
+                            "MIN_SCORE": 0.6,
+                            "FALLBACK_TO_KEYWORD": True,
+                        },
+                    }
+                },
+                "FILTER": {
+                    "METHOD": "keyword",
+                    "FREQUENCY_FILE": "legacy-topics.txt",
+                    "PRIORITY_SORT_ENABLED": True,
+                },
+                "AI_FILTER": {
+                    "INTERESTS_FILE": "legacy-focus.txt",
+                    "BATCH_SIZE": 3,
+                    "BATCH_INTERVAL": 1,
+                    "MIN_SCORE": 0.75,
+                    "FALLBACK_TO_KEYWORD": False,
+                },
+            }
+        )
+
+        options = ctx.build_selection_options()
+
+        self.assertEqual(options.strategy, "ai")
+        self.assertEqual(options.frequency_file, "workflow-topics.txt")
+        self.assertEqual(options.ai.interests_file, "workflow-focus.txt")
+        self.assertEqual(options.ai.batch_size, 9)
+        self.assertEqual(options.ai.min_score, 0.6)
+        self.assertFalse(options.priority_sort_enabled)
+        self.assertTrue(options.ai.fallback_to_keyword)
+
     def test_build_insight_options_honors_configured_strategy(self):
         ctx = AppContext(
             {
@@ -68,6 +110,39 @@ class AppContextTest(unittest.TestCase):
         self.assertEqual(options.max_items, 6)
         self.assertTrue(options.include_standalone)
         self.assertFalse(options.include_rank_timeline)
+
+    def test_build_insight_options_prefers_workflow_insight_config(self):
+        ctx = AppContext(
+            {
+                "WORKFLOW": {
+                    "INSIGHT": {
+                        "ENABLED": True,
+                        "STRATEGY": "ai",
+                        "MODE": "current",
+                        "MAX_ITEMS": 12,
+                        "INCLUDE_STANDALONE": False,
+                        "INCLUDE_RANK_TIMELINE": True,
+                    }
+                },
+                "AI_ANALYSIS": {
+                    "ENABLED": True,
+                    "STRATEGY": "noop",
+                    "MODE": "follow_report",
+                    "MAX_NEWS_FOR_ANALYSIS": 6,
+                    "INCLUDE_STANDALONE": True,
+                    "INCLUDE_RANK_TIMELINE": False,
+                },
+            }
+        )
+
+        options = ctx.build_insight_options(report_mode="daily")
+
+        self.assertTrue(options.enabled)
+        self.assertEqual(options.strategy, "ai")
+        self.assertEqual(options.mode, "current")
+        self.assertEqual(options.max_items, 12)
+        self.assertFalse(options.include_standalone)
+        self.assertTrue(options.include_rank_timeline)
 
     def test_build_localization_options_supports_split_new_items_scope(self):
         ctx = AppContext(
@@ -95,6 +170,137 @@ class AppContextTest(unittest.TestCase):
         self.assertTrue(options.scope.new_items)
         self.assertTrue(options.scope.standalone)
         self.assertTrue(options.scope.insight_sections)
+
+    def test_build_localization_options_prefers_workflow_localization_config(self):
+        ctx = AppContext(
+            {
+                "WORKFLOW": {
+                    "LOCALIZATION": {
+                        "ENABLED": True,
+                        "STRATEGY": "ai",
+                        "LANGUAGE": "German",
+                        "SCOPE": {
+                            "SELECTION_TITLES": True,
+                            "NEW_ITEMS": False,
+                            "STANDALONE": False,
+                            "INSIGHT_SECTIONS": True,
+                        },
+                    }
+                },
+                "AI_TRANSLATION": {
+                    "ENABLED": True,
+                    "STRATEGY": "ai",
+                    "LANGUAGE": "Japanese",
+                    "SCOPE": {
+                        "HOTLIST": False,
+                        "NEW_ITEMS": True,
+                        "STANDALONE": True,
+                        "INSIGHT": False,
+                    },
+                },
+            }
+        )
+
+        options = ctx.build_localization_options()
+
+        self.assertTrue(options.enabled)
+        self.assertEqual(options.language, "German")
+        self.assertTrue(options.scope.selection_titles)
+        self.assertFalse(options.scope.new_items)
+        self.assertFalse(options.scope.standalone)
+        self.assertTrue(options.scope.insight_sections)
+
+    def test_native_workflow_and_raw_ai_sections_drive_derived_stage_configs(self):
+        ctx = AppContext(
+            {
+                "workflow": {
+                    "selection": {
+                        "strategy": "ai",
+                        "frequency_file": "topics.txt",
+                        "priority_sort_enabled": False,
+                        "ai": {
+                            "interests_file": "focus.txt",
+                            "batch_size": 11,
+                            "batch_interval": 1.5,
+                            "min_score": 0.62,
+                            "reclassify_threshold": 0.58,
+                            "fallback_to_keyword": False,
+                        },
+                    },
+                    "insight": {
+                        "enabled": True,
+                        "strategy": "ai",
+                        "mode": "current",
+                        "max_items": 8,
+                        "include_standalone": True,
+                        "include_rank_timeline": False,
+                        "language": "Japanese",
+                    },
+                    "localization": {
+                        "enabled": True,
+                        "strategy": "ai",
+                        "language": "German",
+                        "scope": {
+                            "selection_titles": True,
+                            "new_items": False,
+                            "standalone": True,
+                            "insight_sections": True,
+                        },
+                    },
+                },
+                "ai": {
+                    "runtime": {
+                        "model": "openai/base",
+                        "api_key": "base-key",
+                        "timeout": 120,
+                        "temperature": 0.5,
+                    },
+                    "operations": {
+                        "selection": {
+                            "model": "openai/selection-model",
+                            "timeout": 480,
+                            "num_retries": 0,
+                            "prompt_file": "selection_prompt.txt",
+                            "extract_prompt_file": "selection_extract.txt",
+                            "update_tags_prompt_file": "selection_update.txt",
+                        },
+                        "insight": {
+                            "api_key": "insight-key",
+                            "temperature": 0.2,
+                            "prompt_file": "insight_prompt.txt",
+                        },
+                        "localization": {
+                            "api_base": "https://translation.example/v1",
+                            "num_retries": 3,
+                            "prompt_file": "translation_prompt.txt",
+                            "extra_params": {"top_p": 0.9},
+                        },
+                    },
+                },
+                "FILTER": {"METHOD": "keyword"},
+                "AI_FILTER": {"PROMPT_FILE": "legacy_selection_prompt.txt"},
+                "AI_ANALYSIS": {"PROMPT_FILE": "legacy_insight_prompt.txt"},
+                "AI_TRANSLATION": {"PROMPT_FILE": "legacy_translation_prompt.txt"},
+            }
+        )
+
+        self.assertEqual(ctx.filter_method, "ai")
+        self.assertEqual(ctx.ai_filter_config["PROMPT_FILE"], "selection_prompt.txt")
+        self.assertEqual(ctx.ai_filter_config["TIMEOUT"], 480)
+        self.assertEqual(ctx.ai_filter_model_config["MODEL"], "openai/selection-model")
+        self.assertEqual(ctx.ai_filter_model_config["API_KEY"], "base-key")
+        self.assertEqual(ctx.ai_filter_model_config["TIMEOUT"], 480)
+
+        self.assertEqual(ctx.ai_analysis_config["PROMPT_FILE"], "insight_prompt.txt")
+        self.assertEqual(ctx.ai_analysis_model_config["MODEL"], "openai/base")
+        self.assertEqual(ctx.ai_analysis_model_config["API_KEY"], "insight-key")
+        self.assertEqual(ctx.ai_analysis_model_config["TEMPERATURE"], 0.2)
+
+        self.assertEqual(ctx.ai_translation_config["PROMPT_FILE"], "translation_prompt.txt")
+        self.assertEqual(ctx.ai_translation_config["NUM_RETRIES"], 3)
+        self.assertEqual(ctx.ai_translation_config["EXTRA_PARAMS"], {"top_p": 0.9})
+        self.assertEqual(ctx.ai_translation_model_config["API_BASE"], "https://translation.example/v1")
+        self.assertEqual(ctx.ai_translation_model_config["NUM_RETRIES"], 3)
 
     def test_context_no_longer_exposes_legacy_report_helpers(self):
         self.assertFalse(hasattr(AppContext, "load_frequency_words"))
