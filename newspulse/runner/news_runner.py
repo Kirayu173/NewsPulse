@@ -6,14 +6,15 @@ from __future__ import annotations
 import os
 import webbrowser
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Optional, Sequence
 
 from newspulse import __version__
 from newspulse.context import AppContext
 from newspulse.core import load_config
 from newspulse.core.scheduler import ResolvedSchedule
-from newspulse.crawler import DataFetcher
-from newspulse.storage import convert_crawl_results_to_news_data
+from newspulse.crawler import CrawlBatchResult, CrawlSourceSpec, DataFetcher
+from newspulse.crawler.source_names import resolve_source_display_name
+from newspulse.storage import normalize_crawl_batch
 from newspulse.utils.time import DEFAULT_TIMEZONE
 from newspulse.workflow.shared.contracts import DeliveryPayload, HotlistSnapshot, SelectionResult
 
@@ -220,45 +221,43 @@ class NewsRunner:
         print(f"模式: {self.report_mode}")
         print(f"说明: {mode_strategy['description']}")
 
-    def _crawl_data(self) -> Tuple[Dict, Dict, List]:
-        ids = []
-        for platform in self.ctx.platforms:
-            if "name" in platform:
-                ids.append((platform["id"], platform["name"]))
-            else:
-                ids.append(platform["id"])
+    def _crawl_data(self) -> CrawlBatchResult:
+        source_specs = [
+            CrawlSourceSpec(
+                source_id=str(platform["id"]),
+                source_name=resolve_source_display_name(
+                    str(platform["id"]),
+                    str(platform.get("name", "") or ""),
+                ),
+            )
+            for platform in self.ctx.platforms
+            if platform.get("id")
+        ]
 
-        print(f"本次抓取平台: {[p.get('name', p['id']) for p in self.ctx.platforms]}")
+        print(f"本次抓取平台: {[spec.source_name for spec in source_specs]}")
         print(f"请求间隔: 每个平台等待 {self.request_interval} 秒")
         self.ctx.get_data_dir().mkdir(parents=True, exist_ok=True)
 
-        results, id_to_name, failed_ids = self.data_fetcher.crawl_websites(ids, self.request_interval)
+        crawl_batch = self.data_fetcher.crawl(source_specs, self.request_interval)
 
         crawl_time = self.ctx.format_time()
         crawl_date = self.ctx.format_date()
-        news_data = convert_crawl_results_to_news_data(results, id_to_name, failed_ids, crawl_time, crawl_date)
+        normalized_batch = normalize_crawl_batch(crawl_batch, crawl_time, crawl_date)
 
-        if self.storage_manager.save_news_data(news_data):
+        if self.storage_manager.save_normalized_crawl_batch(normalized_batch):
             print(f"抓取结果已写入存储: {self.storage_manager.backend_name}")
 
-        txt_file = self.storage_manager.save_txt_snapshot(news_data)
+        txt_file = self.storage_manager.save_txt_snapshot(normalized_batch)
         if txt_file:
             print(f"TXT 快照已保存: {txt_file}")
 
-        return results, id_to_name, failed_ids
+        return crawl_batch
 
     def _execute_mode_strategy(
         self,
         mode_strategy: Dict,
-        results: Dict,
-        id_to_name: Dict,
-        failed_ids: List,
         schedule: Optional[ResolvedSchedule] = None,
     ) -> Optional[str]:
-        del results
-        del id_to_name
-        del failed_ids
-
         schedule = schedule or self.ctx.create_scheduler().resolve()
 
         effective_mode = schedule.report_mode
@@ -335,8 +334,8 @@ class NewsRunner:
                 return
 
             mode_strategy = self._get_mode_strategy()
-            results, id_to_name, failed_ids = self._crawl_data()
-            self._execute_mode_strategy(mode_strategy, results, id_to_name, failed_ids, schedule=schedule)
+            self._crawl_data()
+            self._execute_mode_strategy(mode_strategy, schedule=schedule)
         except Exception as exc:
             print(f"运行异常: {exc}")
             if self.ctx.config.get("DEBUG", False):

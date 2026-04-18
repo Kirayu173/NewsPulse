@@ -33,6 +33,10 @@ class SourceFailure:
     source_id: str
     source_name: str = ""
     reason: str = ""
+    resolved_source_id: str = ""
+    exception_type: str = ""
+    message: str = ""
+    attempts: int = 1
 
 
 @dataclass

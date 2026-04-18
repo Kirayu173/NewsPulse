@@ -3,7 +3,7 @@
 
 from typing import Optional
 
-from newspulse.storage.base import NewsData, StorageBackend
+from newspulse.storage.base import NewsData, NormalizedCrawlBatch, StorageBackend
 from newspulse.storage.local import LocalStorageBackend
 from newspulse.utils.time import DEFAULT_TIMEZONE
 
@@ -47,6 +47,9 @@ class StorageManager:
     def save_news_data(self, data: NewsData) -> bool:
         return self.get_backend().save_news_data(data)
 
+    def save_normalized_crawl_batch(self, batch: NormalizedCrawlBatch) -> bool:
+        return self.get_backend().save_normalized_crawl_batch(batch)
+
     def get_today_all_data(self, date: Optional[str] = None) -> Optional[NewsData]:
         return self.get_backend().get_today_all_data(date)
 
@@ -56,7 +59,7 @@ class StorageManager:
     def detect_new_titles(self, current_data: NewsData) -> dict:
         return self.get_backend().detect_new_titles(current_data)
 
-    def save_txt_snapshot(self, data: NewsData) -> Optional[str]:
+    def save_txt_snapshot(self, data: NewsData | NormalizedCrawlBatch) -> Optional[str]:
         return self.get_backend().save_txt_snapshot(data)
 
     def save_html_report(self, html_content: str, filename: str) -> Optional[str]:

@@ -3,9 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, Dict, List
-
-from newspulse.crawler.sources.base import SourceClient, SourceItem
+from newspulse.crawler.models import SourceDefinition, SourceHandler
 from newspulse.crawler.sources.finance import (
     fetch_cls_depth,
     fetch_cls_hot,
@@ -60,68 +58,149 @@ from newspulse.crawler.sources.tech import (
 )
 
 
-SourceHandler = Callable[[SourceClient], List[SourceItem]]
+def _definition(
+    canonical_id: str,
+    handler: SourceHandler,
+    *,
+    aliases: tuple[str, ...] = (),
+    category: str,
+    default_name: str = "",
+) -> SourceDefinition:
+    return SourceDefinition(
+        canonical_id=canonical_id,
+        handler=handler,
+        default_name=default_name or canonical_id,
+        category=category,
+        aliases=aliases,
+    )
 
 
-SOURCE_REGISTRY: Dict[str, SourceHandler] = {
-    "36kr": fetch_36kr_quick,
-    "36kr-quick": fetch_36kr_quick,
-    "baidu": fetch_baidu,
-    "bilibili": fetch_bilibili_hot_search,
-    "bilibili-hot-search": fetch_bilibili_hot_search,
-    "bilibili-hot-video": fetch_bilibili_hot_video,
-    "bilibili-ranking": fetch_bilibili_ranking,
-    "cankaoxiaoxi": fetch_cankaoxiaoxi,
-    "chongbuluo": fetch_chongbuluo_hot,
-    "chongbuluo-hot": fetch_chongbuluo_hot,
-    "chongbuluo-latest": fetch_chongbuluo_latest,
-    "cls": fetch_cls_telegraph,
-    "cls-depth": fetch_cls_depth,
-    "cls-hot": fetch_cls_hot,
-    "cls-telegraph": fetch_cls_telegraph,
-    "coolapk": fetch_coolapk,
-    "douban": fetch_douban,
-    "douyin": fetch_douyin,
-    "gelonghui": fetch_gelonghui,
-    "github": fetch_github_trending,
-    "github-trending-today": fetch_github_trending,
-    "ghxi": fetch_ghxi,
-    "hackernews": fetch_hackernews,
-    "hupu": fetch_hupu,
-    "ifeng": fetch_ifeng,
-    "iqiyi": fetch_iqiyi_hot_ranklist,
-    "iqiyi-hot-ranklist": fetch_iqiyi_hot_ranklist,
-    "ithome": fetch_ithome,
-    "jin10": fetch_jin10,
-    "juejin": fetch_juejin,
-    "kaopu": fetch_kaopu,
-    "kuaishou": fetch_kuaishou,
-    "nowcoder": fetch_nowcoder,
-    "pcbeta": fetch_pcbeta_windows11,
-    "pcbeta-windows11": fetch_pcbeta_windows11,
-    "producthunt": fetch_producthunt,
-    "qqvideo": fetch_qqvideo_hotsearch,
-    "qqvideo-tv-hotsearch": fetch_qqvideo_hotsearch,
-    "solidot": fetch_solidot,
-    "sputniknewscn": fetch_sputniknewscn,
-    "sspai": fetch_sspai,
-    "tencent": fetch_tencent_hot,
-    "tencent-hot": fetch_tencent_hot,
-    "thepaper": fetch_thepaper,
-    "tieba": fetch_tieba,
-    "toutiao": fetch_toutiao,
-    "wallstreetcn": fetch_wallstreetcn_quick,
-    "wallstreetcn-hot": fetch_wallstreetcn_hot,
-    "wallstreetcn-news": fetch_wallstreetcn_news,
-    "wallstreetcn-quick": fetch_wallstreetcn_quick,
-    "weibo": fetch_weibo,
-    "xueqiu": fetch_xueqiu_hotstock,
-    "xueqiu-hotstock": fetch_xueqiu_hotstock,
-    "zhihu": fetch_zhihu,
+SOURCE_DEFINITIONS: dict[str, SourceDefinition] = {
+    "36kr-quick": _definition("36kr-quick", fetch_36kr_quick, aliases=("36kr",), category="mainland"),
+    "baidu": _definition("baidu", fetch_baidu, category="mainland"),
+    "bilibili-hot-search": _definition(
+        "bilibili-hot-search",
+        fetch_bilibili_hot_search,
+        aliases=("bilibili",),
+        category="mainland",
+    ),
+    "bilibili-hot-video": _definition("bilibili-hot-video", fetch_bilibili_hot_video, category="mainland"),
+    "bilibili-ranking": _definition("bilibili-ranking", fetch_bilibili_ranking, category="mainland"),
+    "cankaoxiaoxi": _definition("cankaoxiaoxi", fetch_cankaoxiaoxi, category="misc"),
+    "chongbuluo-hot": _definition(
+        "chongbuluo-hot",
+        fetch_chongbuluo_hot,
+        aliases=("chongbuluo",),
+        category="tech",
+    ),
+    "chongbuluo-latest": _definition("chongbuluo-latest", fetch_chongbuluo_latest, category="tech"),
+    "cls-depth": _definition("cls-depth", fetch_cls_depth, category="finance"),
+    "cls-hot": _definition(
+        "cls-hot",
+        fetch_cls_hot,
+        category="finance",
+        default_name="\u8d22\u8054\u793e\u70ed\u699c",
+    ),
+    "cls-telegraph": _definition("cls-telegraph", fetch_cls_telegraph, aliases=("cls",), category="finance"),
+    "coolapk": _definition("coolapk", fetch_coolapk, category="tech"),
+    "douban": _definition("douban", fetch_douban, category="mainland"),
+    "douyin": _definition("douyin", fetch_douyin, category="mainland"),
+    "gelonghui": _definition("gelonghui", fetch_gelonghui, category="finance"),
+    "github-trending-today": _definition(
+        "github-trending-today",
+        fetch_github_trending,
+        aliases=("github",),
+        category="tech",
+        default_name="GitHub Trending",
+    ),
+    "ghxi": _definition("ghxi", fetch_ghxi, category="tech"),
+    "hackernews": _definition("hackernews", fetch_hackernews, category="tech", default_name="Hacker News"),
+    "hupu": _definition("hupu", fetch_hupu, category="misc"),
+    "ifeng": _definition("ifeng", fetch_ifeng, category="mainland"),
+    "iqiyi-hot-ranklist": _definition(
+        "iqiyi-hot-ranklist",
+        fetch_iqiyi_hot_ranklist,
+        aliases=("iqiyi",),
+        category="mainland",
+    ),
+    "ithome": _definition("ithome", fetch_ithome, category="tech"),
+    "jin10": _definition("jin10", fetch_jin10, category="finance"),
+    "juejin": _definition(
+        "juejin",
+        fetch_juejin,
+        category="tech",
+        default_name="\u7a00\u571f",
+    ),
+    "kaopu": _definition("kaopu", fetch_kaopu, category="tech"),
+    "kuaishou": _definition("kuaishou", fetch_kuaishou, category="mainland"),
+    "nowcoder": _definition("nowcoder", fetch_nowcoder, category="tech"),
+    "pcbeta-windows11": _definition(
+        "pcbeta-windows11",
+        fetch_pcbeta_windows11,
+        aliases=("pcbeta",),
+        category="tech",
+    ),
+    "producthunt": _definition("producthunt", fetch_producthunt, category="tech"),
+    "qqvideo-tv-hotsearch": _definition(
+        "qqvideo-tv-hotsearch",
+        fetch_qqvideo_hotsearch,
+        aliases=("qqvideo",),
+        category="mainland",
+    ),
+    "solidot": _definition("solidot", fetch_solidot, category="tech"),
+    "sputniknewscn": _definition("sputniknewscn", fetch_sputniknewscn, category="misc"),
+    "sspai": _definition("sspai", fetch_sspai, category="tech"),
+    "tencent-hot": _definition(
+        "tencent-hot",
+        fetch_tencent_hot,
+        aliases=("tencent",),
+        category="mainland",
+        default_name="\u817e\u8baf\u70ed\u699c",
+    ),
+    "thepaper": _definition(
+        "thepaper",
+        fetch_thepaper,
+        category="mainland",
+        default_name="\u6f8e\u6e43\u65b0\u95fb",
+    ),
+    "tieba": _definition("tieba", fetch_tieba, category="mainland"),
+    "toutiao": _definition("toutiao", fetch_toutiao, category="mainland"),
+    "wallstreetcn-hot": _definition(
+        "wallstreetcn-hot",
+        fetch_wallstreetcn_hot,
+        category="finance",
+        default_name="\u534e\u5c14\u8857\u89c1\u95fb\u70ed\u699c",
+    ),
+    "wallstreetcn-news": _definition("wallstreetcn-news", fetch_wallstreetcn_news, category="finance"),
+    "wallstreetcn-quick": _definition(
+        "wallstreetcn-quick",
+        fetch_wallstreetcn_quick,
+        aliases=("wallstreetcn",),
+        category="finance",
+    ),
+    "weibo": _definition("weibo", fetch_weibo, category="mainland"),
+    "xueqiu-hotstock": _definition(
+        "xueqiu-hotstock",
+        fetch_xueqiu_hotstock,
+        aliases=("xueqiu",),
+        category="finance",
+    ),
+    "zhihu": _definition("zhihu", fetch_zhihu, category="mainland"),
 }
 
+SOURCE_ALIAS_INDEX: dict[str, SourceDefinition] = {}
+SOURCE_REGISTRY: dict[str, SourceHandler] = {}
 
+for definition in SOURCE_DEFINITIONS.values():
+    keys = (definition.canonical_id, *definition.aliases)
+    for key in keys:
+        SOURCE_ALIAS_INDEX[key] = definition
+        SOURCE_REGISTRY[key] = definition.handler
+
+
+def resolve_source_definition(source_id: str) -> SourceDefinition:
+    return SOURCE_ALIAS_INDEX[source_id]
 
 
 def get_source_handler(source_id: str) -> SourceHandler:
-    return SOURCE_REGISTRY[source_id]
+    return resolve_source_definition(source_id).handler

@@ -1,88 +1,268 @@
 # coding=utf-8
 import sqlite3
-from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from newspulse.storage.base import NewsItem, NewsData
+from newspulse.storage.base import (
+    NewsData,
+    NewsItem,
+    NormalizedCrawlBatch,
+    SourceFailureRecord,
+    convert_news_data_to_normalized_batch,
+)
 from newspulse.storage.repos.base import SQLiteRepositoryBase
 from newspulse.utils.url import normalize_url
 
 
 class NewsRepository(SQLiteRepositoryBase):
     def _save_news_data_impl(self, data: NewsData, log_prefix: str = "[存储]") -> tuple[bool, int, int, int, int]:
+        return self._save_normalized_crawl_batch_impl(
+            convert_news_data_to_normalized_batch(data),
+            log_prefix=log_prefix,
+        )
+
+    def _sync_platform(self, cursor: sqlite3.Cursor, source_id: str, source_name: str, now_str: str) -> None:
+        cursor.execute(
+            """
+            INSERT INTO platforms (id, name, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                updated_at = excluded.updated_at
+            """,
+            (source_id, source_name or source_id, now_str),
+        )
+
+    def _load_failure_records(
+        self,
+        cursor: sqlite3.Cursor,
+        *,
+        latest_time: Optional[str] = None,
+    ) -> list[SourceFailureRecord]:
+        if latest_time:
+            cursor.execute(
+                """
+                SELECT css.platform_id, p.name, COALESCE(csf.resolved_source_id, css.platform_id),
+                       COALESCE(csf.exception_type, ''), COALESCE(csf.message, ''),
+                       COALESCE(csf.attempts, 1), COALESCE(csf.retryable, 1)
+                FROM crawl_source_status css
+                JOIN crawl_records cr ON css.crawl_record_id = cr.id
+                LEFT JOIN platforms p ON css.platform_id = p.id
+                LEFT JOIN crawl_source_failures csf
+                  ON csf.crawl_record_id = css.crawl_record_id
+                 AND csf.platform_id = css.platform_id
+                WHERE cr.crawl_time = ? AND css.status = 'failed'
+                ORDER BY css.platform_id
+                """,
+                (latest_time,),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT css.platform_id, p.name, COALESCE(csf.resolved_source_id, css.platform_id),
+                       COALESCE(csf.exception_type, ''), COALESCE(csf.message, ''),
+                       COALESCE(csf.attempts, 1), COALESCE(csf.retryable, 1)
+                FROM crawl_source_status css
+                JOIN crawl_records cr ON css.crawl_record_id = cr.id
+                LEFT JOIN platforms p ON css.platform_id = p.id
+                LEFT JOIN crawl_source_failures csf
+                  ON csf.crawl_record_id = css.crawl_record_id
+                 AND csf.platform_id = css.platform_id
+                WHERE css.status = 'failed'
+                  AND cr.crawl_time = (
+                      SELECT MAX(cr2.crawl_time)
+                      FROM crawl_source_status css2
+                      JOIN crawl_records cr2 ON css2.crawl_record_id = cr2.id
+                      WHERE css2.platform_id = css.platform_id
+                        AND css2.status = 'failed'
+                  )
+                ORDER BY cr.crawl_time DESC, css.platform_id
+                """,
+            )
+
+        failures: list[SourceFailureRecord] = []
+        seen_source_ids: set[str] = set()
+        for row in cursor.fetchall():
+            source_id = row[0]
+            if source_id in seen_source_ids:
+                continue
+            seen_source_ids.add(source_id)
+            failures.append(
+                SourceFailureRecord(
+                    source_id=source_id,
+                    source_name=row[1] or source_id,
+                    resolved_source_id=row[2] or source_id,
+                    exception_type=row[3] or "",
+                    message=row[4] or "",
+                    attempts=int(row[5] or 1),
+                    retryable=bool(row[6]),
+                )
+            )
+        return failures
+
+    def _build_rank_maps(
+        self,
+        cursor: sqlite3.Cursor,
+        news_ids: list[int],
+    ) -> tuple[Dict[int, List[int]], Dict[int, List[Dict[str, Any]]]]:
+        rank_history_map: Dict[int, List[int]] = {}
+        rank_timeline_map: Dict[int, List[Dict[str, Any]]] = {}
+        if not news_ids:
+            return rank_history_map, rank_timeline_map
+
+        placeholders = ",".join("?" * len(news_ids))
+        cursor.execute(
+            f"""
+            SELECT rh.news_item_id, rh.rank, rh.crawl_time
+            FROM rank_history rh
+            JOIN news_items ni ON rh.news_item_id = ni.id
+            WHERE rh.news_item_id IN ({placeholders})
+              AND NOT (rh.rank = 0 AND rh.crawl_time > ni.last_crawl_time)
+            ORDER BY rh.news_item_id, rh.crawl_time
+            """,
+            news_ids,
+        )
+        for rh_row in cursor.fetchall():
+            news_id, rank, crawl_time = rh_row[0], rh_row[1], rh_row[2]
+
+            if news_id not in rank_history_map:
+                rank_history_map[news_id] = []
+            if rank != 0 and rank not in rank_history_map[news_id]:
+                rank_history_map[news_id].append(rank)
+
+            if news_id not in rank_timeline_map:
+                rank_timeline_map[news_id] = []
+            time_part = crawl_time.split()[1][:5] if " " in crawl_time else crawl_time[:5]
+            rank_timeline_map[news_id].append(
+                {
+                    "time": time_part,
+                    "rank": rank if rank != 0 else None,
+                }
+            )
+
+        return rank_history_map, rank_timeline_map
+
+    def _rows_to_news_data(
+        self,
+        cursor: sqlite3.Cursor,
+        rows: list[sqlite3.Row],
+        *,
+        crawl_date: str,
+        crawl_time: str,
+        failures: list[SourceFailureRecord],
+    ) -> NewsData:
+        items: Dict[str, List[NewsItem]] = {}
+        id_to_name: Dict[str, str] = {}
+        news_ids = [row[0] for row in rows]
+        rank_history_map, rank_timeline_map = self._build_rank_maps(cursor, news_ids)
+
+        for row in rows:
+            news_id = row[0]
+            platform_id = row[2]
+            platform_name = row[3] or platform_id
+            id_to_name[platform_id] = platform_name
+            items.setdefault(platform_id, []).append(
+                NewsItem(
+                    title=row[1],
+                    source_id=platform_id,
+                    source_name=platform_name,
+                    rank=row[4],
+                    url=row[5] or "",
+                    mobile_url=row[6] or "",
+                    crawl_time=row[8],
+                    ranks=rank_history_map.get(news_id, [row[4]]),
+                    first_time=row[7],
+                    last_time=row[8],
+                    count=row[9],
+                    rank_timeline=rank_timeline_map.get(news_id, []),
+                )
+            )
+
+        for failure in failures:
+            id_to_name.setdefault(failure.source_id, failure.source_name or failure.source_id)
+
+        return NewsData(
+            date=crawl_date,
+            crawl_time=crawl_time,
+            items=items,
+            id_to_name=id_to_name,
+            failed_ids=[failure.source_id for failure in failures],
+            failures=failures,
+        )
+
+    def _save_normalized_crawl_batch_impl(
+        self,
+        batch: NormalizedCrawlBatch,
+        log_prefix: str = "[存储]",
+    ) -> tuple[bool, int, int, int, int]:
         """
-        保存新闻数据到 SQLite（核心实现）
+        保存第二阶段归一化批次到 SQLite（核心实现）
 
         Args:
-            data: 新闻数据
+            batch: 归一化批次
             log_prefix: 日志前缀
 
         Returns:
             (success, new_count, updated_count, title_changed_count, off_list_count)
         """
         try:
-            conn = self._get_connection(data.date)
+            conn = self._get_connection(batch.date)
             cursor = conn.cursor()
 
-            # 获取配置时区的当前时间
             now_str = self._get_configured_time().strftime("%Y-%m-%d %H:%M:%S")
 
-            # 首先同步平台信息到 platforms 表
-            for source_id, source_name in data.id_to_name.items():
-                cursor.execute("""
-                    INSERT INTO platforms (id, name, updated_at)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET
-                        name = excluded.name,
-                        updated_at = excluded.updated_at
-                """, (source_id, source_name, now_str))
+            for source in batch.sources:
+                self._sync_platform(cursor, source.source_id, source.source_name, now_str)
+            for failure in batch.failures:
+                self._sync_platform(cursor, failure.source_id, failure.source_name, now_str)
 
-            # 统计计数器
             new_count = 0
             updated_count = 0
             title_changed_count = 0
-            success_sources = []
+            success_sources: list[str] = []
 
-            for source_id, news_list in data.items.items():
+            for source in batch.sources:
+                source_id = source.source_id
                 success_sources.append(source_id)
 
-                for item in news_list:
+                for item in source.items:
                     try:
-                        # 标准化 URL（去除动态参数，如微博的 band_rank）
                         normalized_url = normalize_url(item.url, source_id) if item.url else ""
 
-                        # 检查是否已存在（通过标准化 URL + platform_id）
                         if normalized_url:
-                            cursor.execute("""
+                            cursor.execute(
+                                """
                                 SELECT id, title FROM news_items
                                 WHERE url = ? AND platform_id = ?
-                            """, (normalized_url, source_id))
+                                """,
+                                (normalized_url, source_id),
+                            )
                             existing = cursor.fetchone()
 
                             if existing:
-                                # 已存在，更新记录
                                 existing_id, existing_title = existing
 
-                                # 检查标题是否变化
                                 if existing_title != item.title:
-                                    # 记录标题变更
-                                    cursor.execute("""
+                                    cursor.execute(
+                                        """
                                         INSERT INTO title_changes
                                         (news_item_id, old_title, new_title, changed_at)
                                         VALUES (?, ?, ?, ?)
-                                    """, (existing_id, existing_title, item.title, now_str))
+                                        """,
+                                        (existing_id, existing_title, item.title, now_str),
+                                    )
                                     title_changed_count += 1
 
-                                # 记录排名历史
-                                cursor.execute("""
+                                cursor.execute(
+                                    """
                                     INSERT INTO rank_history
                                     (news_item_id, rank, crawl_time, created_at)
                                     VALUES (?, ?, ?, ?)
-                                """, (existing_id, item.rank, data.crawl_time, now_str))
+                                    """,
+                                    (existing_id, item.rank, batch.crawl_time, now_str),
+                                )
 
-                                # 更新现有记录
-                                cursor.execute("""
+                                cursor.execute(
+                                    """
                                     UPDATE news_items SET
                                         title = ?,
                                         rank = ?,
@@ -91,46 +271,78 @@ class NewsRepository(SQLiteRepositoryBase):
                                         crawl_count = crawl_count + 1,
                                         updated_at = ?
                                     WHERE id = ?
-                                """, (item.title, item.rank, item.mobile_url,
-                                      data.crawl_time, now_str, existing_id))
+                                    """,
+                                    (
+                                        item.title,
+                                        item.rank,
+                                        item.mobile_url,
+                                        batch.crawl_time,
+                                        now_str,
+                                        existing_id,
+                                    ),
+                                )
                                 updated_count += 1
                             else:
-                                # 不存在，插入新记录（存储标准化后的 URL）
-                                cursor.execute("""
+                                cursor.execute(
+                                    """
                                     INSERT INTO news_items
                                     (title, platform_id, rank, url, mobile_url,
                                      first_crawl_time, last_crawl_time, crawl_count,
                                      created_at, updated_at)
                                     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-                                """, (item.title, source_id, item.rank, normalized_url,
-                                      item.mobile_url, data.crawl_time, data.crawl_time,
-                                      now_str, now_str))
+                                    """,
+                                    (
+                                        item.title,
+                                        source_id,
+                                        item.rank,
+                                        normalized_url,
+                                        item.mobile_url,
+                                        batch.crawl_time,
+                                        batch.crawl_time,
+                                        now_str,
+                                        now_str,
+                                    ),
+                                )
                                 new_id = cursor.lastrowid
-                                # 记录初始排名
-                                cursor.execute("""
+                                cursor.execute(
+                                    """
                                     INSERT INTO rank_history
                                     (news_item_id, rank, crawl_time, created_at)
                                     VALUES (?, ?, ?, ?)
-                                """, (new_id, item.rank, data.crawl_time, now_str))
+                                    """,
+                                    (new_id, item.rank, batch.crawl_time, now_str),
+                                )
                                 new_count += 1
                         else:
-                            # URL 为空的情况，直接插入（不做去重）
-                            cursor.execute("""
+                            cursor.execute(
+                                """
                                 INSERT INTO news_items
                                 (title, platform_id, rank, url, mobile_url,
                                  first_crawl_time, last_crawl_time, crawl_count,
                                  created_at, updated_at)
                                 VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-                            """, (item.title, source_id, item.rank, "",
-                                  item.mobile_url, data.crawl_time, data.crawl_time,
-                                  now_str, now_str))
+                                """,
+                                (
+                                    item.title,
+                                    source_id,
+                                    item.rank,
+                                    "",
+                                    item.mobile_url,
+                                    batch.crawl_time,
+                                    batch.crawl_time,
+                                    now_str,
+                                    now_str,
+                                ),
+                            )
                             new_id = cursor.lastrowid
-                            # 记录初始排名
-                            cursor.execute("""
+                            cursor.execute(
+                                """
                                 INSERT INTO rank_history
                                 (news_item_id, rank, crawl_time, created_at)
                                 VALUES (?, ?, ?, ?)
-                            """, (new_id, item.rank, data.crawl_time, now_str))
+                                """,
+                                (new_id, item.rank, batch.crawl_time, now_str),
+                            )
                             new_count += 1
 
                     except sqlite3.Error as e:
@@ -138,88 +350,109 @@ class NewsRepository(SQLiteRepositoryBase):
 
             total_items = new_count + updated_count
 
-            # ========================================
-            # 脱榜检测：检测上次在榜但这次不在榜的新闻
-            # ========================================
             off_list_count = 0
 
-            # 获取上一次抓取时间
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT crawl_time FROM crawl_records
                 WHERE crawl_time < ?
                 ORDER BY crawl_time DESC
                 LIMIT 1
-            """, (data.crawl_time,))
+                """,
+                (batch.crawl_time,),
+            )
             prev_record = cursor.fetchone()
 
             if prev_record:
                 prev_crawl_time = prev_record[0]
 
-                # 对于每个成功抓取的平台，检测脱榜
                 for source_id in success_sources:
-                    # 获取当前抓取中该平台的所有标准化 URL
                     current_urls = set()
-                    for item in data.items.get(source_id, []):
+                    current_items = batch.items.get(source_id, [])
+                    for item in current_items:
                         normalized_url = normalize_url(item.url, source_id) if item.url else ""
                         if normalized_url:
                             current_urls.add(normalized_url)
 
-                    # 查询上次在榜（last_crawl_time = prev_crawl_time）但这次不在榜的新闻
-                    # 这些新闻是"第一次脱榜"，需要记录
-                    cursor.execute("""
+                    cursor.execute(
+                        """
                         SELECT id, url FROM news_items
                         WHERE platform_id = ?
                           AND last_crawl_time = ?
                           AND url != ''
-                    """, (source_id, prev_crawl_time))
+                        """,
+                        (source_id, prev_crawl_time),
+                    )
 
                     for row in cursor.fetchall():
                         news_id, url = row[0], row[1]
                         if url not in current_urls:
-                            # 插入脱榜记录（rank=0 表示脱榜）
-                            cursor.execute("""
+                            cursor.execute(
+                                """
                                 INSERT INTO rank_history
                                 (news_item_id, rank, crawl_time, created_at)
                                 VALUES (?, 0, ?, ?)
-                            """, (news_id, data.crawl_time, now_str))
+                                """,
+                                (news_id, batch.crawl_time, now_str),
+                            )
                             off_list_count += 1
 
-            # 记录抓取信息
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT OR REPLACE INTO crawl_records
                 (crawl_time, total_items, created_at)
                 VALUES (?, ?, ?)
-            """, (data.crawl_time, total_items, now_str))
+                """,
+                (batch.crawl_time, total_items, now_str),
+            )
 
-            # 获取刚插入的 crawl_record 的 ID
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT id FROM crawl_records WHERE crawl_time = ?
-            """, (data.crawl_time,))
+                """,
+                (batch.crawl_time,),
+            )
             record_row = cursor.fetchone()
             if record_row:
                 crawl_record_id = record_row[0]
 
-                # 记录成功的来源
                 for source_id in success_sources:
-                    cursor.execute("""
+                    cursor.execute(
+                        """
                         INSERT OR REPLACE INTO crawl_source_status
                         (crawl_record_id, platform_id, status)
                         VALUES (?, ?, 'success')
-                    """, (crawl_record_id, source_id))
+                        """,
+                        (crawl_record_id, source_id),
+                    )
 
-                # 记录失败的来源
-                for failed_id in data.failed_ids:
-                    # 确保失败的平台也在 platforms 表中
-                    cursor.execute("""
-                        INSERT OR IGNORE INTO platforms (id, name, updated_at)
-                        VALUES (?, ?, ?)
-                    """, (failed_id, failed_id, now_str))
-
-                    cursor.execute("""
+                for failure in batch.failures:
+                    cursor.execute(
+                        """
                         INSERT OR REPLACE INTO crawl_source_status
                         (crawl_record_id, platform_id, status)
                         VALUES (?, ?, 'failed')
-                    """, (crawl_record_id, failed_id))
+                        """,
+                        (crawl_record_id, failure.source_id),
+                    )
+                    cursor.execute(
+                        """
+                        INSERT OR REPLACE INTO crawl_source_failures
+                        (crawl_record_id, platform_id, resolved_source_id, exception_type,
+                         message, attempts, retryable, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            crawl_record_id,
+                            failure.source_id,
+                            failure.resolved_source_id or failure.source_id,
+                            failure.exception_type,
+                            failure.message,
+                            failure.attempts,
+                            1 if failure.retryable else 0,
+                            now_str,
+                        ),
+                    )
 
             conn.commit()
 
@@ -243,7 +476,6 @@ class NewsRepository(SQLiteRepositoryBase):
             conn = self._get_connection(date)
             cursor = conn.cursor()
 
-            # 获取所有新闻数据（包含 id 用于查询排名历史）
             cursor.execute("""
                 SELECT n.id, n.title, n.platform_id, p.name as platform_name,
                        n.rank, n.url, n.mobile_url,
@@ -254,93 +486,8 @@ class NewsRepository(SQLiteRepositoryBase):
             """)
 
             rows = cursor.fetchall()
-            if not rows:
-                return None
 
-            # 收集所有 news_item_id
-            news_ids = [row[0] for row in rows]
-
-            # 批量查询排名历史（同时获取时间和排名）
-            # 过滤逻辑：只保留 last_crawl_time 之前的脱榜记录（rank=0）
-            # 这样可以避免显示新闻永久脱榜后的无意义记录
-            rank_history_map: Dict[int, List[int]] = {}
-            rank_timeline_map: Dict[int, List[Dict[str, Any]]] = {}
-            if news_ids:
-                placeholders = ",".join("?" * len(news_ids))
-                cursor.execute(f"""
-                    SELECT rh.news_item_id, rh.rank, rh.crawl_time
-                    FROM rank_history rh
-                    JOIN news_items ni ON rh.news_item_id = ni.id
-                    WHERE rh.news_item_id IN ({placeholders})
-                      AND NOT (rh.rank = 0 AND rh.crawl_time > ni.last_crawl_time)
-                    ORDER BY rh.news_item_id, rh.crawl_time
-                """, news_ids)
-                for rh_row in cursor.fetchall():
-                    news_id, rank, crawl_time = rh_row[0], rh_row[1], rh_row[2]
-
-                    # 构建 ranks 列表（去重，排除脱榜记录 rank=0）
-                    if news_id not in rank_history_map:
-                        rank_history_map[news_id] = []
-                    if rank != 0 and rank not in rank_history_map[news_id]:
-                        rank_history_map[news_id].append(rank)
-
-                    # 构建 rank_timeline 列表（完整时间线，包含脱榜）
-                    if news_id not in rank_timeline_map:
-                        rank_timeline_map[news_id] = []
-                    # 提取时间部分（HH:MM）
-                    time_part = crawl_time.split()[1][:5] if ' ' in crawl_time else crawl_time[:5]
-                    rank_timeline_map[news_id].append({
-                        "time": time_part,
-                        "rank": rank if rank != 0 else None  # 0 转为 None 表示脱榜
-                    })
-
-            # 按 platform_id 分组
-            items: Dict[str, List[NewsItem]] = {}
-            id_to_name: Dict[str, str] = {}
             crawl_date = self._format_date_folder(date)
-
-            for row in rows:
-                news_id = row[0]
-                platform_id = row[2]
-                title = row[1]
-                platform_name = row[3] or platform_id
-
-                id_to_name[platform_id] = platform_name
-
-                if platform_id not in items:
-                    items[platform_id] = []
-
-                # 获取排名历史，如果没有则使用当前排名
-                ranks = rank_history_map.get(news_id, [row[4]])
-                rank_timeline = rank_timeline_map.get(news_id, [])
-
-                items[platform_id].append(NewsItem(
-                    title=title,
-                    source_id=platform_id,
-                    source_name=platform_name,
-                    rank=row[4],
-                    url=row[5] or "",
-                    mobile_url=row[6] or "",
-                    crawl_time=row[8],  # last_crawl_time
-                    ranks=ranks,
-                    first_time=row[7],  # first_crawl_time
-                    last_time=row[8],   # last_crawl_time
-                    count=row[9],       # crawl_count
-                    rank_timeline=rank_timeline,
-                ))
-
-            final_items = items
-
-            # 获取失败的来源
-            cursor.execute("""
-                SELECT DISTINCT css.platform_id
-                FROM crawl_source_status css
-                JOIN crawl_records cr ON css.crawl_record_id = cr.id
-                WHERE css.status = 'failed'
-            """)
-            failed_ids = [row[0] for row in cursor.fetchall()]
-
-            # 获取最新的抓取时间
             cursor.execute("""
                 SELECT crawl_time FROM crawl_records
                 ORDER BY crawl_time DESC
@@ -349,13 +496,24 @@ class NewsRepository(SQLiteRepositoryBase):
 
             time_row = cursor.fetchone()
             crawl_time = time_row[0] if time_row else self._format_time_filename()
-
-            return NewsData(
-                date=crawl_date,
+            failures = self._load_failure_records(cursor)
+            if not rows:
+                if not failures:
+                    return None
+                return NewsData(
+                    date=crawl_date,
+                    crawl_time=crawl_time,
+                    items={},
+                    id_to_name={failure.source_id: failure.source_name or failure.source_id for failure in failures},
+                    failed_ids=[failure.source_id for failure in failures],
+                    failures=failures,
+                )
+            return self._rows_to_news_data(
+                cursor,
+                rows,
+                crawl_date=crawl_date,
                 crawl_time=crawl_time,
-                items=final_items,
-                id_to_name=id_to_name,
-                failed_ids=failed_ids,
+                failures=failures,
             )
 
         except Exception as e:
@@ -376,7 +534,6 @@ class NewsRepository(SQLiteRepositoryBase):
             conn = self._get_connection(date)
             cursor = conn.cursor()
 
-            # 获取最新的抓取时间
             cursor.execute("""
                 SELECT crawl_time FROM crawl_records
                 ORDER BY crawl_time DESC
@@ -389,7 +546,6 @@ class NewsRepository(SQLiteRepositoryBase):
 
             latest_time = time_row[0]
 
-            # 获取该时间的新闻数据（包含 id 用于查询排名历史）
             cursor.execute("""
                 SELECT n.id, n.title, n.platform_id, p.name as platform_name,
                        n.rank, n.url, n.mobile_url,
@@ -400,94 +556,26 @@ class NewsRepository(SQLiteRepositoryBase):
             """, (latest_time,))
 
             rows = cursor.fetchall()
-            if not rows:
-                return None
 
-            # 收集所有 news_item_id
-            news_ids = [row[0] for row in rows]
-
-            # 批量查询排名历史（同时获取时间和排名）
-            # 过滤逻辑：只保留 last_crawl_time 之前的脱榜记录（rank=0）
-            # 这样可以避免显示新闻永久脱榜后的无意义记录
-            rank_history_map: Dict[int, List[int]] = {}
-            rank_timeline_map: Dict[int, List[Dict[str, Any]]] = {}
-            if news_ids:
-                placeholders = ",".join("?" * len(news_ids))
-                cursor.execute(f"""
-                    SELECT rh.news_item_id, rh.rank, rh.crawl_time
-                    FROM rank_history rh
-                    JOIN news_items ni ON rh.news_item_id = ni.id
-                    WHERE rh.news_item_id IN ({placeholders})
-                      AND NOT (rh.rank = 0 AND rh.crawl_time > ni.last_crawl_time)
-                    ORDER BY rh.news_item_id, rh.crawl_time
-                """, news_ids)
-                for rh_row in cursor.fetchall():
-                    news_id, rank, crawl_time = rh_row[0], rh_row[1], rh_row[2]
-
-                    # 构建 ranks 列表（去重，排除脱榜记录 rank=0）
-                    if news_id not in rank_history_map:
-                        rank_history_map[news_id] = []
-                    if rank != 0 and rank not in rank_history_map[news_id]:
-                        rank_history_map[news_id].append(rank)
-
-                    # 构建 rank_timeline 列表（完整时间线，包含脱榜）
-                    if news_id not in rank_timeline_map:
-                        rank_timeline_map[news_id] = []
-                    # 提取时间部分（HH:MM）
-                    time_part = crawl_time.split()[1][:5] if ' ' in crawl_time else crawl_time[:5]
-                    rank_timeline_map[news_id].append({
-                        "time": time_part,
-                        "rank": rank if rank != 0 else None  # 0 转为 None 表示脱榜
-                    })
-
-            items: Dict[str, List[NewsItem]] = {}
-            id_to_name: Dict[str, str] = {}
             crawl_date = self._format_date_folder(date)
-
-            for row in rows:
-                news_id = row[0]
-                platform_id = row[2]
-                platform_name = row[3] or platform_id
-                id_to_name[platform_id] = platform_name
-
-                if platform_id not in items:
-                    items[platform_id] = []
-
-                # 获取排名历史，如果没有则使用当前排名
-                ranks = rank_history_map.get(news_id, [row[4]])
-                rank_timeline = rank_timeline_map.get(news_id, [])
-
-                items[platform_id].append(NewsItem(
-                    title=row[1],
-                    source_id=platform_id,
-                    source_name=platform_name,
-                    rank=row[4],
-                    url=row[5] or "",
-                    mobile_url=row[6] or "",
-                    crawl_time=row[8],  # last_crawl_time
-                    ranks=ranks,
-                    first_time=row[7],  # first_crawl_time
-                    last_time=row[8],   # last_crawl_time
-                    count=row[9],       # crawl_count
-                    rank_timeline=rank_timeline,
-                ))
-
-            # 获取失败的来源（针对最新一次抓取）
-            cursor.execute("""
-                SELECT css.platform_id
-                FROM crawl_source_status css
-                JOIN crawl_records cr ON css.crawl_record_id = cr.id
-                WHERE cr.crawl_time = ? AND css.status = 'failed'
-            """, (latest_time,))
-
-            failed_ids = [row[0] for row in cursor.fetchall()]
-
-            return NewsData(
-                date=crawl_date,
+            failures = self._load_failure_records(cursor, latest_time=latest_time)
+            if not rows:
+                if not failures:
+                    return None
+                return NewsData(
+                    date=crawl_date,
+                    crawl_time=latest_time,
+                    items={},
+                    id_to_name={failure.source_id: failure.source_name or failure.source_id for failure in failures},
+                    failed_ids=[failure.source_id for failure in failures],
+                    failures=failures,
+                )
+            return self._rows_to_news_data(
+                cursor,
+                rows,
+                crawl_date=crawl_date,
                 crawl_time=latest_time,
-                items=items,
-                id_to_name=id_to_name,
-                failed_ids=failed_ids,
+                failures=failures,
             )
 
         except Exception as e:

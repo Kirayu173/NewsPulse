@@ -2,13 +2,17 @@ import os
 import unittest
 from unittest.mock import patch
 
-from newspulse.crawler.fetcher import DataFetcher
+from newspulse.crawler import CrawlSourceSpec, DataFetcher
+from newspulse.crawler.models import SourceDefinition
+from newspulse.crawler.sources import registry as source_registry
 from newspulse.crawler.sources.base import SourceItem
 from newspulse.crawler.sources.builtin import (
+    SOURCE_DEFINITIONS,
     SOURCE_REGISTRY,
     fetch_coolapk,
     fetch_hackernews,
     fetch_producthunt,
+    resolve_source_definition,
 )
 
 
@@ -74,7 +78,14 @@ class BuiltinSourceRegistryTest(unittest.TestCase):
     def test_registry_covers_expected_source_ids(self):
         self.assertEqual(set(SOURCE_REGISTRY), EXPECTED_SOURCE_IDS)
 
-    def test_fetcher_keeps_old_result_shape(self):
+    def test_registry_resolves_alias_to_structured_definition(self):
+        definition = resolve_source_definition("github")
+
+        self.assertEqual(definition.canonical_id, "github-trending-today")
+        self.assertEqual(definition.category, "tech")
+        self.assertIs(SOURCE_DEFINITIONS["github-trending-today"], definition)
+
+    def test_fetcher_returns_native_batch_contract(self):
         def fake_source(_client):
             return [
                 SourceItem(title="Alpha", url="https://example.com/a"),
@@ -83,19 +94,60 @@ class BuiltinSourceRegistryTest(unittest.TestCase):
             ]
 
         with patch.dict(SOURCE_REGISTRY, {"unit-test-source": fake_source}, clear=False):
-            fetcher = DataFetcher()
-            results, id_to_name, failed_ids = fetcher.crawl_websites(
-                [("unit-test-source", "Unit Test")],
-                request_interval=0,
+            source_definition = SourceDefinition(
+                canonical_id="unit-test-source",
+                handler=fake_source,
+                default_name="Unit Test",
+                category="test",
             )
+            with patch.dict(
+                source_registry.SOURCE_DEFINITIONS,
+                {"unit-test-source": source_definition},
+                clear=False,
+            ), patch.dict(
+                source_registry.SOURCE_ALIAS_INDEX,
+                {"unit-test-source": source_definition},
+                clear=False,
+            ):
+                fetcher = DataFetcher()
+                batch = fetcher.crawl(
+                    [CrawlSourceSpec(source_id="unit-test-source", source_name="Unit Test")],
+                    request_interval=0,
+                )
 
-        self.assertEqual(id_to_name["unit-test-source"], "Unit Test")
-        self.assertEqual(failed_ids, [])
-        self.assertEqual(results["unit-test-source"]["Alpha"]["ranks"], [1, 2])
-        self.assertEqual(
-            results["unit-test-source"]["Beta"]["mobileUrl"],
-            "https://m.example.com/b",
-        )
+        self.assertEqual(batch.successful_source_ids, ["unit-test-source"])
+        self.assertEqual(batch.failed_source_ids, [])
+        self.assertEqual(batch.platform_names["unit-test-source"], "Unit Test")
+        self.assertEqual([item.title for item in batch.sources[0].items], ["Alpha", "Alpha", "Beta"])
+        self.assertEqual(batch.sources[0].items[2].mobile_url, "https://m.example.com/b")
+
+    def test_fetcher_falls_back_to_registry_default_name_when_config_name_is_placeholder(self):
+        def fake_source(_client):
+            return [SourceItem(title="Alpha", url="https://example.com/a")]
+
+        with patch.dict(SOURCE_REGISTRY, {"unit-test-source": fake_source}, clear=False):
+            source_definition = SourceDefinition(
+                canonical_id="unit-test-source",
+                handler=fake_source,
+                default_name="\u5355\u5143\u6d4b\u8bd5\u6e90",
+                category="test",
+            )
+            with patch.dict(
+                source_registry.SOURCE_DEFINITIONS,
+                {"unit-test-source": source_definition},
+                clear=False,
+            ), patch.dict(
+                source_registry.SOURCE_ALIAS_INDEX,
+                {"unit-test-source": source_definition},
+                clear=False,
+            ):
+                fetcher = DataFetcher()
+                batch = fetcher.crawl(
+                    [CrawlSourceSpec(source_id="unit-test-source", source_name="????")],
+                    request_interval=0,
+                )
+
+        self.assertEqual(batch.platform_names["unit-test-source"], "\u5355\u5143\u6d4b\u8bd5\u6e90")
 
     def test_fetch_coolapk_skips_empty_message_rows(self):
         class FakeClient:

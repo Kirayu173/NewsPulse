@@ -7,6 +7,10 @@ __pycache__/
 
 # Local outputs and scratch data
 output/
+outbox/
+.tmp-test/
+.tmp-test-local/
+.tmp-test-local-manual/
 .tmp-tests/
 .tmp-codex-tests/
 .tmp-codex-run/

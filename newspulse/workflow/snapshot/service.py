@@ -115,13 +115,29 @@ class SnapshotService:
         return self._flatten_index(source_index, bundle)
 
     def _build_failed_sources(self, bundle: SnapshotSourceBundle) -> list[SourceFailure]:
-        failed_ids = bundle.latest_data.failed_ids if bundle.latest_data else []
+        if not bundle.latest_data:
+            return []
+
+        if bundle.latest_data.failures:
+            return [
+                SourceFailure(
+                    source_id=failure.source_id,
+                    source_name=failure.source_name or bundle.platform_names.get(failure.source_id, failure.source_id),
+                    reason=failure.reason,
+                    resolved_source_id=failure.resolved_source_id,
+                    exception_type=failure.exception_type,
+                    message=failure.message,
+                    attempts=failure.attempts,
+                )
+                for failure in bundle.latest_data.failures
+            ]
+
         return [
             SourceFailure(
                 source_id=source_id,
                 source_name=bundle.platform_names.get(source_id, source_id),
             )
-            for source_id in failed_ids
+            for source_id in bundle.latest_data.failed_ids
         ]
 
     def _build_standalone_sections(self, bundle: SnapshotSourceBundle) -> list[StandaloneSection]:

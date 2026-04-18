@@ -8,7 +8,12 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from newspulse.storage.base import NewsData, StorageBackend
+from newspulse.storage.base import (
+    NewsData,
+    NormalizedCrawlBatch,
+    StorageBackend,
+    convert_news_data_to_normalized_batch,
+)
 from newspulse.storage.repos import AIFilterRepository, NewsRepository, ScheduleRepository
 from newspulse.storage.sqlite_runtime import SQLiteRuntime
 from newspulse.utils.time import DEFAULT_TIMEZONE
@@ -52,13 +57,13 @@ class LocalStorageBackend(StorageBackend):
     def _get_db_path(self, date: Optional[str] = None, db_type: str = "news") -> Path:
         return self.runtime.get_db_path(date, db_type)
 
-    def save_news_data(self, data: NewsData) -> bool:
-        db_path = self._get_db_path(data.date)
+    def save_normalized_crawl_batch(self, batch: NormalizedCrawlBatch) -> bool:
+        db_path = self._get_db_path(batch.date)
         if not db_path.exists():
             db_path.parent.mkdir(parents=True, exist_ok=True)
 
         success, new_count, updated_count, title_changed_count, off_list_count = (
-            self.news_repo._save_news_data_impl(data, "[本地存储]")
+            self.news_repo._save_normalized_crawl_batch_impl(batch, "[本地存储]")
         )
 
         if success:
@@ -72,6 +77,9 @@ class LocalStorageBackend(StorageBackend):
             print("；".join(log_parts))
 
         return success
+
+    def save_news_data(self, data: NewsData) -> bool:
+        return self.save_normalized_crawl_batch(convert_news_data_to_normalized_batch(data))
 
     def get_today_all_data(self, date: Optional[str] = None) -> Optional[NewsData]:
         db_path = self._get_db_path(date)
@@ -165,9 +173,12 @@ class LocalStorageBackend(StorageBackend):
     def get_all_news_ids(self, date=None):
         return self.news_repo._get_all_news_ids_impl(date)
 
-    def save_txt_snapshot(self, data: NewsData) -> Optional[str]:
+    def save_txt_snapshot(self, data: NewsData | NormalizedCrawlBatch) -> Optional[str]:
         if not self.enable_txt:
             return None
+
+        if isinstance(data, NormalizedCrawlBatch):
+            data = data.to_news_data()
 
         try:
             date_folder = self._format_date_folder(data.date)

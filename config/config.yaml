@@ -21,19 +21,19 @@ platforms:
   # 仅保留热榜源；每个 id 对应一个内置热榜抓取器。
   sources:
     - id: thepaper
-      name: ????
+      name: "\u6f8e\u6e43\u65b0\u95fb"
     - id: tencent-hot
-      name: ????
+      name: "\u817e\u8baf\u70ed\u699c"
     - id: cls-hot
-      name: ?????
+      name: "\u8d22\u8054\u793e\u70ed\u699c"
     - id: wallstreetcn-hot
-      name: ?????
+      name: "\u534e\u5c14\u8857\u89c1\u95fb\u70ed\u699c"
     - id: github-trending-today
       name: GitHub Trending
     - id: hackernews
       name: Hacker News
     - id: juejin
-      name: ??
+      name: "\u7a00\u571f"
 
 report:
   # `current`: 当前快照；`daily`: 日报；`incremental`: 仅关注本次新增。

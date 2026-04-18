@@ -81,6 +81,24 @@ CREATE TABLE IF NOT EXISTS crawl_source_status (
 );
 
 -- ============================================
+-- 抓取失败详情表
+-- 为每次失败源保留结构化失败信息
+-- ============================================
+CREATE TABLE IF NOT EXISTS crawl_source_failures (
+    crawl_record_id INTEGER NOT NULL,
+    platform_id TEXT NOT NULL,
+    resolved_source_id TEXT NOT NULL,
+    exception_type TEXT DEFAULT '',
+    message TEXT DEFAULT '',
+    attempts INTEGER DEFAULT 1,
+    retryable INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (crawl_record_id, platform_id),
+    FOREIGN KEY (crawl_record_id) REFERENCES crawl_records(id),
+    FOREIGN KEY (platform_id) REFERENCES platforms(id)
+);
+
+-- ============================================
 -- 时间段执行记录表
 -- 记录每天每个时间段在各 action 维度的执行状态（用于 once 功能）
 -- 替代旧的 push_records 表
@@ -113,6 +131,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_news_url_platform
 
 -- 抓取状态索引
 CREATE INDEX IF NOT EXISTS idx_crawl_status_record ON crawl_source_status(crawl_record_id);
+CREATE INDEX IF NOT EXISTS idx_crawl_failures_record ON crawl_source_failures(crawl_record_id);
 
 -- 排名历史索引
 CREATE INDEX IF NOT EXISTS idx_rank_history_news ON rank_history(news_item_id);

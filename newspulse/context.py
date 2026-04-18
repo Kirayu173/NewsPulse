@@ -11,6 +11,7 @@ from newspulse.core.scheduler import ResolvedSchedule
 from newspulse.core import (
     Scheduler,
 )
+from newspulse.crawler.source_names import resolve_source_display_name
 from newspulse.storage import get_storage_manager
 from newspulse.workflow.delivery import DeliveryService, GenericWebhookDeliveryAdapter
 from newspulse.workflow.insight import InsightService
@@ -495,7 +496,10 @@ class AppContext:
 
         standalone_config = self.config.get("DISPLAY", {}).get("STANDALONE", {})
         platform_names = {
-            platform.get("id", ""): platform.get("name", platform.get("id", ""))
+            platform.get("id", ""): resolve_source_display_name(
+                platform.get("id", ""),
+                str(platform.get("name", "") or ""),
+            )
             for platform in self.platforms
             if platform.get("id")
         }

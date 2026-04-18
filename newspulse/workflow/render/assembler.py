@@ -58,6 +58,10 @@ class HotlistReportAssembler:
                     "source_id": item.source_id,
                     "source_name": item.source_name,
                     "reason": item.reason,
+                    "resolved_source_id": item.resolved_source_id,
+                    "exception_type": item.exception_type,
+                    "message": item.message,
+                    "attempts": item.attempts,
                 }
                 for item in snapshot.failed_sources
             ],
