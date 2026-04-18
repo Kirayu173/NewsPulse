@@ -40,12 +40,24 @@ class LegacyCleanupTest(unittest.TestCase):
         self.assertFalse(hasattr(ai_pkg, "AITranslator"))
         self.assertFalse(hasattr(ai_pkg, "TranslationResult"))
         self.assertFalse(hasattr(ai_pkg, "BatchTranslationResult"))
+        self.assertFalse(hasattr(ai_pkg, "AIAnalyzer"))
+        self.assertFalse(hasattr(ai_pkg, "AIAnalysisResult"))
+        self.assertFalse(hasattr(ai_pkg, "AIFilter"))
+        self.assertFalse(hasattr(ai_pkg, "AIFilterResult"))
+        self.assertFalse(hasattr(ai_pkg, "get_ai_analysis_renderer"))
+        self.assertFalse(hasattr(ai_pkg, "render_ai_analysis_markdown"))
         with self.assertRaises(ModuleNotFoundError):
             importlib.import_module("newspulse.ai.translator")
         with self.assertRaises(ModuleNotFoundError):
             importlib.import_module("newspulse.ai.client")
         with self.assertRaises(ModuleNotFoundError):
             importlib.import_module("newspulse.ai.prompt_loader")
+        with self.assertRaises(ModuleNotFoundError):
+            importlib.import_module("newspulse.ai.analyzer")
+        with self.assertRaises(ModuleNotFoundError):
+            importlib.import_module("newspulse.ai.filter")
+        with self.assertRaises(ModuleNotFoundError):
+            importlib.import_module("newspulse.ai.formatter")
 
 
 if __name__ == "__main__":
