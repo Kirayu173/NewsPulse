@@ -12,7 +12,7 @@ from .config_paths import get_config_layout, resolve_prompt_path, resolve_timeli
 from newspulse.utils.time import DEFAULT_TIMEZONE
 
 
-DEFAULT_REGION_ORDER = ["hotlist", "new_items", "standalone", "ai_analysis"]
+DEFAULT_REGION_ORDER = ["hotlist", "new_items", "standalone", "insight"]
 _MISSING = object()
 
 
@@ -200,7 +200,7 @@ def _load_display_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
             "HOTLIST": regions.get("hotlist", True),
             "NEW_ITEMS": regions.get("new_items", True),
             "STANDALONE": regions.get("standalone", False),
-            "AI_ANALYSIS": regions.get("ai_analysis", True),
+            "INSIGHT": regions.get("insight", True),
         },
         "STANDALONE": {
             "PLATFORMS": standalone.get("platforms", []),

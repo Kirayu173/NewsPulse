@@ -28,7 +28,7 @@ class HTMLRenderAdapter:
         self.get_time_func = get_time_func
         self.date_folder_func = date_folder_func
         self.time_filename_func = time_filename_func
-        self.region_order = list(region_order or ["hotlist", "new_items", "standalone", "ai_analysis"])
+        self.region_order = list(region_order or ["hotlist", "new_items", "standalone", "insight"])
         self.display_mode = display_mode
         self.show_new_section = show_new_section
 

@@ -51,7 +51,7 @@ def render_html_content(
     """Render the hotlist report as a standalone HTML page."""
 
     if region_order is None:
-        region_order = ["hotlist", "new_items", "standalone", "ai_analysis"]
+        region_order = ["hotlist", "new_items", "standalone", "insight"]
 
     now = get_time_func() if get_time_func else datetime.now()
     failed_section = _render_failed_section(view_model.failed_source_names)
@@ -66,7 +66,7 @@ def render_html_content(
         "hotlist": hotlist_html,
         "new_items": new_items_html,
         "standalone": standalone_html,
-        "ai_analysis": ai_html,
+        "insight": ai_html,
     }
 
     sections: List[str] = []

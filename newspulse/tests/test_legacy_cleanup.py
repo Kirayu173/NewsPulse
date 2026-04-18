@@ -7,6 +7,7 @@ import newspulse.storage as storage_pkg
 import newspulse.ai as ai_pkg
 import newspulse.workflow as workflow_pkg
 import newspulse.workflow.insight as insight_pkg
+import newspulse.workflow.localization as localization_pkg
 import newspulse.workflow.selection as selection_pkg
 
 
@@ -31,10 +32,23 @@ class LegacyCleanupTest(unittest.TestCase):
     def test_workflow_packages_no_longer_export_insight_or_selection_legacy_adapters(self):
         self.assertFalse(hasattr(insight_pkg, "to_ai_analysis_result"))
         self.assertFalse(hasattr(selection_pkg, "selection_result_to_legacy_stats"))
+        self.assertFalse(hasattr(insight_pkg, "AIInsightStrategy"))
+        self.assertFalse(hasattr(insight_pkg, "NoopInsightStrategy"))
+        self.assertFalse(hasattr(selection_pkg, "AISelectionStrategy"))
+        self.assertFalse(hasattr(selection_pkg, "KeywordSelectionStrategy"))
+        self.assertFalse(hasattr(localization_pkg, "AILocalizationStrategy"))
+        self.assertFalse(hasattr(localization_pkg, "NoopLocalizationStrategy"))
         with self.assertRaises(ModuleNotFoundError):
             importlib.import_module("newspulse.workflow.insight.legacy")
         with self.assertRaises(ModuleNotFoundError):
             importlib.import_module("newspulse.workflow.selection.legacy")
+
+    def test_render_defaults_no_longer_use_ai_analysis_region_name(self):
+        from newspulse.context import AppContext
+        from newspulse.workflow.shared.options import RenderOptions
+
+        self.assertEqual(RenderOptions().display_regions, ["hotlist", "new_items", "standalone", "insight"])
+        self.assertEqual(AppContext({}).region_order, ["hotlist", "new_items", "standalone", "insight"])
 
     def test_ai_package_no_longer_exports_legacy_translation_stack(self):
         self.assertFalse(hasattr(ai_pkg, "AITranslator"))

@@ -2,7 +2,8 @@ import unittest
 from pathlib import Path
 
 from newspulse.context import AppContext
-from newspulse.workflow.localization import AILocalizationStrategy, LocalizationService
+from newspulse.workflow.localization import LocalizationService
+from newspulse.workflow.localization.ai import AILocalizationStrategy
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate
 from newspulse.workflow.shared.contracts import (
     HotlistItem,
@@ -62,7 +63,7 @@ def _build_renderable_report() -> RenderableReport:
         ),
         new_items=[item1],
         standalone_sections=[StandaloneSection(key="producthunt", label="Product Hunt", items=[item2])],
-        display_regions=["hotlist", "new_items", "standalone", "ai_analysis"],
+        display_regions=["hotlist", "new_items", "standalone", "insight"],
     )
 
 

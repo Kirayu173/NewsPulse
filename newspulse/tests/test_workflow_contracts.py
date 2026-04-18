@@ -47,7 +47,7 @@ class WorkflowContractsTest(unittest.TestCase):
         self.assertEqual(options.localization.language, "Chinese")
         self.assertEqual(
             options.render.display_regions,
-            ["hotlist", "new_items", "standalone", "ai_analysis"],
+            ["hotlist", "new_items", "standalone", "insight"],
         )
         self.assertTrue(options.delivery.enabled)
 
@@ -94,7 +94,7 @@ class WorkflowContractsTest(unittest.TestCase):
             insight=insight,
             new_items=selection.selected_new_items,
             standalone_sections=snapshot.standalone_sections,
-            display_regions=["hotlist", "ai_analysis"],
+            display_regions=["hotlist", "insight"],
         )
         localized = LocalizedReport(
             base_report=report,

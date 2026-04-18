@@ -22,7 +22,7 @@ DEFAULT_RENDER_REGIONS = [
     "hotlist",
     "new_items",
     "standalone",
-    "ai_analysis",
+    "insight",
 ]
 
 REPORT_TYPE_BY_MODE = {

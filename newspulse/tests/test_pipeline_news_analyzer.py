@@ -80,7 +80,7 @@ class FakeContext:
             insight=self.insight,
             new_items=selection.selected_new_items,
             standalone_sections=snapshot.standalone_sections,
-            display_regions=["hotlist", "new_items", "standalone", "ai_analysis"],
+            display_regions=["hotlist", "new_items", "standalone", "insight"],
         )
         self.localized = LocalizedReport(base_report=self.report)
         self.calls = []

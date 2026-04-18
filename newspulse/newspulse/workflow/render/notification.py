@@ -26,7 +26,7 @@ class NotificationRenderAdapter:
     ):
         self.notification_channels = list(notification_channels or [])
         self.get_time_func = get_time_func
-        self.region_order = list(region_order or ["hotlist", "new_items", "standalone", "ai_analysis"])
+        self.region_order = list(region_order or ["hotlist", "new_items", "standalone", "insight"])
         self.display_mode = display_mode
         self.rank_threshold = rank_threshold
         self.batch_size = batch_size

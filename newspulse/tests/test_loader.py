@@ -270,6 +270,8 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["AI_FILTER"]["PROMPT_FILE"], str(config_dir / "ai_filter" / "prompt.txt"))
             self.assertEqual(config["AI_FILTER"]["EXTRA_PARAMS"], {"top_p": 0.9})
             self.assertFalse(config["AI_FILTER"]["FALLBACK_TO_KEYWORD"])
+            self.assertEqual(config["DISPLAY"]["REGION_ORDER"], ["hotlist", "new_items", "standalone", "insight"])
+            self.assertTrue(config["DISPLAY"]["REGIONS"]["INSIGHT"])
 
             self.assertEqual(config["AI"]["MODEL"], "openai/base-model")
             self.assertEqual(config["AI_FILTER_MODEL"]["MODEL"], "openai/selection-model")

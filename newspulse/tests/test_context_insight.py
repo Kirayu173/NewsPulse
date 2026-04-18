@@ -100,7 +100,7 @@ def _build_config(
         ],
         "DISPLAY_MODE": "keyword",
         "DISPLAY": {
-            "REGION_ORDER": ["hotlist", "new_items", "standalone", "ai_analysis"],
+            "REGION_ORDER": ["hotlist", "new_items", "standalone", "insight"],
             "REGIONS": {"NEW_ITEMS": True},
             "STANDALONE": {"PLATFORMS": ["producthunt"], "MAX_ITEMS": 10},
         },

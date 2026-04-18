@@ -75,7 +75,7 @@ def _build_localized_report() -> LocalizedReport:
         ),
         new_items=[item1],
         standalone_sections=[StandaloneSection(key="producthunt", label="Product Hunt", items=[item2])],
-        display_regions=["new_items", "hotlist", "standalone", "ai_analysis"],
+        display_regions=["new_items", "hotlist", "standalone", "insight"],
     )
     return LocalizedReport(
         base_report=report,
@@ -157,7 +157,7 @@ class WorkflowRenderServiceTest(unittest.TestCase):
             artifacts = service.run(
                 report,
                 RenderOptions(
-                    display_regions=["new_items", "hotlist", "standalone", "ai_analysis"],
+                    display_regions=["new_items", "hotlist", "standalone", "insight"],
                     emit_html=True,
                     emit_notification=True,
                 ),
@@ -174,7 +174,7 @@ class WorkflowRenderServiceTest(unittest.TestCase):
             self.assertIn("ZH:OpenAI launches a new coding agent", combined_payload)
             self.assertIn("ZH:AI tools keep dominating the developer conversation.", combined_payload)
             self.assertEqual(artifacts.payloads[0].channel, "generic_webhook")
-            self.assertEqual(artifacts.metadata["display_regions"], ["new_items", "hotlist", "standalone", "ai_analysis"])
+            self.assertEqual(artifacts.metadata["display_regions"], ["new_items", "hotlist", "standalone", "insight"])
 
     def test_render_service_respects_display_regions_and_emit_switches(self):
         report = _build_localized_report()
@@ -195,7 +195,7 @@ class WorkflowRenderServiceTest(unittest.TestCase):
             html_only = service.run(
                 report,
                 RenderOptions(
-                    display_regions=["ai_analysis"],
+                    display_regions=["insight"],
                     emit_html=True,
                     emit_notification=False,
                 ),
@@ -231,7 +231,7 @@ class AppContextRenderStageTest(unittest.TestCase):
                     "TIMEZONE": "Asia/Hong_Kong",
                     "DISPLAY_MODE": "keyword",
                     "DISPLAY": {
-                        "REGION_ORDER": ["hotlist", "ai_analysis", "standalone"],
+                        "REGION_ORDER": ["hotlist", "insight", "standalone"],
                         "REGIONS": {
                             "NEW_ITEMS": False,
                         },
@@ -249,7 +249,7 @@ class AppContextRenderStageTest(unittest.TestCase):
             html_path = Path(artifacts.html.file_path)
             self.assertTrue(html_path.exists())
             self.assertEqual(artifacts.payloads, [])
-            self.assertEqual(artifacts.metadata["display_regions"], ["hotlist", "ai_analysis", "standalone"])
+            self.assertEqual(artifacts.metadata["display_regions"], ["hotlist", "insight", "standalone"])
             self.assertFalse(artifacts.metadata["notification_enabled"])
             self.assertNotIn("本次新增热点", artifacts.html.content)
 

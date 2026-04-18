@@ -58,17 +58,17 @@ report:
   max_news_per_keyword: 0
 
 display:
-  # 页面 / 通知分区顺序。可选值：hotlist / new_items / standalone / ai_analysis
+  # 页面 / 通知分区顺序。可选值：hotlist / new_items / standalone / insight
   region_order:
     - new_items
     - hotlist
     - standalone
-    - ai_analysis
+    - insight
   regions:
     hotlist: true
     new_items: false
     standalone: false
-    ai_analysis: true
+    insight: true
   standalone:
     # 这些平台会在主报告之外额外单独展示一份榜单摘要。
     platforms:

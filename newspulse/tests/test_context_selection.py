@@ -73,7 +73,7 @@ def _build_config(config_root: Path, output_dir: Path) -> dict:
         "PLATFORMS": [{"id": "hackernews", "name": "Hacker News"}],
         "DISPLAY_MODE": "keyword",
         "DISPLAY": {
-            "REGION_ORDER": ["hotlist", "new_items", "standalone", "ai_analysis"],
+            "REGION_ORDER": ["hotlist", "new_items", "standalone", "insight"],
             "REGIONS": {"NEW_ITEMS": True},
             "STANDALONE": {"PLATFORMS": [], "MAX_ITEMS": 20},
         },

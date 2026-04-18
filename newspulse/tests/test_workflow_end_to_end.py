@@ -10,7 +10,8 @@ from newspulse.storage.base import NewsData, NewsItem
 from newspulse.workflow.delivery import DeliveryService, GenericWebhookDeliveryAdapter
 from newspulse.workflow.insight.ai import AIInsightStrategy
 from newspulse.workflow.insight.service import InsightService
-from newspulse.workflow.localization import AILocalizationStrategy, LocalizationService
+from newspulse.workflow.localization import LocalizationService
+from newspulse.workflow.localization.ai import AILocalizationStrategy
 from newspulse.workflow.selection.ai import AISelectionStrategy
 from newspulse.workflow.selection.service import SelectionService
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate
@@ -102,7 +103,7 @@ def _build_config(
         ],
         "DISPLAY_MODE": "keyword",
         "DISPLAY": {
-            "REGION_ORDER": ["hotlist", "new_items", "standalone", "ai_analysis"],
+            "REGION_ORDER": ["hotlist", "new_items", "standalone", "insight"],
             "REGIONS": {
                 "HOTLIST": True,
                 "NEW_ITEMS": True,

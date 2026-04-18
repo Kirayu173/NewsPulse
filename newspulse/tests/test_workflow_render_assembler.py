@@ -84,7 +84,7 @@ class HotlistReportAssemblerTest(unittest.TestCase):
     def test_assembler_combines_native_stage_outputs_into_renderable_report(self):
         snapshot, selection, insight = _build_sample_stage_outputs()
         assembler = HotlistReportAssembler(
-            display_regions=["hotlist", "new_items", "standalone", "ai_analysis", "hotlist"],
+            display_regions=["hotlist", "new_items", "standalone", "insight", "hotlist"],
             timezone="Asia/Hong_Kong",
             display_mode="keyword",
         )
@@ -96,7 +96,7 @@ class HotlistReportAssemblerTest(unittest.TestCase):
         self.assertEqual(report.new_items, [snapshot.new_items[0]])
         self.assertEqual(report.selection.selected_new_items, [snapshot.new_items[0]])
         self.assertEqual(report.standalone_sections, snapshot.standalone_sections)
-        self.assertEqual(report.display_regions, ["hotlist", "new_items", "standalone", "ai_analysis"])
+        self.assertEqual(report.display_regions, ["hotlist", "new_items", "standalone", "insight"])
         self.assertEqual(report.meta["mode"], "current")
         self.assertEqual(report.meta["report_type"], "实时报告")
         self.assertEqual(report.meta["timezone"], "Asia/Hong_Kong")
@@ -119,14 +119,14 @@ class AppContextRenderableReportTest(unittest.TestCase):
                 "TIMEZONE": "Asia/Hong_Kong",
                 "DISPLAY_MODE": "keyword",
                 "DISPLAY": {
-                    "REGION_ORDER": ["hotlist", "ai_analysis", "standalone"],
+                    "REGION_ORDER": ["hotlist", "insight", "standalone"],
                 },
             }
         )
 
         report = ctx.assemble_renderable_report(snapshot, selection, insight)
 
-        self.assertEqual(report.display_regions, ["hotlist", "ai_analysis", "standalone"])
+        self.assertEqual(report.display_regions, ["hotlist", "insight", "standalone"])
         self.assertEqual(report.meta["timezone"], "Asia/Hong_Kong")
         self.assertEqual(report.meta["display_mode"], "keyword")
         self.assertEqual(report.meta["report_type"], "实时报告")

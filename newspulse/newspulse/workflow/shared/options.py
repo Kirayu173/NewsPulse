@@ -78,7 +78,7 @@ class RenderOptions:
     """Options for the render stage."""
 
     display_regions: List[str] = field(
-        default_factory=lambda: ["hotlist", "new_items", "standalone", "ai_analysis"]
+        default_factory=lambda: ["hotlist", "new_items", "standalone", "insight"]
     )
     emit_html: bool = True
     emit_notification: bool = True

@@ -22,7 +22,7 @@ DEFAULT_BATCH_SIZES = {
     "default": 4000,
 }
 
-DEFAULT_REGION_ORDER = ["hotlist", "new_items", "standalone", "ai_analysis"]
+DEFAULT_REGION_ORDER = ["hotlist", "new_items", "standalone", "insight"]
 _SUPPORTED_FORMATS = {"wework", "bark", "telegram", "ntfy", "feishu", "dingtalk", "slack"}
 
 
@@ -290,7 +290,7 @@ def split_content_into_batches(
             else ""
         ),
         "standalone": _build_standalone_section(view_model.standalone_groups, format_type),
-        "ai_analysis": render_insight_markdown(view_model.insight).strip(),
+        "insight": render_insight_markdown(view_model.insight).strip(),
         "failed": _build_failed_section(view_model.failed_source_names, format_type),
     }
 

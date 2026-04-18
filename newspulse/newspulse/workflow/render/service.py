@@ -92,4 +92,4 @@ class RenderService:
             region = str(value or "").strip().lower()
             if region and region not in normalized:
                 normalized.append(region)
-        return normalized or ["hotlist", "new_items", "standalone", "ai_analysis"]
+        return normalized or ["hotlist", "new_items", "standalone", "insight"]

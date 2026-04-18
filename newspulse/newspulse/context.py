@@ -93,7 +93,7 @@ class AppContext:
     def region_order(self) -> List[str]:
         return self.config.get(
             "DISPLAY", {}
-        ).get("REGION_ORDER", ["hotlist", "new_items", "standalone", "ai_analysis"])
+        ).get("REGION_ORDER", ["hotlist", "new_items", "standalone", "insight"])
 
     @property
     def filter_method(self) -> str:

@@ -62,7 +62,7 @@ def run_test_notification(config: Dict) -> bool:
             "HOTLIST": True,
             "NEW_ITEMS": False,
             "STANDALONE": False,
-            "AI_ANALYSIS": False,
+            "INSIGHT": False,
         }
     )
 

@@ -80,7 +80,7 @@ class LiveWorkflowLocalizationStageTest(unittest.TestCase):
             ),
             new_items=[item1],
             standalone_sections=[StandaloneSection(key="producthunt", label="Product Hunt", items=[item2])],
-            display_regions=["hotlist", "new_items", "standalone", "ai_analysis"],
+            display_regions=["hotlist", "new_items", "standalone", "insight"],
         )
 
         localized = ctx.run_localization_stage(report)
