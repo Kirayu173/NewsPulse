@@ -1,11 +1,13 @@
-.env
+﻿.env
 
 # Python caches
 __pycache__/
+.pytest_cache/
 *.py[cod]
 
 # Local outputs and scratch data
-newspulse/output/
-newspulse/.tmp-tests/
-newspulse/.tmp-codex-tests/
-newspulse/.tmp-codex-run/
+output/
+.tmp-tests/
+.tmp-codex-tests/
+.tmp-codex-run/
+
