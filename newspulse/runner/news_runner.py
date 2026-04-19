@@ -128,15 +128,16 @@ class NewsRunner:
         return selection.total_selected > 0 or bool(selection.resolve_selected_new_items(snapshot.new_items))
 
     def _log_selection_result(self, selection: SelectionResult) -> None:
+        rejected_count = len(getattr(selection, "rejected_items", []) or [])
         if selection.strategy == "ai":
             print(
-                f"[筛选] 使用 AI selection stage: {selection.total_selected} 条新闻, "
-                f"{len(selection.groups)} 个标签组"
+                f"[筛选] 使用 AI selection stage: 保留 {selection.total_selected} 条新闻, "
+                f"淘汰 {rejected_count} 条"
             )
         else:
             print(
-                f"[筛选] 使用 keyword selection stage: {selection.total_selected} 条新闻, "
-                f"{len(selection.groups)} 个分组"
+                f"[筛选] 使用 keyword selection stage: 保留 {selection.total_selected} 条新闻, "
+                f"淘汰 {rejected_count} 条"
             )
         if selection.diagnostics.get("fallback_strategy") == "keyword":
             print(

@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from newspulse.context import AppContext
 
@@ -18,6 +19,26 @@ class AppContextTest(unittest.TestCase):
         self.assertEqual(ctx.ai_translation_model_config["MODEL"], "openai/translation")
         self.assertEqual(ctx.ai_filter_model_config["MODEL"], "openai/filter")
         self.assertEqual(ctx.ai_filter_model_config["TIMEOUT"], 360)
+
+    def test_ai_filter_embedding_model_config_uses_same_provider_runtime(self):
+        ctx = AppContext(
+            {
+                "AI_FILTER_MODEL": {
+                    "MODEL": "openai/filter-model",
+                    "API_KEY": "filter-key",
+                    "API_BASE": "https://provider.example/v1",
+                    "TIMEOUT": 480,
+                }
+            }
+        )
+
+        with patch.dict("os.environ", {"EMB_MODEL": "embedding-3"}, clear=False):
+            config = ctx.ai_filter_embedding_model_config
+
+        self.assertEqual(config["MODEL"], "openai/embedding-3")
+        self.assertEqual(config["API_KEY"], "filter-key")
+        self.assertEqual(config["API_BASE"], "https://provider.example/v1")
+        self.assertEqual(config["TIMEOUT"], 480)
 
     def test_build_selection_options_uses_loader_frequency_file(self):
         ctx = AppContext(
@@ -61,6 +82,12 @@ class AppContextTest(unittest.TestCase):
                             "MIN_SCORE": 0.6,
                             "FALLBACK_TO_KEYWORD": True,
                         },
+                        "SEMANTIC": {
+                            "ENABLED": True,
+                            "TOP_K": 5,
+                            "MIN_SCORE": 0.63,
+                            "DIRECT_THRESHOLD": 0.86,
+                        },
                     }
                 },
                 "FILTER": {
@@ -87,6 +114,10 @@ class AppContextTest(unittest.TestCase):
         self.assertEqual(options.ai.min_score, 0.6)
         self.assertFalse(options.priority_sort_enabled)
         self.assertTrue(options.ai.fallback_to_keyword)
+        self.assertTrue(options.semantic.enabled)
+        self.assertEqual(options.semantic.top_k, 5)
+        self.assertEqual(options.semantic.min_score, 0.63)
+        self.assertEqual(options.semantic.direct_threshold, 0.86)
 
     def test_build_insight_options_honors_configured_strategy(self):
         ctx = AppContext(
@@ -226,6 +257,12 @@ class AppContextTest(unittest.TestCase):
                             "reclassify_threshold": 0.58,
                             "fallback_to_keyword": False,
                         },
+                        "semantic": {
+                            "enabled": True,
+                            "top_k": 6,
+                            "min_score": 0.6,
+                            "direct_threshold": 0.82,
+                        },
                     },
                     "insight": {
                         "enabled": True,
@@ -290,6 +327,8 @@ class AppContextTest(unittest.TestCase):
         self.assertEqual(ctx.ai_filter_model_config["MODEL"], "openai/selection-model")
         self.assertEqual(ctx.ai_filter_model_config["API_KEY"], "base-key")
         self.assertEqual(ctx.ai_filter_model_config["TIMEOUT"], 480)
+        self.assertEqual(ctx.selection_stage_config["SEMANTIC"]["TOP_K"], 6)
+        self.assertEqual(ctx.selection_stage_config["SEMANTIC"]["DIRECT_THRESHOLD"], 0.82)
 
         self.assertEqual(ctx.ai_analysis_config["PROMPT_FILE"], "insight_prompt.txt")
         self.assertEqual(ctx.ai_analysis_model_config["MODEL"], "openai/base")

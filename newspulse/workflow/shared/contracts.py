@@ -63,6 +63,20 @@ class SelectionGroup:
 
 
 @dataclass
+class SelectionRejectedItem:
+    """One item rejected by a gate in the selection funnel."""
+
+    news_item_id: str
+    source_id: str = ""
+    source_name: str = ""
+    title: str = ""
+    rejected_stage: str = ""
+    rejected_reason: str = ""
+    score: float = 0.0
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class InsightSection:
     """Structured insight block produced by the insight stage."""
 
@@ -97,6 +111,8 @@ class SelectionResult:
     """Selection stage output used by insight, render and delivery stages."""
 
     strategy: str
+    qualified_items: List[HotlistItem] = field(default_factory=list)
+    rejected_items: List[SelectionRejectedItem] = field(default_factory=list)
     groups: List[SelectionGroup] = field(default_factory=list)
     selected_items: List[HotlistItem] = field(default_factory=list)
     selected_new_items: List[HotlistItem] = field(default_factory=list)
@@ -104,15 +120,25 @@ class SelectionResult:
     total_selected: int = 0
     diagnostics: Dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        if self.qualified_items and not self.selected_items:
+            self.selected_items = list(self.qualified_items)
+        elif self.selected_items and not self.qualified_items:
+            self.qualified_items = list(self.selected_items)
+
+        if self.qualified_items and self.total_selected <= 0:
+            self.total_selected = len(self.qualified_items)
+
     def resolve_selected_new_items(self, snapshot_new_items: List[HotlistItem]) -> List[HotlistItem]:
         """Return snapshot new items after applying the selection-stage filter."""
 
         if not snapshot_new_items:
             return list(self.selected_new_items)
-        if not self.selected_items:
+        effective_items = self.qualified_items or self.selected_items
+        if not effective_items:
             return []
 
-        selected_ids = {str(item.news_item_id) for item in self.selected_items}
+        selected_ids = {str(item.news_item_id) for item in effective_items}
         return [item for item in snapshot_new_items if str(item.news_item_id) in selected_ids]
 
 

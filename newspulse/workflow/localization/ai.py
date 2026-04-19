@@ -213,9 +213,8 @@ class AILocalizationStrategy:
             entries.append(LocalizationTextEntry(key=item_id, text=title, kind=kind))
 
         if options.scope.selection_titles:
-            for group in report.selection.groups:
-                for item in group.items:
-                    add_item(item, "selection")
+            for item in report.selection.qualified_items or report.selection.selected_items:
+                add_item(item, "selection")
 
         if options.scope.new_items:
             for item in report.new_items:

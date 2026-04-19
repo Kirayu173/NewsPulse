@@ -118,13 +118,9 @@ class AIInsightStrategy:
             )
 
     def _build_prompt_payload(self, snapshot: Any, selection: Any, options: InsightOptions) -> InsightPromptPayload:
-        groups = list(selection.groups or [])
+        selected_items = list(getattr(selection, "qualified_items", None) or selection.selected_items or [])
         if options.max_items > 0:
-            groups = self._truncate_groups(groups, selection.selected_items, options.max_items)
-
-        selected_items = []
-        for group in groups:
-            selected_items.extend(group.items)
+            selected_items = selected_items[: options.max_items]
 
         platforms = []
         seen_platforms: set[str] = set()
@@ -134,8 +130,12 @@ class AIInsightStrategy:
                 seen_platforms.add(platform_name)
                 platforms.append(platform_name)
 
-        keywords = [group.label for group in groups if group.label]
-        news_content = self._render_news_content(groups, include_rank_timeline=options.include_rank_timeline)
+        keywords = [
+            str(label).strip()
+            for label in selection.diagnostics.get("focus_labels", [])
+            if str(label).strip()
+        ]
+        news_content = self._render_news_content(selected_items, include_rank_timeline=options.include_rank_timeline)
         standalone_content = ""
         if options.include_standalone:
             standalone_content = self._render_standalone_content(
@@ -159,31 +159,6 @@ class AIInsightStrategy:
             language=self.language,
         )
 
-    @staticmethod
-    def _truncate_groups(groups: list[Any], selected_items: list[Any], max_items: int) -> list[Any]:
-        allowed_ids = {
-            str(item.news_item_id)
-            for item in (selected_items or [])[:max_items]
-        }
-        if not allowed_ids:
-            return []
-
-        truncated = []
-        for group in groups:
-            copied = [item for item in group.items if str(item.news_item_id) in allowed_ids]
-            if not copied:
-                continue
-            group_copy = type(group)(
-                key=group.key,
-                label=group.label,
-                items=copied,
-                description=group.description,
-                position=group.position,
-                metadata=dict(group.metadata),
-            )
-            truncated.append(group_copy)
-        return truncated
-
     def _render_prompt(self, payload: InsightPromptPayload) -> str:
         user_prompt = self.prompt_template.user_prompt
         replacements = {
@@ -202,29 +177,24 @@ class AIInsightStrategy:
         return user_prompt
 
     @staticmethod
-    def _render_news_content(groups: list[Any], *, include_rank_timeline: bool) -> str:
+    def _render_news_content(selected_items: list[Any], *, include_rank_timeline: bool) -> str:
         lines: list[str] = []
-        for group in groups:
-            if not group.items:
-                continue
-            lines.append(f"## {group.label} ({len(group.items)}条)")
-            for item in group.items:
-                meta_parts = []
-                if item.ranks:
-                    meta_parts.append(f"排名:{AIInsightStrategy._format_rank_range(item.ranks)}")
-                time_range = AIInsightStrategy._format_time_range(item.first_time, item.last_time)
-                if time_range:
-                    meta_parts.append(f"时间:{time_range}")
-                if item.count > 1:
-                    meta_parts.append(f"次数:{item.count}次")
-                if include_rank_timeline and item.rank_timeline:
-                    meta_parts.append(f"轨迹:{AIInsightStrategy._format_rank_timeline(item.rank_timeline)}")
+        for item in selected_items:
+            meta_parts = []
+            if item.ranks:
+                meta_parts.append(f"排名:{AIInsightStrategy._format_rank_range(item.ranks)}")
+            time_range = AIInsightStrategy._format_time_range(item.first_time, item.last_time)
+            if time_range:
+                meta_parts.append(f"时间:{time_range}")
+            if item.count > 1:
+                meta_parts.append(f"次数:{item.count}次")
+            if include_rank_timeline and item.rank_timeline:
+                meta_parts.append(f"轨迹:{AIInsightStrategy._format_rank_timeline(item.rank_timeline)}")
 
-                line = f"- [{item.source_name or item.source_id}] {item.title}"
-                if meta_parts:
-                    line += " | " + " | ".join(meta_parts)
-                lines.append(line)
-            lines.append("")
+            line = f"- [{item.source_name or item.source_id}] {item.title}"
+            if meta_parts:
+                line += " | " + " | ".join(meta_parts)
+            lines.append(line)
         return "\n".join(lines).strip()
 
     @staticmethod

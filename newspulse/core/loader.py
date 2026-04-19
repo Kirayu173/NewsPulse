@@ -266,6 +266,7 @@ def _get_ai_operation_config(config_data: Dict[str, Any], operation_key: str) ->
 def _load_workflow_selection_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
     selection = _get_section(config_data, "workflow", "selection")
     selection_ai = _get_section(selection, "ai")
+    selection_semantic = _get_section(selection, "semantic")
 
     env_ai_filter = _get_env_bool("AI_FILTER_ENABLED")
     strategy = str(
@@ -325,6 +326,34 @@ def _load_workflow_selection_config(config_data: Dict[str, Any]) -> Dict[str, An
                     _get_present_value(selection_ai, "fallback_to_keyword"),
                     default=True,
                 )
+            ),
+        },
+        "SEMANTIC": {
+            "ENABLED": bool(
+                _coalesce(
+                    _get_present_value(selection_semantic, "enabled"),
+                    default=True,
+                )
+            ),
+            "TOP_K": int(
+                _coalesce(
+                    _get_present_value(selection_semantic, "top_k"),
+                    default=3,
+                )
+            ),
+            "MIN_SCORE": float(
+                _coalesce(
+                    _get_present_value(selection_semantic, "min_score"),
+                    default=0.55,
+                )
+                or 0.55
+            ),
+            "DIRECT_THRESHOLD": float(
+                _coalesce(
+                    _get_present_value(selection_semantic, "direct_threshold"),
+                    default=0.78,
+                )
+                or 0.78
             ),
         },
     }

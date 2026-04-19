@@ -57,6 +57,37 @@ class LocalStorageBackend(StorageBackend):
     def _get_db_path(self, date: Optional[str] = None, db_type: str = "news") -> Path:
         return self.runtime.get_db_path(date, db_type)
 
+    def _resolve_read_date(
+        self,
+        date: Optional[str] = None,
+        *,
+        db_type: str = "news",
+        fallback_to_latest: bool = True,
+    ) -> tuple[bool, Optional[str]]:
+        """Resolve a readable database date for read-only APIs."""
+
+        if date is not None:
+            return self._get_db_path(date, db_type).exists(), date
+
+        current_path = self._get_db_path(None, db_type)
+        if current_path.exists():
+            return True, None
+        if not fallback_to_latest:
+            return False, None
+
+        db_dir = self.data_dir / db_type
+        if not db_dir.exists():
+            return False, None
+
+        latest_stem = ""
+        for db_file in db_dir.glob("*.db"):
+            stem = db_file.stem
+            if re.match(r"^\d{4}-\d{2}-\d{2}$", stem) and stem > latest_stem:
+                latest_stem = stem
+        if not latest_stem:
+            return False, None
+        return True, latest_stem
+
     def save_normalized_crawl_batch(self, batch: NormalizedCrawlBatch) -> bool:
         db_path = self._get_db_path(batch.date)
         if not db_path.exists():
@@ -82,16 +113,16 @@ class LocalStorageBackend(StorageBackend):
         return self.save_normalized_crawl_batch(convert_news_data_to_normalized_batch(data))
 
     def get_today_all_data(self, date: Optional[str] = None) -> Optional[NewsData]:
-        db_path = self._get_db_path(date)
-        if not db_path.exists():
+        exists, resolved_date = self._resolve_read_date(date)
+        if not exists:
             return None
-        return self.news_repo._get_today_all_data_impl(date)
+        return self.news_repo._get_today_all_data_impl(resolved_date)
 
     def get_latest_crawl_data(self, date: Optional[str] = None) -> Optional[NewsData]:
-        db_path = self._get_db_path(date)
-        if not db_path.exists():
+        exists, resolved_date = self._resolve_read_date(date)
+        if not exists:
             return None
-        return self.news_repo._get_latest_crawl_data_impl(date)
+        return self.news_repo._get_latest_crawl_data_impl(resolved_date)
 
     def detect_new_titles(self, current_data: NewsData) -> Dict[str, Dict]:
         return self.news_repo._detect_new_titles_impl(current_data)
@@ -103,10 +134,10 @@ class LocalStorageBackend(StorageBackend):
         return self.news_repo._is_first_crawl_today_impl(date)
 
     def get_crawl_times(self, date: Optional[str] = None) -> List[str]:
-        db_path = self._get_db_path(date)
-        if not db_path.exists():
+        exists, resolved_date = self._resolve_read_date(date)
+        if not exists:
             return []
-        return self.news_repo._get_crawl_times_impl(date)
+        return self.news_repo._get_crawl_times_impl(resolved_date)
 
     def has_period_executed(self, date_str: str, period_key: str, action: str) -> bool:
         return self.schedule_repo._has_period_executed_impl(date_str, period_key, action)
@@ -171,7 +202,10 @@ class LocalStorageBackend(StorageBackend):
         return self.ai_filter_repo._clear_unmatched_analyzed_news_impl(date, interests_file)
 
     def get_all_news_ids(self, date=None):
-        return self.news_repo._get_all_news_ids_impl(date)
+        exists, resolved_date = self._resolve_read_date(date)
+        if not exists:
+            return []
+        return self.news_repo._get_all_news_ids_impl(resolved_date)
 
     def save_txt_snapshot(self, data: NewsData | NormalizedCrawlBatch) -> Optional[str]:
         if not self.enable_txt:

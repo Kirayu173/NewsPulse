@@ -1,8 +1,9 @@
 import json
+import shutil
 import textwrap
 import unittest
+import uuid
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 from newspulse.context import AppContext
 from newspulse.storage import get_storage_manager
@@ -21,23 +22,19 @@ def _write_selection_configs(config_root: Path) -> None:
     _write_text(
         config_root / "custom" / "keyword" / "topics.txt",
         """
-        [WORD_GROUPS]
-        [AI]
-        OpenAI
-        agent
-
-        [OpenSource]
-        GitHub
-        open source
+        [GLOBAL_FILTER]
+        sports
         """,
     )
     _write_text(
         config_root / "ai_filter" / "prompt.txt",
         """
         [user]
-        TAGS:
-        {tags_list}
-        NEWS:
+        关注面:
+        {interests_content}
+        主题:
+        {focus_topics}
+        新闻:
         {news_list}
         """,
     )
@@ -138,7 +135,7 @@ def _seed_hotlist(ctx: AppContext) -> None:
                         count=1,
                     ),
                     NewsItem(
-                        title="Product Hunt startup launch roundup",
+                        title="Startup raises new funding round",
                         source_id="hackernews",
                         source_name="Hacker News",
                         rank=3,
@@ -146,6 +143,19 @@ def _seed_hotlist(ctx: AppContext) -> None:
                         mobile_url="https://m.example.com/startup",
                         crawl_time=crawl_time,
                         ranks=[3],
+                        first_time=crawl_time,
+                        last_time=crawl_time,
+                        count=1,
+                    ),
+                    NewsItem(
+                        title="Sports finals preview",
+                        source_id="hackernews",
+                        source_name="Hacker News",
+                        rank=4,
+                        url="https://example.com/sports",
+                        mobile_url="https://m.example.com/sports",
+                        crawl_time=crawl_time,
+                        ranks=[4],
                         first_time=crawl_time,
                         last_time=crawl_time,
                         count=1,
@@ -158,57 +168,51 @@ def _seed_hotlist(ctx: AppContext) -> None:
     )
 
 
-class RoutingAIClient:
+class DeterministicQualityAIClient:
     def __init__(self):
         self.classify_calls = 0
 
     def chat(self, messages, **kwargs):
-        user_content = messages[-1]["content"]
-        if user_content.startswith("INTERESTS:"):
-            lowered = user_content.lower()
-            if "startup" in lowered:
-                return json.dumps({"tags": [{"tag": "Startups", "description": "startup launches"}]})
-            return json.dumps(
-                {
-                    "tags": [
-                        {"tag": "AI Agents", "description": "AI coding agents"},
-                        {"tag": "Open Source", "description": "open source tools"},
-                    ]
-                }
-            )
-
-        if user_content.startswith("OLD:"):
-            return json.dumps(
-                {
-                    "keep": [{"tag": "AI Agents", "description": "AI coding agents"}],
-                    "add": [{"tag": "Startups", "description": "startup launches"}],
-                    "remove": ["Open Source"],
-                    "change_ratio": 0.2,
-                }
-            )
-
         self.classify_calls += 1
-        tag_ids = {}
-        for line in user_content.splitlines():
-            if ". " in line and ":" in line and "[" not in line:
-                prefix, rest = line.split(". ", 1)
-                if prefix.isdigit():
-                    tag_name = rest.split(":", 1)[0].strip()
-                    tag_ids[tag_name] = int(prefix)
-
         results = []
-        for line in user_content.splitlines():
-            if ". [" not in line:
+        for line in messages[-1]["content"].splitlines():
+            if not line[:1].isdigit() or ". [" not in line:
                 continue
             prompt_id = int(line.split(".", 1)[0])
             lowered = line.lower()
             if "openai" in lowered or "agent" in lowered:
-                results.append({"id": prompt_id, "tag_id": tag_ids.get("AI Agents", next(iter(tag_ids.values()))), "score": 0.96})
+                results.append({"id": prompt_id, "keep": True, "score": 0.96, "reasons": ["信息增量"], "evidence": "agent launch"})
             elif "github" in lowered or "open source" in lowered:
-                results.append({"id": prompt_id, "tag_id": tag_ids.get("Open Source", next(iter(tag_ids.values()))), "score": 0.91})
+                results.append({"id": prompt_id, "keep": True, "score": 0.91, "reasons": ["开源发布"], "evidence": "open source release"})
             elif "startup" in lowered:
-                results.append({"id": prompt_id, "tag_id": tag_ids.get("Startups", next(iter(tag_ids.values()))), "score": 0.87})
+                results.append({"id": prompt_id, "keep": True, "score": 0.87, "reasons": ["创业动态"], "evidence": "funding"})
+            else:
+                results.append({"id": prompt_id, "keep": False, "score": 0.1, "reasons": ["低价值"], "evidence": "drop"})
         return json.dumps(results)
+
+
+class FakeEmbeddingClient:
+    class _Config:
+        model = "openai/embedding-test"
+
+    config = _Config()
+
+    def is_enabled(self):
+        return True
+
+    def embed_texts(self, texts, **kwargs):
+        vectors = []
+        for text in texts:
+            lowered = str(text).lower()
+            if "agent" in lowered or "openai" in lowered:
+                vectors.append([1.0, 0.0, 0.0])
+            elif "open source" in lowered or "github" in lowered:
+                vectors.append([0.0, 1.0, 0.0])
+            elif "startup" in lowered or "funding" in lowered:
+                vectors.append([0.0, 0.0, 1.0])
+            else:
+                vectors.append([1.0, 1.0, 1.0])
+        return vectors
 
 
 class FailingAIClient:
@@ -217,12 +221,47 @@ class FailingAIClient:
 
 
 class AppContextSelectionStageTest(unittest.TestCase):
-    def _create_context(self, tmp: str) -> AppContext:
-        root = Path(tmp)
+    def _create_workspace_tmpdir(self) -> Path:
+        root = Path(".tmp-test") / "context-selection"
+        root.mkdir(parents=True, exist_ok=True)
+        path = root / str(uuid.uuid4())
+        path.mkdir(parents=True, exist_ok=False)
+        return path
+
+    def _create_context(self, root: Path) -> AppContext:
         config_root = root / "config"
         output_dir = root / "output"
         _write_selection_configs(config_root)
-        _write_text(config_root / "custom" / "ai" / "ai.txt", "AI agents\nopen source tools")
+        _write_text(
+            config_root / "custom" / "ai" / "ai.txt",
+            """
+            [TOPIC_CATALOG]
+
+            [AI Agents]
+            AI coding agents and MCP tooling
+            + agent
+            + OpenAI
+            @priority: 1
+
+            [Open Source]
+            Open source tools and repo launches
+            + GitHub
+            + open source
+            @priority: 2
+            """,
+        )
+        _write_text(
+            config_root / "custom" / "ai" / "startup.txt",
+            """
+            [TOPIC_CATALOG]
+
+            [Startups]
+            Startup launches and fundraising
+            + startup
+            + funding
+            @priority: 1
+            """,
+        )
         ctx = AppContext(_build_config(config_root, output_dir))
         ctx._storage_manager = get_storage_manager(
             backend_type="local",
@@ -238,6 +277,7 @@ class AppContextSelectionStageTest(unittest.TestCase):
         ai_strategy = AISelectionStrategy(
             storage_manager=ctx.get_storage_manager(),
             client=client,
+            embedding_client=FakeEmbeddingClient(),
             filter_config=ctx.ai_filter_config,
             config_root=ctx.config_root,
             sleep_func=lambda _: None,
@@ -252,117 +292,115 @@ class AppContextSelectionStageTest(unittest.TestCase):
         )
 
     def test_keyword_and_ai_selection_stage_both_return_selection_result(self):
-        with TemporaryDirectory() as tmp:
-            ctx = self._create_context(tmp)
-            try:
-                _seed_hotlist(ctx)
+        tmpdir = self._create_workspace_tmpdir()
+        ctx = self._create_context(tmpdir)
+        try:
+            _seed_hotlist(ctx)
 
-                _, keyword_selection = ctx.run_selection_stage(
-                    mode="current",
-                    strategy="keyword",
-                    frequency_file="topics.txt",
-                )
+            _, keyword_selection = ctx.run_selection_stage(
+                mode="current",
+                strategy="keyword",
+                frequency_file="topics.txt",
+            )
 
-                ai_service = self._build_ai_selection_service(ctx, RoutingAIClient())
-                _, ai_selection = ctx.run_selection_stage(
-                    mode="current",
-                    strategy="ai",
-                    frequency_file="topics.txt",
-                    interests_file="ai.txt",
-                    selection_service=ai_service,
-                )
+            ai_service = self._build_ai_selection_service(ctx, DeterministicQualityAIClient())
+            _, ai_selection = ctx.run_selection_stage(
+                mode="current",
+                strategy="ai",
+                frequency_file="topics.txt",
+                interests_file="ai.txt",
+                selection_service=ai_service,
+            )
 
-                self.assertIsInstance(keyword_selection, SelectionResult)
-                self.assertIsInstance(ai_selection, SelectionResult)
-                self.assertEqual(keyword_selection.strategy, "keyword")
-                self.assertEqual(ai_selection.strategy, "ai")
-                self.assertTrue(keyword_selection.groups)
-                self.assertTrue(ai_selection.groups)
-            finally:
-                ctx.cleanup()
+            self.assertIsInstance(keyword_selection, SelectionResult)
+            self.assertIsInstance(ai_selection, SelectionResult)
+            self.assertEqual(keyword_selection.strategy, "keyword")
+            self.assertEqual(ai_selection.strategy, "ai")
+            self.assertEqual(keyword_selection.total_selected, 3)
+            self.assertEqual(ai_selection.total_selected, 2)
+            self.assertEqual(ai_selection.diagnostics["rule_rejected_count"], 1)
+        finally:
+            ctx.cleanup()
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
-    def test_run_selection_stage_passes_ai_options_and_skips_already_analyzed_news(self):
-        with TemporaryDirectory() as tmp:
-            ctx = self._create_context(tmp)
-            try:
-                _seed_hotlist(ctx)
-                client = RoutingAIClient()
-                ai_service = self._build_ai_selection_service(ctx, client)
+    def test_run_selection_stage_emits_funnel_diagnostics(self):
+        tmpdir = self._create_workspace_tmpdir()
+        ctx = self._create_context(tmpdir)
+        try:
+            _seed_hotlist(ctx)
+            client = DeterministicQualityAIClient()
+            ai_service = self._build_ai_selection_service(ctx, client)
 
-                _, first_result = ctx.run_selection_stage(
-                    mode="current",
-                    strategy="ai",
-                    interests_file="ai.txt",
-                    selection_service=ai_service,
-                )
-                first_call_count = client.classify_calls
+            _, result = ctx.run_selection_stage(
+                mode="current",
+                strategy="ai",
+                frequency_file="topics.txt",
+                interests_file="ai.txt",
+                selection_service=ai_service,
+            )
 
-                _, second_result = ctx.run_selection_stage(
-                    mode="current",
-                    strategy="ai",
-                    interests_file="ai.txt",
-                    selection_service=ai_service,
-                )
-
-                self.assertEqual(first_result.diagnostics["batch_size"], 2)
-                self.assertEqual(first_result.diagnostics["min_score"], 0.8)
-                self.assertEqual(first_call_count, 2)
-                self.assertEqual(client.classify_calls, first_call_count)
-                self.assertEqual(second_result.diagnostics["pending_candidates"], 0)
-            finally:
-                ctx.cleanup()
+            self.assertEqual(result.diagnostics["batch_size"], 2)
+            self.assertEqual(result.diagnostics["min_score"], 0.8)
+            self.assertEqual(result.diagnostics["focus_labels"], ["AI Agents", "Open Source"])
+            self.assertEqual(result.diagnostics["semantic_passed_count"], 2)
+            self.assertEqual(result.diagnostics["llm_decision_count"], 2)
+            self.assertGreater(client.classify_calls, 0)
+        finally:
+            ctx.cleanup()
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
     def test_run_selection_stage_supports_switching_interests_files(self):
-        with TemporaryDirectory() as tmp:
-            ctx = self._create_context(tmp)
-            try:
-                _seed_hotlist(ctx)
-                config_root = Path(tmp) / "config"
-                _write_text(config_root / "custom" / "ai" / "ai.txt", "AI agents\nopen source tools")
-                _write_text(config_root / "custom" / "ai" / "startup.txt", "startup launches")
+        tmpdir = self._create_workspace_tmpdir()
+        ctx = self._create_context(tmpdir)
+        try:
+            _seed_hotlist(ctx)
+            ai_service = self._build_ai_selection_service(ctx, DeterministicQualityAIClient())
+            _, first_result = ctx.run_selection_stage(
+                mode="current",
+                strategy="ai",
+                frequency_file="topics.txt",
+                interests_file="ai.txt",
+                selection_service=ai_service,
+            )
+            _, second_result = ctx.run_selection_stage(
+                mode="current",
+                strategy="ai",
+                frequency_file="topics.txt",
+                interests_file="startup.txt",
+                selection_service=ai_service,
+            )
 
-                ai_service = self._build_ai_selection_service(ctx, RoutingAIClient())
-                _, first_result = ctx.run_selection_stage(
-                    mode="current",
-                    strategy="ai",
-                    interests_file="ai.txt",
-                    selection_service=ai_service,
-                )
-                _, second_result = ctx.run_selection_stage(
-                    mode="current",
-                    strategy="ai",
-                    interests_file="startup.txt",
-                    selection_service=ai_service,
-                )
-
-                self.assertEqual(first_result.diagnostics["interests_file"], "ai.txt")
-                self.assertEqual(second_result.diagnostics["interests_file"], "startup.txt")
-                self.assertTrue(ctx.get_storage_manager().get_active_ai_filter_tags(interests_file="ai.txt"))
-                self.assertTrue(ctx.get_storage_manager().get_active_ai_filter_tags(interests_file="startup.txt"))
-            finally:
-                ctx.cleanup()
+            self.assertEqual(first_result.diagnostics["interests_file"], "ai.txt")
+            self.assertEqual(second_result.diagnostics["interests_file"], "startup.txt")
+            self.assertEqual(first_result.diagnostics["focus_labels"], ["AI Agents", "Open Source"])
+            self.assertEqual(second_result.diagnostics["focus_labels"], ["Startups"])
+            self.assertEqual(second_result.total_selected, 1)
+        finally:
+            ctx.cleanup()
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
     def test_run_selection_stage_falls_back_to_keyword_when_ai_fails(self):
-        with TemporaryDirectory() as tmp:
-            ctx = self._create_context(tmp)
-            try:
-                _seed_hotlist(ctx)
-                failing_service = self._build_ai_selection_service(ctx, FailingAIClient())
+        tmpdir = self._create_workspace_tmpdir()
+        ctx = self._create_context(tmpdir)
+        try:
+            _seed_hotlist(ctx)
+            failing_service = self._build_ai_selection_service(ctx, FailingAIClient())
 
-                _, result = ctx.run_selection_stage(
-                    mode="current",
-                    strategy="ai",
-                    frequency_file="topics.txt",
-                    interests_file="ai.txt",
-                    selection_service=failing_service,
-                )
+            _, result = ctx.run_selection_stage(
+                mode="current",
+                strategy="ai",
+                frequency_file="topics.txt",
+                interests_file="missing.txt",
+                selection_service=failing_service,
+            )
 
-                self.assertEqual(result.strategy, "keyword")
-                self.assertEqual(result.diagnostics["requested_strategy"], "ai")
-                self.assertEqual(result.diagnostics["fallback_strategy"], "keyword")
-                self.assertIn("RuntimeError", result.diagnostics["fallback_reason"])
-            finally:
-                ctx.cleanup()
+            self.assertEqual(result.strategy, "keyword")
+            self.assertEqual(result.diagnostics["requested_strategy"], "ai")
+            self.assertEqual(result.diagnostics["fallback_strategy"], "keyword")
+            self.assertIn("ValueError", result.diagnostics["fallback_reason"])
+        finally:
+            ctx.cleanup()
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ from newspulse.workflow.shared.contracts import (
     InsightResult,
     LocalizedReport,
     SelectionGroup,
+    SelectionResult,
     StandaloneSection,
 )
 from newspulse.workflow.shared.scoring import calculate_news_weight
@@ -242,7 +243,7 @@ def build_render_view_model(
     meta.setdefault("display_mode", display_mode)
 
     hotlist_groups = _build_hotlist_groups(
-        base_report.selection.groups,
+        base_report.selection,
         report.localized_titles,
         display_mode=display_mode,
         rank_threshold=rank_threshold,
@@ -294,7 +295,7 @@ def _normalize_display_regions(display_regions: list[str]) -> list[str]:
 
 
 def _build_hotlist_groups(
-    groups: list[SelectionGroup],
+    selection: SelectionResult,
     localized_titles: dict[str, str],
     *,
     display_mode: str,
@@ -302,6 +303,16 @@ def _build_hotlist_groups(
     weight_config: dict[str, float] | None,
     convert_time_func: Callable[[str], str],
 ) -> list[RenderGroupView]:
+    groups = list(selection.groups or [])
+    if not groups or _is_compat_qualified_group(groups):
+        fallback_items = list(selection.qualified_items or selection.selected_items or [])
+        return _build_source_groups(
+            fallback_items,
+            localized_titles,
+            rank_threshold=rank_threshold,
+            convert_time_func=convert_time_func,
+        )
+
     keyword_groups: list[RenderGroupView] = []
     for group in groups:
         items = [
@@ -329,6 +340,13 @@ def _build_hotlist_groups(
     if display_mode != "platform":
         return keyword_groups
     return _build_platform_groups(keyword_groups, rank_threshold=rank_threshold, weight_config=weight_config)
+
+
+def _is_compat_qualified_group(groups: list[SelectionGroup]) -> bool:
+    if len(groups) != 1:
+        return False
+    group = groups[0]
+    return str(group.key or "").strip().lower() == "qualified"
 
 
 def _build_platform_groups(

@@ -25,6 +25,7 @@ from newspulse.utils.time import (
     get_current_time_display,
 )
 from newspulse.workflow.selection import SelectionService
+from newspulse.workflow.selection.ai import build_embedding_runtime_config
 from newspulse.workflow.shared.contracts import HotlistSnapshot, InsightResult, LocalizedReport, RenderableReport, SelectionResult
 from newspulse.workflow.shared.options import (
     DeliveryOptions,
@@ -34,6 +35,7 @@ from newspulse.workflow.shared.options import (
     RenderOptions,
     SelectionAIOptions,
     SelectionOptions,
+    SelectionSemanticOptions,
     SnapshotOptions,
 )
 from newspulse.workflow.snapshot import SnapshotService
@@ -209,6 +211,10 @@ class AppContext:
         )
 
     @property
+    def ai_filter_embedding_model_config(self) -> Dict[str, Any]:
+        return build_embedding_runtime_config(self.ai_filter_model_config)
+
+    @property
     def ai_runtime_config(self) -> Dict[str, Any]:
         configured = self.config.get("AI", {})
         if isinstance(configured, dict) and configured:
@@ -225,6 +231,7 @@ class AppContext:
         workflow_selection = self._get_workflow_stage("SELECTION", "selection")
         if workflow_selection:
             workflow_ai = self._get_nested_mapping(workflow_selection, "AI", "ai")
+            workflow_semantic = self._get_nested_mapping(workflow_selection, "SEMANTIC", "semantic")
             return {
                 "STRATEGY": str(self._mapping_get(workflow_selection, "STRATEGY", "strategy", default="keyword") or "keyword"),
                 "FREQUENCY_FILE": self._mapping_get(workflow_selection, "FREQUENCY_FILE", "frequency_file"),
@@ -243,6 +250,24 @@ class AppContext:
                         self._mapping_get(workflow_ai, "FALLBACK_TO_KEYWORD", "fallback_to_keyword", default=True)
                     ),
                 },
+                "SEMANTIC": {
+                    "ENABLED": bool(
+                        self._mapping_get(workflow_semantic, "ENABLED", "enabled", default=True)
+                    ),
+                    "TOP_K": int(self._mapping_get(workflow_semantic, "TOP_K", "top_k", default=3) or 3),
+                    "MIN_SCORE": float(
+                        self._mapping_get(workflow_semantic, "MIN_SCORE", "min_score", default=0.55) or 0.55
+                    ),
+                    "DIRECT_THRESHOLD": float(
+                        self._mapping_get(
+                            workflow_semantic,
+                            "DIRECT_THRESHOLD",
+                            "direct_threshold",
+                            default=0.78,
+                        )
+                        or 0.78
+                    ),
+                },
             }
 
         filter_config = self.config.get("FILTER", {})
@@ -258,6 +283,12 @@ class AppContext:
                 "MIN_SCORE": float(ai_filter_config.get("MIN_SCORE", 0) or 0),
                 "RECLASSIFY_THRESHOLD": float(ai_filter_config.get("RECLASSIFY_THRESHOLD", 0.6) or 0.6),
                 "FALLBACK_TO_KEYWORD": bool(ai_filter_config.get("FALLBACK_TO_KEYWORD", True)),
+            },
+            "SEMANTIC": {
+                "ENABLED": True,
+                "TOP_K": 3,
+                "MIN_SCORE": 0.55,
+                "DIRECT_THRESHOLD": 0.78,
             },
         }
 
@@ -515,6 +546,7 @@ class AppContext:
             sort_by_position_first=self.config.get("SORT_BY_POSITION_FIRST", False),
             storage_manager=self.get_storage_manager(),
             ai_runtime_config=self.ai_filter_model_config,
+            embedding_runtime_config=self.ai_filter_embedding_model_config,
             ai_filter_config=self.ai_filter_config,
             debug=bool(self.config.get("DEBUG", False)),
         )
@@ -530,6 +562,7 @@ class AppContext:
 
         selection_config = self.selection_stage_config
         selection_ai = selection_config.get("AI", {})
+        selection_semantic = selection_config.get("SEMANTIC", {})
         effective_interests_file = interests_file or selection_ai.get("INTERESTS_FILE") or "ai_interests.txt"
         return SelectionOptions(
             strategy=strategy or str(selection_config.get("STRATEGY", "keyword") or "keyword"),
@@ -541,6 +574,12 @@ class AppContext:
                 batch_interval=float(selection_ai.get("BATCH_INTERVAL", 5) or 0),
                 min_score=float(selection_ai.get("MIN_SCORE", 0) or 0),
                 fallback_to_keyword=bool(selection_ai.get("FALLBACK_TO_KEYWORD", True)),
+            ),
+            semantic=SelectionSemanticOptions(
+                enabled=bool(selection_semantic.get("ENABLED", True)),
+                top_k=int(selection_semantic.get("TOP_K", 3) or 3),
+                min_score=float(selection_semantic.get("MIN_SCORE", 0.55) or 0.55),
+                direct_threshold=float(selection_semantic.get("DIRECT_THRESHOLD", 0.78) or 0.78),
             ),
         )
 
@@ -554,7 +593,7 @@ class AppContext:
         snapshot_service: Optional[SnapshotService] = None,
         selection_service: Optional[SelectionService] = None,
     ) -> Tuple[HotlistSnapshot, SelectionResult]:
-        """Run the native selection stage and optionally fall back to keyword mode."""
+        """Run the native selection stage."""
 
         snapshot_builder = snapshot_service or self.create_snapshot_service()
         selection_runner = selection_service or self.create_selection_service()
@@ -564,27 +603,7 @@ class AppContext:
             frequency_file=frequency_file,
             interests_file=interests_file,
         )
-
-        try:
-            selection = selection_runner.run(snapshot, options)
-        except Exception as exc:
-            if options.strategy == "ai" and options.ai.fallback_to_keyword:
-                fallback_options = self.build_selection_options(
-                    strategy="keyword",
-                    frequency_file=frequency_file,
-                )
-                selection = selection_runner.run(snapshot, fallback_options)
-                selection.diagnostics.update(
-                    {
-                        "requested_strategy": "ai",
-                        "fallback_strategy": "keyword",
-                        "fallback_reason": f"{type(exc).__name__}: {exc}",
-                    }
-                )
-            else:
-                raise
-
-        selection.diagnostics.setdefault("requested_strategy", options.strategy)
+        selection = selection_runner.run(snapshot, options)
         return snapshot, selection
 
     def create_insight_service(self) -> InsightService:

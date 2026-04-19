@@ -119,6 +119,8 @@ def resolve_ai_interests_path(
         return path
     if len(path.parts) > 1 or _is_project_config_reference(path):
         return resolve_config_resource(path, config_root=root)
+    if path.name == DEFAULT_AI_INTERESTS_FILE:
+        return root / DEFAULT_AI_INTERESTS_FILE
     return root / "custom" / "ai" / path.name
 
 

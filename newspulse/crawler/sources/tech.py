@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Dict, List, Sequence, Tuple
 from urllib.parse import quote, urlencode
 
@@ -94,6 +94,16 @@ def fetch_coolapk(client: SourceClient) -> List[SourceItem]:
     return items
 
 def fetch_github_trending(client: SourceClient) -> List[SourceItem]:
+    try:
+        items = _fetch_github_trending_html(client)
+    except Exception:
+        items = []
+    if items:
+        return items
+    return _fetch_github_trending_search_api(client)
+
+
+def _fetch_github_trending_html(client: SourceClient) -> List[SourceItem]:
     base_url = "https://github.com"
     soup = client.get_soup("https://github.com/trending?spoken_language_code=")
     items: List[SourceItem] = []
@@ -103,6 +113,34 @@ def fetch_github_trending(client: SourceClient) -> List[SourceItem]:
         title = _clean_text(link.get_text(" ", strip=True) if link else "")
         if title and href:
             items.append(_item(title, absolute_url(base_url, href)))
+    return items
+
+
+def _fetch_github_trending_search_api(client: SourceClient) -> List[SourceItem]:
+    created_after = (datetime.now(UTC) - timedelta(days=7)).date().isoformat()
+    headers = {"Accept": "application/vnd.github+json"}
+    token = os.environ.get("GITHUB_TOKEN", "").strip() or os.environ.get("GITHUB_API_TOKEN", "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    response = client.request(
+        "GET",
+        "https://api.github.com/search/repositories",
+        headers=headers,
+        params={
+            "q": f"created:>{created_after}",
+            "sort": "stars",
+            "order": "desc",
+            "per_page": 20,
+        },
+    )
+    data = response.json()
+    items: List[SourceItem] = []
+    for entry in data.get("items", []):
+        title = _clean_text(str(entry.get("full_name") or entry.get("name") or ""))
+        url = str(entry.get("html_url") or "").strip()
+        if title and url:
+            items.append(_item(title, url))
     return items
 
 def fetch_ghxi(client: SourceClient) -> List[SourceItem]:

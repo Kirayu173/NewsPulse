@@ -87,13 +87,20 @@ workflow:
     priority_sort_enabled: true
     ai:
       # 留空时默认使用 `ai_interests.txt`；也可填写 `custom/ai/<name>.txt`。
+      # 当 interests 文件中包含 `[TOPIC_CATALOG]` 时，会直接作为原生 topic catalog 使用。
       interests_file:
       # AI 筛选的批处理与阈值配置。
-      batch_size: 10
+      batch_size: 5
       batch_interval: 2
-      min_score: 0.7
+      min_score: 0.65
       reclassify_threshold: 0.6
       fallback_to_keyword: true
+    semantic:
+      # 第二层语义召回：默认使用 `.env` 中的 `EMB_MODEL`，并继承 AI_FILTER 的同源 provider 配置。
+      enabled: true
+      top_k: 5
+      min_score: 0.44
+      direct_threshold: 0.72
 
   insight:
     enabled: true

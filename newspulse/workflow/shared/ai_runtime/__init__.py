@@ -7,6 +7,10 @@ from newspulse.workflow.shared.ai_runtime.codec import (
     decode_json_response,
     extract_json_block,
 )
+from newspulse.workflow.shared.ai_runtime.embedding import (
+    EmbeddingRuntimeClient,
+    EmbeddingRuntimeConfig,
+)
 from newspulse.workflow.shared.ai_runtime.errors import (
     AIConfigError,
     AIInvocationError,
@@ -29,6 +33,8 @@ __all__ = [
     "PromptTemplateNotFoundError",
     "coerce_text_content",
     "decode_json_response",
+    "EmbeddingRuntimeClient",
+    "EmbeddingRuntimeConfig",
     "extract_json_block",
     "load_prompt_template",
 ]

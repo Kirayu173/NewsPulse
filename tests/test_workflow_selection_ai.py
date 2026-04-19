@@ -3,16 +3,19 @@ import textwrap
 import unittest
 from datetime import datetime
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from newspulse.storage.base import NewsData, NewsItem
 from newspulse.storage.local import LocalStorageBackend
 from newspulse.workflow.selection.ai import AISelectionStrategy
-from newspulse.workflow.selection.models import AIActiveTag, AIBatchNewsItem
+from newspulse.workflow.selection.models import AIBatchNewsItem
 from newspulse.workflow.selection.service import SelectionService
-from newspulse.workflow.shared.options import SelectionAIOptions, SelectionOptions, SnapshotOptions
+from newspulse.workflow.shared.options import SelectionAIOptions, SelectionOptions, SelectionSemanticOptions, SnapshotOptions
 from newspulse.workflow.snapshot.service import SnapshotService
+
+TEST_TMPDIR = Path("tmp_test_work")
+TEST_TMPDIR.mkdir(exist_ok=True)
 
 
 TEST_TIMEZONE = ZoneInfo("Asia/Shanghai")
@@ -31,33 +34,23 @@ def _write_text(path: Path, content: str) -> None:
     path.write_text(textwrap.dedent(content).strip(), encoding="utf-8")
 
 
+def _make_tmp_dir() -> Path:
+    path = TEST_TMPDIR / f"case-{uuid4().hex}"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def _write_test_ai_config(config_root: Path) -> None:
     _write_text(
         config_root / "ai_filter" / "prompt.txt",
         """
         [user]
-        TAGS:
-        {tags_list}
-        NEWS:
+        关注面:
+        {interests_content}
+        主题:
+        {focus_topics}
+        新闻:
         {news_list}
-        """,
-    )
-    _write_text(
-        config_root / "ai_filter" / "extract_prompt.txt",
-        """
-        [user]
-        INTERESTS:
-        {interests_content}
-        """,
-    )
-    _write_text(
-        config_root / "ai_filter" / "update_tags_prompt.txt",
-        """
-        [user]
-        OLD:
-        {old_tags_json}
-        NEW:
-        {interests_content}
         """,
     )
 
@@ -106,12 +99,12 @@ def _seed_hotlist(storage: LocalStorageBackend) -> None:
                         count=1,
                     ),
                     NewsItem(
-                        title="NBA finals preview",
+                        title="Beginner tutorial for AI resumes",
                         source_id="hackernews",
                         source_name="Hacker News",
                         rank=3,
-                        url="https://example.com/nba",
-                        mobile_url="https://m.example.com/nba",
+                        url="https://example.com/tutorial",
+                        mobile_url="https://m.example.com/tutorial",
                         crawl_time=crawl_time,
                         ranks=[3],
                         first_time=crawl_time,
@@ -135,50 +128,51 @@ def _build_snapshot(storage: LocalStorageBackend):
     return service.build(SnapshotOptions(mode="current"))
 
 
-class DeterministicAIClient:
+class DeterministicQualityAIClient:
     def __init__(self):
-        self.extract_calls = 0
-        self.update_calls = 0
         self.classify_calls = 0
 
     def chat(self, messages, **kwargs):
-        user_content = messages[-1]["content"]
-        if user_content.startswith("INTERESTS:"):
-            self.extract_calls += 1
-            return json.dumps(
-                {
-                    "tags": [
-                        {"tag": "AI Agents", "description": "AI models and agents"},
-                        {"tag": "Open Source", "description": "Open source tools"},
-                    ]
-                }
-            )
-
-        if user_content.startswith("OLD:"):
-            self.update_calls += 1
-            return json.dumps(
-                {
-                    "keep": [
-                        {"tag": "AI Agents", "description": "AI agents and models"},
-                    ],
-                    "add": [
-                        {"tag": "Startups", "description": "new startup launches"},
-                    ],
-                    "remove": ["Open Source"],
-                    "change_ratio": 0.2,
-                }
-            )
-
         self.classify_calls += 1
+        user_content = messages[-1]["content"]
         results = []
         for line in user_content.splitlines():
             if not line[:1].isdigit() or ". [" not in line:
                 continue
             prompt_id = int(line.split(".", 1)[0])
             if "OpenAI launches" in line:
-                results.append({"id": prompt_id, "tag_id": 1, "score": 0.96})
+                results.append(
+                    {
+                        "id": prompt_id,
+                        "keep": True,
+                        "score": 0.95,
+                        "reasons": ["有信息增量", "代理工具发布"],
+                        "evidence": "OpenAI coding agent 属于值得分析的产品动态",
+                        "matched_topics": ["AI Agent / MCP"],
+                    }
+                )
             elif "GitHub ships" in line:
-                results.append({"id": prompt_id, "tag_id": 2, "score": 0.88})
+                results.append(
+                    {
+                        "id": prompt_id,
+                        "keep": True,
+                        "score": 0.82,
+                        "reasons": ["开源工具发布"],
+                        "evidence": "开源 CLI 更新具备一定讨论价值",
+                        "matched_topics": ["开源发布 / GitHub / HN"],
+                    }
+                )
+            else:
+                results.append(
+                    {
+                        "id": prompt_id,
+                        "keep": False,
+                        "score": 0.12,
+                        "reasons": ["低价值教程"],
+                        "evidence": "与深度分析目标不匹配",
+                        "matched_topics": [],
+                    }
+                )
         return json.dumps(results)
 
 
@@ -188,13 +182,62 @@ class SplitFallbackAIClient:
 
     def chat(self, messages, **kwargs):
         user_content = messages[-1]["content"]
-        lines = [line for line in user_content.splitlines() if line[:1].isdigit() and ". " in line]
+        lines = [line for line in user_content.splitlines() if line[:1].isdigit() and ". [" in line]
         self.calls.append(len(lines))
         if len(lines) > 1:
             raise RuntimeError("split me")
 
         prompt_id = int(lines[0].split(".", 1)[0])
-        return json.dumps([{"id": prompt_id, "tag_id": 1, "score": 0.9}])
+        return json.dumps(
+            [{"id": prompt_id, "keep": True, "score": 0.9, "reasons": ["ok"], "evidence": "ok"}]
+        )
+
+
+class PartialResponseAIClient:
+    def __init__(self):
+        self.calls = []
+
+    def chat(self, messages, **kwargs):
+        user_content = messages[-1]["content"]
+        lines = [line for line in user_content.splitlines() if line[:1].isdigit() and ". [" in line]
+        self.calls.append(len(lines))
+        if not lines:
+            return "[]"
+
+        first_prompt_id = int(lines[0].split(".", 1)[0])
+        return json.dumps(
+            [
+                {
+                    "id": first_prompt_id,
+                    "keep": True,
+                    "score": 0.88,
+                    "reasons": ["ok"],
+                    "evidence": "partial response",
+                }
+            ]
+        )
+
+
+class FakeEmbeddingClient:
+    class _Config:
+        model = "openai/embedding-test"
+
+    config = _Config()
+
+    def is_enabled(self):
+        return True
+
+    def embed_texts(self, texts, **kwargs):
+        vectors = []
+        for text in texts:
+            lowered = str(text).lower()
+            if "agent" in lowered or "openai" in lowered:
+                vectors.append([1.0, 0.0, 0.0])
+            elif "open source" in lowered or "github" in lowered:
+                vectors.append([0.0, 1.0, 0.0])
+            else:
+                vectors.append([0.0, 0.0, 1.0])
+        return vectors
 
 
 class DummyStorage:
@@ -206,151 +249,244 @@ class DummyStorage:
 
 
 class AISelectionStrategyTest(unittest.TestCase):
-    def test_service_runs_ai_strategy_and_persists_results(self):
-        with TemporaryDirectory() as tmp:
-            config_root = Path(tmp) / "config"
-            _write_test_ai_config(config_root)
-            _write_text(config_root / "custom" / "ai" / "unit.txt", "AI agents\nOpen source developer tools")
+    def test_service_runs_ai_strategy_as_quality_gate(self):
+        tmp_root = _make_tmp_dir()
+        config_root = tmp_root / "config"
+        _write_test_ai_config(config_root)
+        _write_text(
+            config_root / "custom" / "ai" / "unit.txt",
+            """
+            [TOPIC_CATALOG]
 
-            storage = _build_storage(tmp)
-            try:
-                _seed_hotlist(storage)
-                snapshot = _build_snapshot(storage)
-                client = DeterministicAIClient()
+            [AI Agent / MCP]
+            AI agents and coding agents
+            + AI agent
+            + coding agent
+            @priority: 1
 
-                ai_strategy = AISelectionStrategy(
-                    storage_manager=storage,
-                    client=client,
-                    filter_config={
-                        "PROMPT_FILE": "prompt.txt",
-                        "EXTRACT_PROMPT_FILE": "extract_prompt.txt",
-                        "UPDATE_TAGS_PROMPT_FILE": "update_tags_prompt.txt",
-                    },
-                    config_root=config_root,
-                    sleep_func=lambda _: None,
-                )
-                service = SelectionService(config_root=str(config_root), ai_strategy=ai_strategy)
+            [开源发布 / GitHub / HN]
+            Open source tooling and repo launches
+            + GitHub
+            + open source
+            @priority: 2
+            """,
+        )
+        _write_text(
+            config_root / "custom" / "keyword" / "selection.txt",
+            """
+            [GLOBAL_FILTER]
+            tutorial
+            """,
+        )
 
-                result = service.run(
-                    snapshot,
-                    SelectionOptions(
-                        strategy="ai",
-                        priority_sort_enabled=True,
-                        ai=SelectionAIOptions(
-                            interests_file="unit.txt",
-                            batch_size=10,
-                            batch_interval=0,
-                            min_score=0.7,
-                        ),
-                    ),
-                )
+        storage = _build_storage(str(tmp_root))
+        try:
+            _seed_hotlist(storage)
+            snapshot = _build_snapshot(storage)
+            client = DeterministicQualityAIClient()
 
-                self.assertEqual(result.strategy, "ai")
-                self.assertEqual([group.label for group in result.groups], ["AI Agents", "Open Source"])
-                self.assertEqual(
-                    [item.title for item in result.selected_items],
-                    ["OpenAI launches coding agent", "GitHub ships a new open source CLI"],
-                )
-                self.assertEqual(len(storage.get_active_ai_filter_tags(interests_file="unit.txt")), 2)
-                self.assertEqual(len(storage.get_active_ai_filter_results(interests_file="unit.txt")), 2)
-                self.assertEqual(storage.get_analyzed_news_ids("hotlist", interests_file="unit.txt"), {1, 2, 3})
-                self.assertEqual(client.extract_calls, 1)
-                self.assertEqual(client.classify_calls, 1)
-            finally:
-                storage.cleanup()
+            ai_strategy = AISelectionStrategy(
+                storage_manager=storage,
+                client=client,
+                embedding_client=FakeEmbeddingClient(),
+                filter_config={"PROMPT_FILE": "prompt.txt"},
+                config_root=config_root,
+                sleep_func=lambda _: None,
+            )
+            service = SelectionService(config_root=str(config_root), ai_strategy=ai_strategy)
 
-    def test_ai_strategy_incrementally_updates_tags_when_interest_changes(self):
-        with TemporaryDirectory() as tmp:
-            config_root = Path(tmp) / "config"
-            _write_test_ai_config(config_root)
-            interests_path = config_root / "custom" / "ai" / "unit.txt"
-            _write_text(interests_path, "AI agents\nOpen source developer tools")
-
-            storage = _build_storage(tmp)
-            try:
-                _seed_hotlist(storage)
-                snapshot = _build_snapshot(storage)
-                client = DeterministicAIClient()
-                strategy = AISelectionStrategy(
-                    storage_manager=storage,
-                    client=client,
-                    filter_config={
-                        "PROMPT_FILE": "prompt.txt",
-                        "EXTRACT_PROMPT_FILE": "extract_prompt.txt",
-                        "UPDATE_TAGS_PROMPT_FILE": "update_tags_prompt.txt",
-                        "RECLASSIFY_THRESHOLD": 0.6,
-                    },
-                    config_root=config_root,
-                    sleep_func=lambda _: None,
-                )
-
-                options = SelectionOptions(
+            result = service.run(
+                snapshot,
+                SelectionOptions(
                     strategy="ai",
-                    priority_sort_enabled=True,
+                    frequency_file="selection.txt",
                     ai=SelectionAIOptions(
                         interests_file="unit.txt",
                         batch_size=10,
                         batch_interval=0,
                         min_score=0.7,
                     ),
-                )
-                strategy.run(snapshot, options)
-                initial_tags = storage.get_active_ai_filter_tags(interests_file="unit.txt")
-                initial_ai_tag_id = next(tag["id"] for tag in initial_tags if tag["tag"] == "AI Agents")
+                    semantic=SelectionSemanticOptions(
+                        enabled=True,
+                        top_k=3,
+                        min_score=0.55,
+                        direct_threshold=0.95,
+                    ),
+                ),
+            )
 
-                _write_text(interests_path, "AI agents\nStartup product launches")
-                result = strategy.run(snapshot, options)
+            self.assertEqual(result.strategy, "ai")
+            self.assertEqual(
+                [item.title for item in result.qualified_items],
+                ["OpenAI launches coding agent", "GitHub ships a new open source CLI"],
+            )
+            self.assertEqual(len(result.rejected_items), 1)
+            self.assertEqual(result.rejected_items[0].rejected_stage, "rule")
+            self.assertEqual(client.classify_calls, 1)
+            self.assertEqual(result.diagnostics["focus_topic_count"], 2)
+            self.assertEqual(result.diagnostics["rule_rejected_count"], 1)
+            self.assertEqual(result.diagnostics["semantic_passed_count"], 2)
 
-                active_tags = storage.get_active_ai_filter_tags(interests_file="unit.txt")
-                self.assertEqual([tag["tag"] for tag in active_tags], ["AI Agents", "Startups"])
-                self.assertEqual(active_tags[0]["id"], initial_ai_tag_id)
-                self.assertEqual(result.diagnostics["tag_refresh_mode"], "incremental")
-                self.assertEqual(client.update_calls, 1)
-            finally:
-                storage.cleanup()
+            selected_matches = result.diagnostics["selected_matches"]
+            self.assertEqual(
+                [match["decision_layer"] for match in selected_matches],
+                ["llm_quality_gate", "llm_quality_gate"],
+            )
+        finally:
+            storage.cleanup()
 
     def test_ai_classify_batch_splits_failed_batch_until_single_item(self):
-        with TemporaryDirectory() as tmp:
-            config_root = Path(tmp) / "config"
-            _write_text(
-                config_root / "ai_filter" / "prompt.txt",
-                """
-                [user]
-                {news_list}
-                """,
-            )
-            _write_text(config_root / "ai_filter" / "extract_prompt.txt", "[user]\nINTERESTS:\n{interests_content}")
-            _write_text(config_root / "ai_filter" / "update_tags_prompt.txt", "[user]\nOLD:\n{old_tags_json}\nNEW:\n{interests_content}")
+        tmp_root = _make_tmp_dir()
+        config_root = tmp_root / "config"
+        _write_test_ai_config(config_root)
 
-            client = SplitFallbackAIClient()
+        client = SplitFallbackAIClient()
+        strategy = AISelectionStrategy(
+            storage_manager=DummyStorage(),
+            client=client,
+            filter_config={"PROMPT_FILE": "prompt.txt"},
+            config_root=config_root,
+            sleep_func=lambda _: None,
+        )
+
+        batch_items = [
+            AIBatchNewsItem(prompt_id=1, news_item_id="1", title="a"),
+            AIBatchNewsItem(prompt_id=2, news_item_id="2", title="b"),
+            AIBatchNewsItem(prompt_id=3, news_item_id="3", title="c"),
+            AIBatchNewsItem(prompt_id=4, news_item_id="4", title="d"),
+        ]
+        results = strategy.classify_batch(
+            batch_items,
+            interests_content="AI",
+        )
+
+        self.assertEqual([result.news_item_id for result in results], ["1", "2", "3", "4"])
+        self.assertTrue(all(result.keep for result in results))
+        self.assertEqual(client.calls[0], 4)
+        self.assertIn(2, client.calls)
+        self.assertIn(1, client.calls)
+
+    def test_ai_classify_batch_recovers_missing_decisions_via_retry(self):
+        tmp_root = _make_tmp_dir()
+        config_root = tmp_root / "config"
+        _write_test_ai_config(config_root)
+
+        client = PartialResponseAIClient()
+        strategy = AISelectionStrategy(
+            storage_manager=DummyStorage(),
+            client=client,
+            filter_config={"PROMPT_FILE": "prompt.txt"},
+            config_root=config_root,
+            sleep_func=lambda _: None,
+        )
+
+        batch_items = [
+            AIBatchNewsItem(prompt_id=1, news_item_id="1", title="a"),
+            AIBatchNewsItem(prompt_id=2, news_item_id="2", title="b"),
+            AIBatchNewsItem(prompt_id=3, news_item_id="3", title="c"),
+        ]
+        results = strategy.classify_batch(
+            batch_items,
+            interests_content="AI",
+        )
+
+        self.assertEqual([result.news_item_id for result in results], ["1", "2", "3"])
+        self.assertTrue(all(result.keep for result in results))
+        self.assertEqual(client.calls[0], 3)
+        self.assertEqual(client.calls.count(1), 2)
+
+    def test_ai_strategy_uses_structured_topic_catalog_as_focus_topics(self):
+        tmp_root = _make_tmp_dir()
+        config_root = tmp_root / "config"
+        _write_test_ai_config(config_root)
+        _write_text(
+            config_root / "custom" / "ai" / "catalog.txt",
+            """
+            [TOPIC_CATALOG]
+
+            [AI Agent / MCP]
+            AI Agent、MCP 与智能工作流工具
+            + AI Agent
+            + MCP
+            @priority: 1
+
+            [开源发布 / GitHub / HN]
+            GitHub Trending、开源发布与仓库热点
+            + GitHub
+            + open source
+            @priority: 2
+            """,
+        )
+
+        storage = _build_storage(str(tmp_root))
+        try:
+            _seed_hotlist(storage)
+            snapshot = _build_snapshot(storage)
             strategy = AISelectionStrategy(
-                storage_manager=DummyStorage(),
-                client=client,
-                filter_config={
-                    "PROMPT_FILE": "prompt.txt",
-                    "EXTRACT_PROMPT_FILE": "extract_prompt.txt",
-                    "UPDATE_TAGS_PROMPT_FILE": "update_tags_prompt.txt",
-                },
+                storage_manager=storage,
+                client=DeterministicQualityAIClient(),
+                embedding_client=FakeEmbeddingClient(),
+                filter_config={"PROMPT_FILE": "prompt.txt"},
                 config_root=config_root,
                 sleep_func=lambda _: None,
             )
 
-            batch_items = [
-                AIBatchNewsItem(prompt_id=1, news_item_id="1", title="a"),
-                AIBatchNewsItem(prompt_id=2, news_item_id="2", title="b"),
-                AIBatchNewsItem(prompt_id=3, news_item_id="3", title="c"),
-                AIBatchNewsItem(prompt_id=4, news_item_id="4", title="d"),
-            ]
-            results = strategy.classify_batch(
-                batch_items,
-                [AIActiveTag(id=1, tag="AI", description="AI news", priority=1)],
-                interests_content="AI",
+            result = strategy.run(
+                snapshot,
+                SelectionOptions(
+                    strategy="ai",
+                    ai=SelectionAIOptions(interests_file="catalog.txt", batch_size=10, batch_interval=0, min_score=0.7),
+                    semantic=SelectionSemanticOptions(enabled=True, top_k=2, min_score=0.55, direct_threshold=0.95),
+                ),
             )
 
-            self.assertEqual([result.news_item_id for result in results], ["1", "2", "3", "4"])
-            self.assertEqual(client.calls[0], 4)
-            self.assertIn(2, client.calls)
-            self.assertIn(1, client.calls)
+            self.assertEqual(result.diagnostics["focus_topic_count"], 2)
+            self.assertEqual(result.diagnostics["focus_labels"], ["AI Agent / MCP", "开源发布 / GitHub / HN"])
+            self.assertEqual(result.diagnostics["semantic_topics"][0]["seed_keywords"][0], "AI Agent")
+        finally:
+            storage.cleanup()
+
+    def test_ai_strategy_rejects_items_below_llm_threshold(self):
+        class LowScoreClient:
+            def chat(self, messages, **kwargs):
+                return json.dumps(
+                    [{"id": 1, "keep": True, "score": 0.5, "reasons": ["信息密度不足"], "evidence": "low"}]
+                )
+
+        tmp_root = _make_tmp_dir()
+        config_root = tmp_root / "config"
+        _write_test_ai_config(config_root)
+        _write_text(config_root / "custom" / "ai" / "unit.txt", "AI agents")
+
+        storage = _build_storage(str(tmp_root))
+        try:
+            _seed_hotlist(storage)
+            snapshot = _build_snapshot(storage)
+            # Only keep the first item in semantic stage to make the threshold assertion deterministic.
+            snapshot.items = snapshot.items[:1]
+            strategy = AISelectionStrategy(
+                storage_manager=storage,
+                client=LowScoreClient(),
+                filter_config={"PROMPT_FILE": "prompt.txt"},
+                config_root=config_root,
+                sleep_func=lambda _: None,
+            )
+
+            result = strategy.run(
+                snapshot,
+                SelectionOptions(
+                    strategy="ai",
+                    ai=SelectionAIOptions(interests_file="unit.txt", batch_size=10, batch_interval=0, min_score=0.7),
+                    semantic=SelectionSemanticOptions(enabled=False),
+                ),
+            )
+
+            self.assertEqual(result.total_selected, 0)
+            self.assertEqual(len(result.rejected_items), 1)
+            self.assertEqual(result.rejected_items[0].rejected_stage, "llm")
+            self.assertIn("quality score below threshold", result.rejected_items[0].rejected_reason)
+        finally:
+            storage.cleanup()
 
 
 if __name__ == "__main__":

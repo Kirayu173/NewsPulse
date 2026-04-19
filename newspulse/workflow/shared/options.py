@@ -29,6 +29,17 @@ class SelectionAIOptions:
 
 
 @dataclass
+class SelectionSemanticOptions:
+    """Nested semantic-recall options for the selection stage."""
+
+    enabled: bool = True
+    top_k: int = 3
+    min_score: float = 0.55
+    direct_threshold: float = 0.78
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class SelectionOptions:
     """Options for the selection stage."""
 
@@ -36,6 +47,7 @@ class SelectionOptions:
     frequency_file: Optional[str] = None
     priority_sort_enabled: bool = False
     ai: SelectionAIOptions = field(default_factory=SelectionAIOptions)
+    semantic: SelectionSemanticOptions = field(default_factory=SelectionSemanticOptions)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 

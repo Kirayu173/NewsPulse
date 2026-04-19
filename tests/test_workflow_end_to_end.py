@@ -170,23 +170,6 @@ def _build_config(
 class RoutingAISelectionClient:
     def chat(self, messages, **kwargs):
         user_content = messages[-1]["content"]
-        if user_content.startswith("INTERESTS:"):
-            return json.dumps(
-                {
-                    "tags": [
-                        {"tag": "AI Agents", "description": "AI coding agents"},
-                        {"tag": "Startups", "description": "startup launches"},
-                    ]
-                }
-            )
-
-        tag_ids = {}
-        for line in user_content.splitlines():
-            if ". " in line and ":" in line and "[" not in line:
-                prefix, rest = line.split(". ", 1)
-                if prefix.isdigit():
-                    tag_ids[rest.split(":", 1)[0].strip()] = int(prefix)
-
         results = []
         for line in user_content.splitlines():
             if ". [" not in line:
@@ -194,10 +177,63 @@ class RoutingAISelectionClient:
             prompt_id = int(line.split(".", 1)[0])
             lowered = line.lower()
             if "openai" in lowered or "agent" in lowered:
-                results.append({"id": prompt_id, "tag_id": tag_ids.get("AI Agents", 1), "score": 0.96})
+                results.append(
+                    {
+                        "id": prompt_id,
+                        "keep": True,
+                        "score": 0.96,
+                        "reasons": ["high-signal ai tooling launch"],
+                        "evidence": "OpenAI coding agent fits the quality gate.",
+                        "matched_topics": ["AI agents and coding tools"],
+                    }
+                )
             elif "startup" in lowered or "productivity" in lowered:
-                results.append({"id": prompt_id, "tag_id": tag_ids.get("Startups", 2), "score": 0.91})
+                results.append(
+                    {
+                        "id": prompt_id,
+                        "keep": True,
+                        "score": 0.91,
+                        "reasons": ["meaningful startup launch"],
+                        "evidence": "A startup launch is still relevant for downstream analysis.",
+                        "matched_topics": ["startup launches"],
+                    }
+                )
+            else:
+                results.append(
+                    {
+                        "id": prompt_id,
+                        "keep": False,
+                        "score": 0.05,
+                        "reasons": ["off-topic sports item"],
+                        "evidence": "The item is unrelated to the configured selection focus.",
+                        "matched_topics": [],
+                    }
+                )
         return json.dumps(results)
+
+
+class FakeEmbeddingClient:
+    class _Config:
+        model = "openai/embedding-test"
+
+    config = _Config()
+
+    def is_enabled(self):
+        return True
+
+    def embed_texts(self, texts, **kwargs):
+        vectors = []
+        for text in texts:
+            lowered = str(text).lower()
+            if "selection focus" in lowered or "ai agents" in lowered or "startup launches" in lowered:
+                vectors.append([1.0, 1.0, 0.0])
+            elif "openai" in lowered or "agent" in lowered:
+                vectors.append([1.0, 0.0, 0.0])
+            elif "startup" in lowered or "productivity" in lowered or "launch" in lowered:
+                vectors.append([0.0, 1.0, 0.0])
+            else:
+                vectors.append([0.0, 0.0, 1.0])
+        return vectors
 
 
 class InsightClient:
@@ -334,25 +370,21 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
     def _build_ai_selection_service(self, ctx: AppContext) -> SelectionService:
         classify_prompt = PromptTemplate(
             path=Path("selection-classify.txt"),
-            user_prompt="TAGS:\n{tags_list}\nNEWS:\n{news_list}\nINTERESTS:\n{interests_content}",
-        )
-        extract_prompt = PromptTemplate(
-            path=Path("selection-extract.txt"),
-            user_prompt="INTERESTS:\n{interests_content}",
-        )
-        update_tags_prompt = PromptTemplate(
-            path=Path("selection-update.txt"),
-            user_prompt="OLD:\n{old_tags_json}\nNEW:\n{interests_content}",
+            user_prompt=(
+                "INTERESTS:\n{interests_content}\n"
+                "TOPICS:\n{focus_topics}\n"
+                "NEWS_COUNT:\n{news_count}\n"
+                "NEWS:\n{news_list}"
+            ),
         )
         ai_strategy = AISelectionStrategy(
             storage_manager=ctx.get_storage_manager(),
             client=RoutingAISelectionClient(),
+            embedding_client=FakeEmbeddingClient(),
             filter_config=ctx.ai_filter_config,
             config_root=ctx.config_root,
             sleep_func=lambda _: None,
             classify_prompt=classify_prompt,
-            extract_prompt=extract_prompt,
-            update_tags_prompt=update_tags_prompt,
         )
         return SelectionService(
             config_root=str(ctx.config_root),
@@ -452,12 +484,16 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                 self.assertEqual(localized.translation_meta["strategy"], "noop")
                 self.assertEqual(
                     [item.title for item in selection.selected_new_items],
-                    ["OpenAI launches a new coding agent", "Startup launches AI productivity app"],
+                    [
+                        "NBA finals schedule announced",
+                        "OpenAI launches a new coding agent",
+                        "Startup launches AI productivity app",
+                    ],
                 )
                 self.assertIn("OpenAI launches a new coding agent", render_result.html.content)
+                self.assertIn("NBA finals schedule announced", render_result.html.content)
                 self.assertIn("OpenAI launches a new coding agent", joined_payload)
-                self.assertNotIn("NBA finals schedule announced", render_result.html.content)
-                self.assertNotIn("NBA finals schedule announced", joined_payload)
+                self.assertIn("NBA finals schedule announced", joined_payload)
                 self.assertTrue(delivery_result.success)
                 self.assertTrue(sender.calls)
             finally:
@@ -544,6 +580,7 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                 self.assertEqual(
                     [item.title for item in localized.base_report.new_items],
                     [
+                        "NBA finals schedule announced",
                         "OpenAI launches a new coding agent",
                         "Startup launches AI productivity app",
                     ],
@@ -551,10 +588,11 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                 self.assertIn(translated_title, render_result.html.content)
                 self.assertIn(translated_title, joined_payload)
                 self.assertIn(translated_title, delivered_content)
+                self.assertIn("ZH:NBA finals schedule announced", render_result.html.content)
+                self.assertIn("ZH:NBA finals schedule announced", joined_payload)
+                self.assertIn("ZH:NBA finals schedule announced", delivered_content)
                 self.assertIn(translated_section, render_result.html.content)
                 self.assertIn(translated_section, joined_payload)
-                self.assertNotIn("ZH:NBA finals schedule announced", render_result.html.content)
-                self.assertNotIn("ZH:NBA finals schedule announced", joined_payload)
                 self.assertTrue(delivery_result.success)
                 self.assertEqual(len(localization_client.calls), 2)
             finally:

@@ -5,6 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from newspulse.core.config_paths import resolve_ai_interests_path
 from newspulse.core.loader import load_config
 from newspulse.workflow.selection.frequency import load_frequency_words
 
@@ -183,6 +184,11 @@ class LoaderConfigRootTest(unittest.TestCase):
                       min_score: 0.65
                       reclassify_threshold: 0.55
                       fallback_to_keyword: false
+                    semantic:
+                      enabled: true
+                      top_k: 4
+                      min_score: 0.61
+                      direct_threshold: 0.83
                   insight:
                     enabled: true
                     strategy: ai
@@ -241,6 +247,10 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertAlmostEqual(config["WORKFLOW"]["SELECTION"]["AI"]["MIN_SCORE"], 0.65)
             self.assertAlmostEqual(config["WORKFLOW"]["SELECTION"]["AI"]["RECLASSIFY_THRESHOLD"], 0.55)
             self.assertFalse(config["WORKFLOW"]["SELECTION"]["AI"]["FALLBACK_TO_KEYWORD"])
+            self.assertTrue(config["WORKFLOW"]["SELECTION"]["SEMANTIC"]["ENABLED"])
+            self.assertEqual(config["WORKFLOW"]["SELECTION"]["SEMANTIC"]["TOP_K"], 4)
+            self.assertAlmostEqual(config["WORKFLOW"]["SELECTION"]["SEMANTIC"]["MIN_SCORE"], 0.61)
+            self.assertAlmostEqual(config["WORKFLOW"]["SELECTION"]["SEMANTIC"]["DIRECT_THRESHOLD"], 0.83)
 
             self.assertTrue(config["WORKFLOW"]["INSIGHT"]["ENABLED"])
             self.assertEqual(config["WORKFLOW"]["INSIGHT"]["STRATEGY"], "ai")
@@ -369,6 +379,10 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertFalse(config["WORKFLOW"]["SELECTION"]["PRIORITY_SORT_ENABLED"])
             self.assertEqual(config["WORKFLOW"]["SELECTION"]["AI"]["INTERESTS_FILE"], "workflow.txt")
             self.assertEqual(config["WORKFLOW"]["SELECTION"]["AI"]["BATCH_SIZE"], 7)
+            self.assertTrue(config["WORKFLOW"]["SELECTION"]["SEMANTIC"]["ENABLED"])
+            self.assertEqual(config["WORKFLOW"]["SELECTION"]["SEMANTIC"]["TOP_K"], 3)
+            self.assertAlmostEqual(config["WORKFLOW"]["SELECTION"]["SEMANTIC"]["MIN_SCORE"], 0.55)
+            self.assertAlmostEqual(config["WORKFLOW"]["SELECTION"]["SEMANTIC"]["DIRECT_THRESHOLD"], 0.78)
             self.assertFalse(config["WORKFLOW"]["INSIGHT"]["ENABLED"])
             self.assertEqual(config["WORKFLOW"]["INSIGHT"]["STRATEGY"], "noop")
             self.assertEqual(config["WORKFLOW"]["INSIGHT"]["MODE"], "daily")
@@ -406,6 +420,19 @@ class FrequencyWordsPathTest(unittest.TestCase):
             self.assertEqual(word_groups[0]["group_key"], "AI")
             self.assertEqual(filter_words, [])
             self.assertEqual(global_filters, [])
+
+    def test_resolve_ai_interests_path_uses_default_root_file(self):
+        with TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            config_dir = project / "config"
+            _write_text(config_dir / "ai_interests.txt", "AI agents")
+
+            path = resolve_ai_interests_path(
+                "ai_interests.txt",
+                config_root=config_dir,
+            )
+
+            self.assertEqual(path, config_dir / "ai_interests.txt")
 
 
 if __name__ == "__main__":

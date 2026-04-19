@@ -10,6 +10,7 @@ from newspulse.crawler.sources.builtin import (
     SOURCE_DEFINITIONS,
     SOURCE_REGISTRY,
     fetch_coolapk,
+    fetch_github_trending,
     fetch_hackernews,
     fetch_producthunt,
     resolve_source_definition,
@@ -229,6 +230,50 @@ class BuiltinSourceRegistryTest(unittest.TestCase):
         self.assertEqual(items[0].url, "https://news.ycombinator.com/item?id=123")
         self.assertEqual(items[0].mobile_url, "https://example.com/story")
         self.assertEqual(items[1].url, "https://hn.aimaker.dev/item/456")
+
+    def test_fetch_github_trending_falls_back_to_search_api_when_html_unavailable(self):
+        class FakeResponse:
+            def json(self):
+                return {
+                    "items": [
+                        {
+                            "full_name": "openai/openai-agents-python",
+                            "html_url": "https://github.com/openai/openai-agents-python",
+                        },
+                        {
+                            "full_name": "deepseek-ai/DeepGEMM",
+                            "html_url": "https://github.com/deepseek-ai/DeepGEMM",
+                        },
+                    ]
+                }
+
+        class FakeClient:
+            def __init__(self):
+                self.request_calls = []
+
+            def get_soup(self, _url, **_kwargs):
+                raise RuntimeError("timeout")
+
+            def request(self, method, url, **kwargs):
+                self.request_calls.append((method, url, kwargs))
+                return FakeResponse()
+
+        client = FakeClient()
+        items = fetch_github_trending(client)
+
+        self.assertEqual(
+            [item.title for item in items],
+            ["openai/openai-agents-python", "deepseek-ai/DeepGEMM"],
+        )
+        self.assertEqual(
+            [item.url for item in items],
+            [
+                "https://github.com/openai/openai-agents-python",
+                "https://github.com/deepseek-ai/DeepGEMM",
+            ],
+        )
+        self.assertEqual(client.request_calls[0][0], "GET")
+        self.assertEqual(client.request_calls[0][1], "https://api.github.com/search/repositories")
 
 
 if __name__ == "__main__":
