@@ -2,6 +2,8 @@ import os
 import unittest
 from unittest.mock import patch
 
+from bs4 import BeautifulSoup
+
 from newspulse.crawler import CrawlSourceSpec, DataFetcher
 from newspulse.crawler.models import SourceDefinition
 from newspulse.crawler.sources import registry as source_registry
@@ -239,10 +241,18 @@ class BuiltinSourceRegistryTest(unittest.TestCase):
                         {
                             "full_name": "openai/openai-agents-python",
                             "html_url": "https://github.com/openai/openai-agents-python",
+                            "description": "Official OpenAI Agents SDK for Python",
+                            "language": "Python",
+                            "stargazers_count": 12345,
+                            "forks_count": 321,
                         },
                         {
                             "full_name": "deepseek-ai/DeepGEMM",
                             "html_url": "https://github.com/deepseek-ai/DeepGEMM",
+                            "description": "FP8 GEMM kernels",
+                            "language": "CUDA",
+                            "stargazers_count": 4567,
+                            "forks_count": 89,
                         },
                     ]
                 }
@@ -272,8 +282,96 @@ class BuiltinSourceRegistryTest(unittest.TestCase):
                 "https://github.com/deepseek-ai/DeepGEMM",
             ],
         )
+        self.assertEqual(items[0].summary, "Official OpenAI Agents SDK for Python")
+        self.assertEqual(items[0].metadata["source_kind"], "github_repository")
+        self.assertEqual(items[0].metadata["github"]["language"], "Python")
+        self.assertEqual(items[0].metadata["github"]["source_variant"], "search_api_fallback")
         self.assertEqual(client.request_calls[0][0], "GET")
         self.assertEqual(client.request_calls[0][1], "https://api.github.com/search/repositories")
+
+    def test_fetch_github_trending_html_extracts_structured_context(self):
+        class FakeClient:
+            def get_soup(self, _url, **_kwargs):
+                html = """
+                <main>
+                  <article class="Box-row">
+                    <h2 class="h3 lh-condensed">
+                      <a href="/openai/openai-agents-python">
+                        openai / openai-agents-python
+                      </a>
+                    </h2>
+                    <p>Official OpenAI Agents SDK for Python</p>
+                    <div>
+                      <span itemprop="programmingLanguage">Python</span>
+                      <a href="/openai/openai-agents-python/stargazers">12,345</a>
+                      <a href="/openai/openai-agents-python/forks">678</a>
+                      <span>842 stars today</span>
+                    </div>
+                  </article>
+                </main>
+                """
+                return BeautifulSoup(html, "html.parser")
+
+        with patch.dict(os.environ, {"GITHUB_TOKEN": "", "GITHUB_API_TOKEN": ""}, clear=False):
+            items = fetch_github_trending(FakeClient())
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].title, "openai/openai-agents-python")
+        self.assertEqual(items[0].summary, "Official OpenAI Agents SDK for Python")
+        self.assertEqual(items[0].metadata["source_context_version"], 1)
+        self.assertEqual(items[0].metadata["github"]["language"], "Python")
+        self.assertEqual(items[0].metadata["github"]["stars_today"], 842)
+        self.assertEqual(items[0].metadata["github"]["stars_total"], 12345)
+        self.assertEqual(items[0].metadata["github"]["forks_total"], 678)
+        self.assertEqual(items[0].metadata["github"]["enriched_by"], "html")
+
+    def test_fetch_github_trending_enriches_html_items_with_repo_api(self):
+        class FakeClient:
+            def __init__(self):
+                self.json_calls = []
+
+            def get_soup(self, _url, **_kwargs):
+                html = """
+                <main>
+                  <article class="Box-row">
+                    <h2><a href="/openai/openai-agents-python">openai / openai-agents-python</a></h2>
+                    <p>Official OpenAI Agents SDK for Python</p>
+                    <div>
+                      <span itemprop="programmingLanguage">Python</span>
+                      <a href="/openai/openai-agents-python/stargazers">12,345</a>
+                      <a href="/openai/openai-agents-python/forks">678</a>
+                      <span>842 stars today</span>
+                    </div>
+                  </article>
+                </main>
+                """
+                return BeautifulSoup(html, "html.parser")
+
+            def get_json(self, url, **kwargs):
+                self.json_calls.append((url, kwargs))
+                return {
+                    "full_name": "openai/openai-agents-python",
+                    "description": "Official OpenAI Agents SDK for Python",
+                    "language": "Python",
+                    "topics": ["openai", "agent", "sdk"],
+                    "stargazers_count": 15000,
+                    "forks_count": 900,
+                    "created_at": "2024-08-06T00:00:00Z",
+                    "pushed_at": "2026-04-19T00:00:00Z",
+                    "archived": False,
+                    "fork": False,
+                }
+
+        client = FakeClient()
+        with patch.dict(os.environ, {"GITHUB_TOKEN": "unit-test-token", "GITHUB_API_TOKEN": ""}, clear=False):
+            items = fetch_github_trending(client)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(client.json_calls[0][0], "https://api.github.com/repos/openai/openai-agents-python")
+        self.assertEqual(items[0].metadata["github"]["topics"], ["openai", "agent", "sdk"])
+        self.assertEqual(items[0].metadata["github"]["stars_total"], 15000)
+        self.assertEqual(items[0].metadata["github"]["pushed_at"], "2026-04-19T00:00:00Z")
+        self.assertEqual(items[0].metadata["github"]["enriched_by"], "html+api")
 
 
 if __name__ == "__main__":

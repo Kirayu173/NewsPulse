@@ -81,6 +81,9 @@ class AIBatchNewsItem:
     title: str
     source_id: str = ""
     source_name: str = ""
+    summary: str = ""
+    context_lines: tuple[str, ...] = ()
+    rendered_context: str = ""
     persisted_news_id: int | None = None
 
 

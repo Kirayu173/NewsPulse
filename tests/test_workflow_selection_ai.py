@@ -9,7 +9,9 @@ from zoneinfo import ZoneInfo
 from newspulse.storage.base import NewsData, NewsItem
 from newspulse.storage.local import LocalStorageBackend
 from newspulse.workflow.selection.ai import AISelectionStrategy
+from newspulse.workflow.selection.ai_classifier import _format_news_list
 from newspulse.workflow.selection.models import AIBatchNewsItem
+from newspulse.workflow.shared.contracts import HotlistItem
 from newspulse.workflow.selection.service import SelectionService
 from newspulse.workflow.shared.options import SelectionAIOptions, SelectionOptions, SelectionSemanticOptions, SnapshotOptions
 from newspulse.workflow.snapshot.service import SnapshotService
@@ -394,6 +396,47 @@ class AISelectionStrategyTest(unittest.TestCase):
         self.assertTrue(all(result.keep for result in results))
         self.assertEqual(client.calls[0], 3)
         self.assertEqual(client.calls.count(1), 2)
+
+    def test_ai_batch_prompt_includes_summary_and_structured_context(self):
+        tmp_root = _make_tmp_dir()
+        config_root = tmp_root / "config"
+        _write_test_ai_config(config_root)
+
+        strategy = AISelectionStrategy(
+            storage_manager=DummyStorage(),
+            client=DeterministicQualityAIClient(),
+            filter_config={"PROMPT_FILE": "prompt.txt"},
+            config_root=config_root,
+            sleep_func=lambda _: None,
+        )
+
+        batch_items = strategy.classifier.build_batch_items(
+            [
+                HotlistItem(
+                    news_item_id="42",
+                    title="openai/openai-agents-python",
+                    source_id="github-trending-today",
+                    source_name="GitHub Trending",
+                    summary="Official OpenAI Agents SDK for Python",
+                    metadata={
+                        "source_kind": "github_repository",
+                        "github": {
+                            "language": "Python",
+                            "topics": ["openai", "agent", "sdk"],
+                            "stars_today": 842,
+                            "stars_total": 12345,
+                        },
+                    },
+                )
+            ]
+        )
+
+        rendered = _format_news_list(batch_items)
+
+        self.assertIn("summary: Official OpenAI Agents SDK for Python", rendered)
+        self.assertIn("language: Python", rendered)
+        self.assertIn("topics: openai, agent, sdk", rendered)
+        self.assertIn("stars_today: 842", rendered)
 
     def test_ai_strategy_uses_structured_topic_catalog_as_focus_topics(self):
         tmp_root = _make_tmp_dir()

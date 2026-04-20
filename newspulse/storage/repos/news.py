@@ -1,4 +1,5 @@
 # coding=utf-8
+import json
 import sqlite3
 from typing import Any, Dict, List, Optional
 
@@ -168,11 +169,13 @@ class NewsRepository(SQLiteRepositoryBase):
                     rank=row[4],
                     url=row[5] or "",
                     mobile_url=row[6] or "",
-                    crawl_time=row[8],
+                    summary=row[7] or "",
+                    metadata=_deserialize_source_metadata(row[8]),
+                    crawl_time=row[10],
                     ranks=rank_history_map.get(news_id, [row[4]]),
-                    first_time=row[7],
-                    last_time=row[8],
-                    count=row[9],
+                    first_time=row[9],
+                    last_time=row[10],
+                    count=row[11],
                     rank_timeline=rank_timeline_map.get(news_id, []),
                 )
             )
@@ -231,7 +234,7 @@ class NewsRepository(SQLiteRepositoryBase):
                         if normalized_url:
                             cursor.execute(
                                 """
-                                SELECT id, title FROM news_items
+                                SELECT id, title, summary, source_metadata_json FROM news_items
                                 WHERE url = ? AND platform_id = ?
                                 """,
                                 (normalized_url, source_id),
@@ -239,7 +242,12 @@ class NewsRepository(SQLiteRepositoryBase):
                             existing = cursor.fetchone()
 
                             if existing:
-                                existing_id, existing_title = existing
+                                existing_id, existing_title, existing_summary, existing_metadata_raw = existing
+                                merged_summary = item.summary or str(existing_summary or "")
+                                merged_metadata = _merge_source_metadata(
+                                    _deserialize_source_metadata(existing_metadata_raw),
+                                    item.metadata,
+                                )
 
                                 if existing_title != item.title:
                                     cursor.execute(
@@ -263,19 +271,23 @@ class NewsRepository(SQLiteRepositoryBase):
 
                                 cursor.execute(
                                     """
-                                    UPDATE news_items SET
-                                        title = ?,
-                                        rank = ?,
-                                        mobile_url = ?,
-                                        last_crawl_time = ?,
-                                        crawl_count = crawl_count + 1,
-                                        updated_at = ?
+                                UPDATE news_items SET
+                                    title = ?,
+                                    rank = ?,
+                                    mobile_url = ?,
+                                    summary = ?,
+                                    source_metadata_json = ?,
+                                    last_crawl_time = ?,
+                                    crawl_count = crawl_count + 1,
+                                    updated_at = ?
                                     WHERE id = ?
                                     """,
                                     (
                                         item.title,
                                         item.rank,
                                         item.mobile_url,
+                                        merged_summary,
+                                        _serialize_source_metadata(merged_metadata),
                                         batch.crawl_time,
                                         now_str,
                                         existing_id,
@@ -286,10 +298,11 @@ class NewsRepository(SQLiteRepositoryBase):
                                 cursor.execute(
                                     """
                                     INSERT INTO news_items
-                                    (title, platform_id, rank, url, mobile_url,
+                                    (title, platform_id, rank, url, mobile_url, summary,
+                                     source_metadata_json,
                                      first_crawl_time, last_crawl_time, crawl_count,
                                      created_at, updated_at)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
                                     """,
                                     (
                                         item.title,
@@ -297,6 +310,8 @@ class NewsRepository(SQLiteRepositoryBase):
                                         item.rank,
                                         normalized_url,
                                         item.mobile_url,
+                                        item.summary,
+                                        _serialize_source_metadata(item.metadata),
                                         batch.crawl_time,
                                         batch.crawl_time,
                                         now_str,
@@ -317,10 +332,11 @@ class NewsRepository(SQLiteRepositoryBase):
                             cursor.execute(
                                 """
                                 INSERT INTO news_items
-                                (title, platform_id, rank, url, mobile_url,
+                                (title, platform_id, rank, url, mobile_url, summary,
+                                 source_metadata_json,
                                  first_crawl_time, last_crawl_time, crawl_count,
                                  created_at, updated_at)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
                                 """,
                                 (
                                     item.title,
@@ -328,6 +344,8 @@ class NewsRepository(SQLiteRepositoryBase):
                                     item.rank,
                                     "",
                                     item.mobile_url,
+                                    item.summary,
+                                    _serialize_source_metadata(item.metadata),
                                     batch.crawl_time,
                                     batch.crawl_time,
                                     now_str,
@@ -478,7 +496,7 @@ class NewsRepository(SQLiteRepositoryBase):
 
             cursor.execute("""
                 SELECT n.id, n.title, n.platform_id, p.name as platform_name,
-                       n.rank, n.url, n.mobile_url,
+                       n.rank, n.url, n.mobile_url, n.summary, n.source_metadata_json,
                        n.first_crawl_time, n.last_crawl_time, n.crawl_count
                 FROM news_items n
                 LEFT JOIN platforms p ON n.platform_id = p.id
@@ -548,7 +566,7 @@ class NewsRepository(SQLiteRepositoryBase):
 
             cursor.execute("""
                 SELECT n.id, n.title, n.platform_id, p.name as platform_name,
-                       n.rank, n.url, n.mobile_url,
+                       n.rank, n.url, n.mobile_url, n.summary, n.source_metadata_json,
                        n.first_crawl_time, n.last_crawl_time, n.crawl_count
                 FROM news_items n
                 LEFT JOIN platforms p ON n.platform_id = p.id
@@ -718,4 +736,41 @@ class NewsRepository(SQLiteRepositoryBase):
         except Exception as e:
             print(f"[AI筛选] 获取新闻列表失败: {e}")
             return []
+
+
+def _serialize_source_metadata(metadata: Dict[str, Any] | None) -> str:
+    if not metadata:
+        return "{}"
+    try:
+        return json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError):
+        return "{}"
+
+
+def _deserialize_source_metadata(raw_value: Any) -> Dict[str, Any]:
+    if isinstance(raw_value, dict):
+        return dict(raw_value)
+    text = str(raw_value or "").strip()
+    if not text:
+        return {}
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return dict(data) if isinstance(data, dict) else {}
+
+
+def _merge_source_metadata(
+    existing: Dict[str, Any] | None,
+    incoming: Dict[str, Any] | None,
+) -> Dict[str, Any]:
+    merged = dict(existing or {})
+    for key, value in dict(incoming or {}).items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            nested = dict(merged.get(key) or {})
+            nested.update(value)
+            merged[key] = nested
+            continue
+        merged[key] = value
+    return merged
 

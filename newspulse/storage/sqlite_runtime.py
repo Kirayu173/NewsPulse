@@ -53,11 +53,26 @@ class SQLiteRuntime:
             conn.executescript(schema_path.read_text(encoding="utf-8"))
 
         if db_type == "news":
+            self._ensure_news_schema_columns(conn)
             ai_filter_schema = self.get_ai_filter_schema_path()
             if ai_filter_schema.exists():
                 conn.executescript(ai_filter_schema.read_text(encoding="utf-8"))
 
         conn.commit()
+
+    def _ensure_news_schema_columns(self, conn: sqlite3.Connection) -> None:
+        cursor = conn.execute("PRAGMA table_info(news_items)")
+        existing_columns = {str(row[1]) for row in cursor.fetchall()}
+        required_columns = {
+            "summary": "ALTER TABLE news_items ADD COLUMN summary TEXT DEFAULT ''",
+            "source_metadata_json": (
+                "ALTER TABLE news_items ADD COLUMN source_metadata_json TEXT DEFAULT '{}'"
+            ),
+        }
+        for column_name, statement in required_columns.items():
+            if column_name in existing_columns:
+                continue
+            conn.execute(statement)
 
     def close_connection(self, db_path: str) -> None:
         conn = self.db_connections.pop(db_path, None)

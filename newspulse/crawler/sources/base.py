@@ -9,7 +9,7 @@ import base64
 import hashlib
 import random
 import string
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 from urllib.parse import urljoin
 
@@ -37,6 +37,8 @@ class SourceItem:
     title: str
     url: str = ""
     mobile_url: str = ""
+    summary: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class SourceClient:

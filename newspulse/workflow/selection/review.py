@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import sys
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import asdict
 from datetime import datetime
@@ -21,7 +22,8 @@ from newspulse.crawler.models import CrawlSourceSpec
 from newspulse.crawler.source_names import resolve_source_display_name
 from newspulse.storage import normalize_crawl_batch
 from newspulse.utils.time import DEFAULT_TIMEZONE
-from newspulse.workflow.shared.contracts import HotlistSnapshot, SelectionRejectedItem, SelectionResult
+from newspulse.workflow.selection.context_builder import build_selection_context
+from newspulse.workflow.shared.contracts import HotlistItem, HotlistSnapshot, SelectionRejectedItem, SelectionResult
 from newspulse.workflow.shared.options import SnapshotOptions
 
 
@@ -65,6 +67,21 @@ def _selected_items(selection: SelectionResult | None) -> list[Any]:
     return list(selection.qualified_items or selection.selected_items or [])
 
 
+def _serialize_hotlist_item(item: HotlistItem) -> dict[str, Any]:
+    context = build_selection_context(item)
+    return {
+        "news_item_id": str(item.news_item_id or "").strip(),
+        "source_id": str(item.source_id or "").strip(),
+        "source_name": str(item.source_name or "").strip(),
+        "title": str(item.title or "").strip(),
+        "summary": context.summary,
+        "current_rank": int(item.current_rank or 0),
+        "metadata": dict(item.metadata or {}),
+        "context_lines": list(context.attributes),
+        "context_text": context.llm_text,
+    }
+
+
 def _serialize_rejected_item(item: SelectionRejectedItem) -> dict[str, Any]:
     return {
         "news_item_id": item.news_item_id,
@@ -78,11 +95,19 @@ def _serialize_rejected_item(item: SelectionRejectedItem) -> dict[str, Any]:
     }
 
 
-def _filter_rejected_items(selection: SelectionResult | None, stage: str) -> list[dict[str, Any]]:
+def _filter_rejected_items(
+    selection: SelectionResult | None,
+    stage: str,
+    *,
+    item_index: Mapping[str, Mapping[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     if selection is None:
         return []
     return [
-        _serialize_rejected_item(item)
+        _merge_item_context(
+            _serialize_rejected_item(item),
+            item_index=item_index,
+        )
         for item in selection.rejected_items
         if str(item.rejected_stage or "").strip() == stage
     ]
@@ -119,22 +144,25 @@ def _mapping_list(value: Any) -> list[dict[str, Any]]:
     return [dict(item) for item in value if isinstance(item, Mapping)] if isinstance(value, Sequence) else []
 
 
-def _build_selection_item_index(selection: SelectionResult | None) -> dict[str, dict[str, Any]]:
-    if selection is None:
-        return {}
-
+def _build_selection_item_index(
+    snapshot: HotlistSnapshot,
+    selection: SelectionResult | None,
+) -> dict[str, dict[str, Any]]:
     index: dict[str, dict[str, Any]] = {}
+    for item in list(snapshot.items) + list(snapshot.new_items):
+        item_id = str(getattr(item, "news_item_id", "") or "").strip()
+        if not item_id:
+            continue
+        index[item_id] = _serialize_hotlist_item(item)
+
+    if selection is None:
+        return index
+
     for item in selection.selected_items:
         item_id = str(getattr(item, "news_item_id", "") or "").strip()
         if not item_id:
             continue
-        index[item_id] = {
-            "news_item_id": item_id,
-            "source_id": str(getattr(item, "source_id", "") or ""),
-            "source_name": str(getattr(item, "source_name", "") or ""),
-            "title": str(getattr(item, "title", "") or ""),
-            "current_rank": int(getattr(item, "current_rank", 0) or 0),
-        }
+        index.setdefault(item_id, _serialize_hotlist_item(item))
 
     for item in selection.rejected_items:
         item_id = str(item.news_item_id or "").strip()
@@ -147,13 +175,55 @@ def _build_selection_item_index(selection: SelectionResult | None) -> dict[str, 
                 "source_id": str(item.source_id or ""),
                 "source_name": str(item.source_name or ""),
                 "title": str(item.title or ""),
+                "summary": "",
                 "current_rank": int(item.metadata.get("current_rank", 0) or 0),
+                "metadata": {},
+                "context_lines": [],
+                "context_text": "",
             },
         )
     return index
 
 
-def _extract_semantic_payload(selection: SelectionResult | None, *, skipped_reason: str = "") -> dict[str, Any]:
+def _merge_item_context(
+    payload: Mapping[str, Any],
+    *,
+    item_index: Mapping[str, Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    row = dict(payload)
+    news_item_id = str(row.get("news_item_id", "") or "").strip()
+    item = dict(item_index.get(news_item_id, {})) if item_index and news_item_id else {}
+    metadata = dict(row.get("metadata", {})) if isinstance(row.get("metadata"), Mapping) else {}
+    merged_metadata = dict(item.get("metadata", {})) if isinstance(item.get("metadata"), Mapping) else {}
+    merged_metadata.update(metadata)
+
+    context_lines = row.get("context_lines")
+    if not isinstance(context_lines, list):
+        context_lines = list(metadata.get("context_lines", [])) if isinstance(metadata.get("context_lines"), list) else []
+    if not context_lines:
+        indexed_lines = item.get("context_lines", [])
+        context_lines = list(indexed_lines) if isinstance(indexed_lines, list) else []
+
+    return {
+        **row,
+        "news_item_id": news_item_id,
+        "source_id": str(row.get("source_id", "") or item.get("source_id", "") or metadata.get("source_id", "") or ""),
+        "source_name": str(row.get("source_name", "") or item.get("source_name", "") or metadata.get("source_name", "") or ""),
+        "title": str(row.get("title", "") or item.get("title", "") or ""),
+        "summary": str(row.get("summary", "") or metadata.get("summary", "") or item.get("summary", "") or ""),
+        "current_rank": int(row.get("current_rank", 0) or item.get("current_rank", 0) or 0),
+        "metadata": merged_metadata,
+        "context_lines": context_lines,
+        "context_text": str(row.get("context_text", "") or item.get("context_text", "") or ""),
+    }
+
+
+def _extract_semantic_payload(
+    selection: SelectionResult | None,
+    *,
+    item_index: Mapping[str, Mapping[str, Any]] | None = None,
+    skipped_reason: str = "",
+) -> dict[str, Any]:
     if selection is None:
         return {
             "enabled": False,
@@ -171,8 +241,11 @@ def _extract_semantic_payload(selection: SelectionResult | None, *, skipped_reas
 
     diagnostics = dict(selection.diagnostics)
     topics = _mapping_list(diagnostics.get("semantic_topics"))
-    candidates = _mapping_list(diagnostics.get("semantic_candidates"))
-    rejected_items = _filter_rejected_items(selection, "semantic")
+    candidates = [
+        _merge_item_context(candidate, item_index=item_index)
+        for candidate in _mapping_list(diagnostics.get("semantic_candidates"))
+    ]
+    rejected_items = _filter_rejected_items(selection, "semantic", item_index=item_index)
     return {
         "enabled": bool(diagnostics.get("semantic_enabled", False)),
         "skipped": bool(diagnostics.get("semantic_skipped", False)),
@@ -201,7 +274,12 @@ def _semantic_summary(payload: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _extract_llm_payload(selection: SelectionResult | None, *, skipped_reason: str = "") -> dict[str, Any]:
+def _extract_llm_payload(
+    selection: SelectionResult | None,
+    *,
+    item_index: Mapping[str, Mapping[str, Any]] | None = None,
+    skipped_reason: str = "",
+) -> dict[str, Any]:
     if selection is None:
         return {
             "enabled": False,
@@ -219,32 +297,27 @@ def _extract_llm_payload(selection: SelectionResult | None, *, skipped_reason: s
         }
 
     diagnostics = dict(selection.diagnostics)
-    item_index = _build_selection_item_index(selection)
     decisions = []
     for decision in _mapping_list(diagnostics.get("llm_decisions")):
-        news_item_id = str(decision.get("news_item_id", "") or "").strip()
-        item = item_index.get(news_item_id, {})
         metadata = dict(decision.get("metadata", {})) if isinstance(decision.get("metadata"), Mapping) else {}
         quality_score = float(decision.get("quality_score", decision.get("score", 0.0)) or 0.0)
         decisions.append(
-            {
-                **decision,
-                "news_item_id": news_item_id,
-                "score": quality_score,
-                "quality_score": quality_score,
-                "source_id": str(item.get("source_id", "") or metadata.get("source_id", "") or ""),
-                "source_name": str(item.get("source_name", "") or metadata.get("source_name", "") or ""),
-                "title": str(item.get("title", "") or ""),
-                "current_rank": int(item.get("current_rank", 0) or 0),
-                "metadata": metadata,
-            }
+            _merge_item_context(
+                {
+                    **decision,
+                    "score": quality_score,
+                    "quality_score": quality_score,
+                    "metadata": metadata,
+                },
+                item_index=item_index,
+            )
         )
     kept_matches = [
-        match
+        _merge_item_context(match, item_index=item_index)
         for match in _mapping_list(diagnostics.get("selected_matches"))
         if str(match.get("decision_layer", "")).strip() == "llm_quality_gate"
     ]
-    rejected_items = _filter_rejected_items(selection, "llm")
+    rejected_items = _filter_rejected_items(selection, "llm", item_index=item_index)
     focus_labels = diagnostics.get("focus_labels", [])
     if not isinstance(focus_labels, list):
         focus_labels = []
@@ -277,7 +350,27 @@ def _llm_summary(payload: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _append_result_section(lines: list[str], title: str, selection: SelectionResult | None, *, skipped: bool = False, reason: str = "") -> None:
+def _append_context_lines(lines: list[str], row: Mapping[str, Any]) -> None:
+    summary = str(row.get("summary", "") or "").strip()
+    if summary:
+        lines.append(f"   summary: {summary}")
+    context_lines = row.get("context_lines", [])
+    if isinstance(context_lines, list):
+        for context_line in context_lines[:4]:
+            text = str(context_line or "").strip()
+            if text:
+                lines.append(f"   {text}")
+
+
+def _append_result_section(
+    lines: list[str],
+    title: str,
+    selection: SelectionResult | None,
+    *,
+    item_index: Mapping[str, Mapping[str, Any]] | None = None,
+    skipped: bool = False,
+    reason: str = "",
+) -> None:
     lines.append(f"## {title}")
     lines.append("")
     if selection is None:
@@ -298,7 +391,9 @@ def _append_result_section(lines: list[str], title: str, selection: SelectionRes
     lines.append("### Qualified Preview")
     lines.append("")
     for index, item in enumerate(selected_items[:12], start=1):
+        row = _serialize_hotlist_item(item)
         lines.append(f"{index}. [{item.source_id}] [{item.current_rank}] {item.title}")
+        _append_context_lines(lines, row)
     if len(selected_items) > 12:
         lines.append(f"... ({len(selected_items) - 12} more qualified items)")
     lines.append("")
@@ -306,9 +401,11 @@ def _append_result_section(lines: list[str], title: str, selection: SelectionRes
         lines.append("### Rejected Preview")
         lines.append("")
         for index, item in enumerate(selection.rejected_items[:12], start=1):
+            row = _merge_item_context(_serialize_rejected_item(item), item_index=item_index)
             lines.append(
                 f"{index}. [{item.source_id}] {item.title} -> {item.rejected_stage}: {item.rejected_reason}"
             )
+            _append_context_lines(lines, row)
         if len(selection.rejected_items) > 12:
             lines.append(f"... ({len(selection.rejected_items) - 12} more rejected items)")
         lines.append("")
@@ -359,6 +456,7 @@ def _append_semantic_section(lines: list[str], semantic_payload: Mapping[str, An
             topic_label = str(candidate.get("topic_label", "")).strip()
             score = float(candidate.get("score", 0.0) or 0.0)
             lines.append(f"{index}. [{source_id}] {title} -> {topic_label} (score={score:.4f})")
+            _append_context_lines(lines, candidate)
         if len(candidates) > 12:
             lines.append(f"... ({len(candidates) - 12} more semantic candidates)")
         lines.append("")
@@ -371,6 +469,7 @@ def _append_semantic_section(lines: list[str], semantic_payload: Mapping[str, An
             lines.append(
                 f"{index}. [{item.get('source_id', '')}] {item.get('title', '')} -> {item.get('rejected_reason', '')}"
             )
+            _append_context_lines(lines, item)
         if len(rejected_items) > 12:
             lines.append(f"... ({len(rejected_items) - 12} more semantic rejections)")
         lines.append("")
@@ -403,6 +502,7 @@ def _append_llm_section(lines: list[str], llm_payload: Mapping[str, Any]) -> Non
                 f"{index}. [{match.get('source_id', '')}] {match.get('title', '')} "
                 f"(score={float(match.get('quality_score', 0.0) or 0.0):.4f})"
             )
+            _append_context_lines(lines, match)
         if len(kept_matches) > 12:
             lines.append(f"... ({len(kept_matches) - 12} more llm-kept items)")
         lines.append("")
@@ -415,6 +515,7 @@ def _append_llm_section(lines: list[str], llm_payload: Mapping[str, Any]) -> Non
             lines.append(
                 f"{index}. [{item.get('source_id', '')}] {item.get('title', '')} -> {item.get('rejected_reason', '')}"
             )
+            _append_context_lines(lines, item)
         if len(rejected_items) > 12:
             lines.append(f"... ({len(rejected_items) - 12} more llm rejections)")
         lines.append("")
@@ -432,6 +533,10 @@ def _build_selection_review_markdown(
     semantic_payload: Mapping[str, Any],
     llm_payload: Mapping[str, Any],
 ) -> str:
+    item_index = _build_selection_item_index(
+        snapshot,
+        ai_selection if ai_selection is not None else keyword_selection,
+    )
     lines: list[str] = []
     lines.append("# Stage 4 Selection Review")
     lines.append("")
@@ -448,17 +553,24 @@ def _build_selection_review_markdown(
     lines.append("")
     for index, item in enumerate(snapshot.items[:20], start=1):
         lines.append(f"{index}. [{item.source_id}] [{item.current_rank}] {item.title}")
+        _append_context_lines(lines, _serialize_hotlist_item(item))
     if len(snapshot.items) > 20:
         lines.append(f"... ({len(snapshot.items) - 20} more items)")
     lines.append("")
 
-    _append_result_section(lines, "\u89c4\u5219\u8fc7\u6ee4\uff08Rule Filter\uff09", keyword_selection)
+    _append_result_section(
+        lines,
+        "\u89c4\u5219\u8fc7\u6ee4\uff08Rule Filter\uff09",
+        keyword_selection,
+        item_index=item_index,
+    )
     _append_semantic_section(lines, semantic_payload)
     _append_llm_section(lines, llm_payload)
     _append_result_section(
         lines,
         "\u6700\u7ec8\u7ed3\u679c\uff08Final Selection\uff09",
         ai_selection,
+        item_index=item_index,
         skipped=ai_selection is None,
         reason=ai_skip_reason,
     )
@@ -481,8 +593,20 @@ def export_selection_outbox(
     outbox_path.mkdir(parents=True, exist_ok=True)
     config_path_obj = Path(config_path)
     storage_path = Path(storage_data_dir)
-    semantic_payload = _extract_semantic_payload(ai_selection, skipped_reason=ai_skip_reason)
-    llm_payload = _extract_llm_payload(ai_selection, skipped_reason=ai_skip_reason)
+    item_index = _build_selection_item_index(
+        snapshot,
+        ai_selection if ai_selection is not None else keyword_selection,
+    )
+    semantic_payload = _extract_semantic_payload(
+        ai_selection,
+        item_index=item_index,
+        skipped_reason=ai_skip_reason,
+    )
+    llm_payload = _extract_llm_payload(
+        ai_selection,
+        item_index=item_index,
+        skipped_reason=ai_skip_reason,
+    )
 
     summary = {
         "generated_at": generated_at.isoformat(),
@@ -680,6 +804,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         frequency_file=args.frequency_file,
         interests_file=args.interests_file,
     )
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
 

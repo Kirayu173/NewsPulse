@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
+from newspulse.workflow.selection.context_builder import build_selection_context
 from newspulse.workflow.selection.models import AIBatchNewsItem, AIQualityDecision
 from newspulse.workflow.shared.ai_runtime.codec import decode_json_response
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate
@@ -35,6 +36,7 @@ class AIBatchClassifier:
 
         batch_items: list[AIBatchNewsItem] = []
         for prompt_id, item in enumerate(snapshot_items, start=1):
+            context = build_selection_context(item)
             batch_items.append(
                 AIBatchNewsItem(
                     prompt_id=prompt_id,
@@ -42,6 +44,9 @@ class AIBatchClassifier:
                     title=item.title,
                     source_id=item.source_id,
                     source_name=item.source_name,
+                    summary=context.summary,
+                    context_lines=context.attributes,
+                    rendered_context=context.llm_text,
                     persisted_news_id=_coerce_int(item.news_item_id, default=None),
                 )
             )
@@ -233,6 +238,8 @@ class AIBatchClassifier:
                     metadata={
                         "source_id": news_item.source_id,
                         "source_name": news_item.source_name,
+                        "summary": news_item.summary,
+                        "context_lines": list(news_item.context_lines),
                     },
                 )
             )
@@ -242,10 +249,18 @@ class AIBatchClassifier:
 
 
 def _format_news_list(batch_items: Sequence[AIBatchNewsItem]) -> str:
-    return "\n".join(
-        f"{item.prompt_id}. [{item.source_name or item.source_id}] {item.title}"
-        for item in batch_items
-    )
+    rendered_items: list[str] = []
+    for item in batch_items:
+        lines = [f"{item.prompt_id}. [{item.source_name or item.source_id}] {item.title}"]
+        rendered_context = str(item.rendered_context or "").strip()
+        if rendered_context:
+            lines.extend(
+                f"   {line}"
+                for line in rendered_context.splitlines()
+                if str(line).strip()
+            )
+        rendered_items.append("\n".join(lines))
+    return "\n".join(rendered_items)
 
 
 def _render_user_prompt(template: PromptTemplate, replacements: Mapping[str, str]) -> str:

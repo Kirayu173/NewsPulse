@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import asdict
 from datetime import datetime
@@ -312,6 +313,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         outbox_dir=args.outbox,
         storage_data_dir=args.data_dir,
     )
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
 

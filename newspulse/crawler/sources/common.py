@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable, List, Tuple
+from typing import Any, Iterable, List, Tuple
 
 from newspulse.crawler.sources.base import SourceClient, SourceItem
 
@@ -19,11 +19,20 @@ def _first_nonempty_line(value: object) -> str:
             return cleaned
     return ""
 
-def _item(title: object, url: object = "", mobile_url: object = "") -> SourceItem:
+def _item(
+    title: object,
+    url: object = "",
+    mobile_url: object = "",
+    *,
+    summary: object = "",
+    metadata: dict[str, Any] | None = None,
+) -> SourceItem:
     return SourceItem(
         title=_clean_text(title),
         url=_clean_text(url),
         mobile_url=_clean_text(mobile_url),
+        summary=_clean_text(summary),
+        metadata=dict(metadata or {}),
     )
 
 def _sort_items(rows: Iterable[Tuple[str, SourceItem]]) -> List[SourceItem]:

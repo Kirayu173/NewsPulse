@@ -213,6 +213,15 @@ def _append_preview_section(
             )
         else:
             lines.append(f"- [{source_id}] [{rank}] {title_text}")
+        summary = str(item.get("summary", "") or "").strip()
+        if summary:
+            lines.append(f"  - summary: {summary}")
+        context_lines = item.get("context_lines", [])
+        if isinstance(context_lines, list):
+            for context_line in context_lines[:3]:
+                text = str(context_line or "").strip()
+                if text:
+                    lines.append(f"  - {text}")
     if len(items) > max_items:
         lines.append(f"- ... \u5176\u4f59 {len(items) - max_items} \u6761\u5df2\u7701\u7565")
     lines.append("")

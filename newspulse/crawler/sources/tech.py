@@ -3,11 +3,11 @@
 
 from __future__ import annotations
 
-import json
 import os
 import re
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Tuple
 from urllib.parse import quote, urlencode
 
 from newspulse.crawler.sources.base import (
@@ -15,7 +15,6 @@ from newspulse.crawler.sources.base import (
     SourceItem,
     absolute_url,
     base64_encode,
-    make_soup,
     md5_hex,
     random_device_id,
     sha1_hex,
@@ -99,7 +98,7 @@ def fetch_github_trending(client: SourceClient) -> List[SourceItem]:
     except Exception:
         items = []
     if items:
-        return items
+        return _enrich_github_trending_items(client, items)
     return _fetch_github_trending_search_api(client)
 
 
@@ -107,19 +106,85 @@ def _fetch_github_trending_html(client: SourceClient) -> List[SourceItem]:
     base_url = "https://github.com"
     soup = client.get_soup("https://github.com/trending?spoken_language_code=")
     items: List[SourceItem] = []
-    for node in soup.select("main .Box div[data-hpc] > article"):
+    for node in soup.select("main article.Box-row"):
         link = node.select_one("h2 a")
         href = link.get("href", "") if link else ""
-        title = _clean_text(link.get_text(" ", strip=True) if link else "")
-        if title and href:
-            items.append(_item(title, absolute_url(base_url, href)))
+        title = _normalize_github_repo_name(link.get_text(" ", strip=True) if link else "")
+        if not title or not href:
+            continue
+
+        description = _clean_text(node.select_one("p").get_text(" ", strip=True) if node.select_one("p") else "")
+        language = _clean_text(
+            node.select_one('[itemprop="programmingLanguage"]').get_text(" ", strip=True)
+            if node.select_one('[itemprop="programmingLanguage"]')
+            else ""
+        )
+        stars_total = _extract_github_metric(node, r"/stargazers$")
+        forks_total = _extract_github_metric(node, r"/forks$")
+        stars_today = _extract_github_stars_today(node)
+
+        items.append(
+            _item(
+                title,
+                absolute_url(base_url, href),
+                summary=description,
+                metadata=_build_github_metadata(
+                    full_name=title,
+                    description=description,
+                    language=language,
+                    stars_total=stars_total,
+                    forks_total=forks_total,
+                    stars_today=stars_today,
+                    source_variant="trending_html",
+                    enriched_by="html",
+                ),
+            )
+        )
     return items
+
+
+def _enrich_github_trending_items(
+    client: SourceClient,
+    items: Sequence[SourceItem],
+) -> List[SourceItem]:
+    token = _github_api_token()
+    if not token:
+        return list(items)
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+    }
+    enrich_limit = max(0, int(os.environ.get("GITHUB_TRENDING_ENRICH_LIMIT", "10") or 10))
+    enriched_items: List[SourceItem] = []
+
+    for index, item in enumerate(items):
+        if enrich_limit and index >= enrich_limit:
+            enriched_items.append(item)
+            continue
+
+        full_name = _resolve_github_full_name(item)
+        if not full_name:
+            enriched_items.append(item)
+            continue
+
+        try:
+            payload = client.get_json(
+                f"https://api.github.com/repos/{quote(full_name, safe='/')}",
+                headers=headers,
+            )
+        except Exception:
+            enriched_items.append(item)
+            continue
+
+        enriched_items.append(_merge_github_api_payload(item, payload))
+    return enriched_items
 
 
 def _fetch_github_trending_search_api(client: SourceClient) -> List[SourceItem]:
     created_after = (datetime.now(UTC) - timedelta(days=7)).date().isoformat()
     headers = {"Accept": "application/vnd.github+json"}
-    token = os.environ.get("GITHUB_TOKEN", "").strip() or os.environ.get("GITHUB_API_TOKEN", "").strip()
+    token = _github_api_token()
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
@@ -137,11 +202,210 @@ def _fetch_github_trending_search_api(client: SourceClient) -> List[SourceItem]:
     data = response.json()
     items: List[SourceItem] = []
     for entry in data.get("items", []):
-        title = _clean_text(str(entry.get("full_name") or entry.get("name") or ""))
+        title = _normalize_github_repo_name(str(entry.get("full_name") or entry.get("name") or ""))
         url = str(entry.get("html_url") or "").strip()
-        if title and url:
-            items.append(_item(title, url))
+        if not title or not url:
+            continue
+
+        summary = _clean_text(str(entry.get("description") or ""))
+        items.append(
+            _item(
+                title,
+                url,
+                summary=summary,
+                metadata=_build_github_metadata(
+                    full_name=title,
+                    description=summary,
+                    language=_clean_text(str(entry.get("language") or "")),
+                    stars_total=_coerce_compact_int(entry.get("stargazers_count")),
+                    forks_total=_coerce_compact_int(entry.get("forks_count")),
+                    topics=_normalize_github_topics(entry.get("topics")),
+                    created_at=str(entry.get("created_at") or "").strip(),
+                    pushed_at=str(entry.get("pushed_at") or "").strip(),
+                    archived=bool(entry.get("archived", False)),
+                    fork=bool(entry.get("fork", False)),
+                    source_variant="search_api_fallback",
+                    enriched_by="search_api",
+                ),
+            )
+        )
     return items
+
+
+def _merge_github_api_payload(item: SourceItem, payload: Dict[str, Any]) -> SourceItem:
+    existing_metadata = dict(item.metadata or {})
+    github_metadata = dict(existing_metadata.get("github") or {})
+    api_topics = _normalize_github_topics(payload.get("topics"))
+    merged_summary = _clean_text(str(payload.get("description") or item.summary or github_metadata.get("description") or ""))
+    merged_full_name = _normalize_github_repo_name(
+        str(payload.get("full_name") or github_metadata.get("full_name") or item.title or "")
+    )
+
+    github_metadata.update(
+        {
+            "full_name": merged_full_name,
+            "description": merged_summary,
+            "language": _clean_text(str(payload.get("language") or github_metadata.get("language") or "")),
+            "stars_total": _coerce_compact_int(payload.get("stargazers_count"))
+            if payload.get("stargazers_count") is not None
+            else github_metadata.get("stars_total"),
+            "forks_total": _coerce_compact_int(payload.get("forks_count"))
+            if payload.get("forks_count") is not None
+            else github_metadata.get("forks_total"),
+            "topics": api_topics or _normalize_github_topics(github_metadata.get("topics")),
+            "created_at": str(payload.get("created_at") or github_metadata.get("created_at") or "").strip(),
+            "pushed_at": str(payload.get("pushed_at") or github_metadata.get("pushed_at") or "").strip(),
+            "archived": bool(payload.get("archived", github_metadata.get("archived", False))),
+            "fork": bool(payload.get("fork", github_metadata.get("fork", False))),
+            "source_variant": str(github_metadata.get("source_variant") or "trending_html"),
+            "enriched_by": "html+api",
+        }
+    )
+    owner, repo = _split_github_full_name(merged_full_name)
+    if owner:
+        github_metadata["owner"] = owner
+    if repo:
+        github_metadata["repo"] = repo
+
+    return SourceItem(
+        title=merged_full_name or item.title,
+        url=item.url,
+        mobile_url=item.mobile_url,
+        summary=merged_summary,
+        metadata={
+            **existing_metadata,
+            "source_context_version": 1,
+            "source_kind": "github_repository",
+            "github": github_metadata,
+        },
+    )
+
+
+def _build_github_metadata(
+    *,
+    full_name: str,
+    description: str = "",
+    language: str = "",
+    stars_total: int | None = None,
+    forks_total: int | None = None,
+    stars_today: int | None = None,
+    topics: Sequence[str] | None = None,
+    created_at: str = "",
+    pushed_at: str = "",
+    archived: bool = False,
+    fork: bool = False,
+    source_variant: str,
+    enriched_by: str,
+) -> Dict[str, Any]:
+    owner, repo = _split_github_full_name(full_name)
+    github: Dict[str, Any] = {
+        "owner": owner,
+        "repo": repo,
+        "full_name": full_name,
+        "description": _clean_text(description),
+        "language": _clean_text(language),
+        "topics": list(_normalize_github_topics(topics)),
+        "created_at": str(created_at or "").strip(),
+        "pushed_at": str(pushed_at or "").strip(),
+        "archived": bool(archived),
+        "fork": bool(fork),
+        "source_variant": source_variant,
+        "enriched_by": enriched_by,
+    }
+    if stars_total is not None:
+        github["stars_total"] = int(stars_total)
+    if forks_total is not None:
+        github["forks_total"] = int(forks_total)
+    if stars_today is not None:
+        github["stars_today"] = int(stars_today)
+    return {
+        "source_context_version": 1,
+        "source_kind": "github_repository",
+        "github": github,
+    }
+
+
+def _resolve_github_full_name(item: SourceItem) -> str:
+    github = item.metadata.get("github") if isinstance(item.metadata, dict) else None
+    if isinstance(github, dict):
+        full_name = _normalize_github_repo_name(str(github.get("full_name") or ""))
+        if full_name:
+            return full_name
+    return _normalize_github_repo_name(item.title)
+
+
+def _extract_github_metric(node, href_pattern: str) -> int | None:
+    for link in node.select("a[href]"):
+        href = str(link.get("href") or "").strip()
+        if not href or not re.search(href_pattern, href):
+            continue
+        return _coerce_compact_int(link.get_text(" ", strip=True))
+    return None
+
+
+def _extract_github_stars_today(node) -> int | None:
+    for candidate in node.select("span, div"):
+        text = _clean_text(candidate.get_text(" ", strip=True))
+        if "stars today" not in text.lower():
+            continue
+        matched = re.search(r"([0-9][0-9,]*)\s+stars today", text, flags=re.IGNORECASE)
+        if matched:
+            return _coerce_compact_int(matched.group(1))
+    return None
+
+
+def _normalize_github_repo_name(value: object) -> str:
+    text = _clean_text(value)
+    if not text:
+        return ""
+    text = re.sub(r"\s*/\s*", "/", text)
+    return text
+
+
+def _split_github_full_name(full_name: str) -> Tuple[str, str]:
+    if "/" not in full_name:
+        return "", ""
+    owner, repo = full_name.split("/", 1)
+    return owner.strip(), repo.strip()
+
+
+def _normalize_github_topics(value: Any) -> List[str]:
+    if isinstance(value, str):
+        parts = [segment.strip() for segment in value.split(",")]
+        return [part for part in parts if part]
+    if not isinstance(value, Sequence):
+        return []
+    topics: List[str] = []
+    for item in value:
+        text = _clean_text(item)
+        if text:
+            topics.append(text)
+    return topics
+
+
+def _coerce_compact_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    text = _clean_text(value).lower().replace(",", "")
+    if not text:
+        return None
+    multiplier = 1
+    if text.endswith("k"):
+        multiplier = 1_000
+        text = text[:-1]
+    elif text.endswith("m"):
+        multiplier = 1_000_000
+        text = text[:-1]
+    matched = re.search(r"\d+(?:\.\d+)?", text)
+    if not matched:
+        return None
+    return int(float(matched.group(0)) * multiplier)
+
+
+def _github_api_token() -> str:
+    return os.environ.get("GITHUB_TOKEN", "").strip() or os.environ.get("GITHUB_API_TOKEN", "").strip()
 
 def fetch_ghxi(client: SourceClient) -> List[SourceItem]:
     soup = client.get_soup("https://www.ghxi.com/category/all")

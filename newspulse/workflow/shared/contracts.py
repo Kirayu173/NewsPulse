@@ -17,6 +17,8 @@ class HotlistItem:
     source_name: str = ""
     url: str = ""
     mobile_url: str = ""
+    summary: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
     current_rank: int = 0
     ranks: List[int] = field(default_factory=list)
     first_time: str = ""

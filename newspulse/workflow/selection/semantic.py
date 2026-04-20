@@ -12,6 +12,7 @@ from newspulse.workflow.selection.models import (
     SelectionTopic,
     SemanticSelectionResult,
 )
+from newspulse.workflow.selection.context_builder import build_selection_context
 from newspulse.workflow.shared.contracts import HotlistItem, SelectionRejectedItem
 from newspulse.workflow.shared.options import SelectionSemanticOptions
 
@@ -108,7 +109,8 @@ class SemanticSelectionLayer:
                 diagnostics={"enabled": True, "skipped": True, "reason": "embedding_unavailable"},
             )
 
-        item_texts = [_format_item_text(item) for item in snapshot_items]
+        item_contexts = [build_selection_context(item) for item in snapshot_items]
+        item_texts = [context.embedding_text for context in item_contexts]
         topic_texts = [topic.to_query_text() for topic in topics]
         try:
             item_vectors = self.embedding_client.embed_texts(item_texts)
@@ -132,7 +134,7 @@ class SemanticSelectionLayer:
         rejected_items: list[SelectionRejectedItem] = []
         topic_lookup = {topic.topic_id: topic for topic in topics}
 
-        for item, item_text, item_vector in zip(snapshot_items, item_texts, item_vectors):
+        for item, item_context, item_text, item_vector in zip(snapshot_items, item_contexts, item_texts, item_vectors):
             scored_candidates: list[SelectionCandidate] = []
             for topic, topic_text, topic_vector in zip(topics, topic_texts, topic_vectors):
                 score = _cosine_similarity(item_vector, topic_vector)
@@ -147,6 +149,8 @@ class SemanticSelectionLayer:
                         source_layers=("semantic",),
                         evidence={
                             "item_text": item_text,
+                            "item_summary": item_context.summary,
+                            "context_attributes": list(item_context.attributes),
                             "topic_text": topic_text,
                             "topic_priority": topic.priority,
                             "topic_source": topic.source,
@@ -203,14 +207,6 @@ class SemanticSelectionLayer:
             rejected_items=tuple(rejected_items),
             diagnostics=diagnostics,
         )
-
-
-def _format_item_text(item: HotlistItem) -> str:
-    parts = [str(item.title or "").strip()]
-    source_name = str(item.source_name or item.source_id or "").strip()
-    if source_name:
-        parts.append(f"source: {source_name}")
-    return "\n".join(part for part in parts if part)
 
 
 def _cosine_similarity(left: Iterable[float], right: Iterable[float]) -> float:

@@ -181,6 +181,8 @@ class SnapshotProjector:
             title=title,
             url=item.url or "",
             mobile_url=item.mobile_url or "",
+            summary=item.summary or "",
+            metadata=dict(item.metadata or {}),
             current_rank=current_rank,
             ranks=list(item.ranks or ([item.rank] if item.rank else [])),
             first_time=item.first_time or item.crawl_time,

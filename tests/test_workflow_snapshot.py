@@ -31,11 +31,21 @@ def _save_crawl(storage: StorageManager, crawl_time: str, results: dict, failed_
             ranks = list(title_data.get("ranks", []))
             url = title_data.get("url", "")
             mobile_url = title_data.get("mobileUrl", "")
+            summary = title_data.get("summary", "")
+            metadata = dict(title_data.get("metadata", {}) or {})
             for index, rank in enumerate(ranks, start=1):
                 position = rank if rank else index
                 while len(items) < position - 1:
                     items.append(SourceItem(title=""))
-                items.append(SourceItem(title=title, url=url, mobile_url=mobile_url))
+                items.append(
+                    SourceItem(
+                        title=title,
+                        url=url,
+                        mobile_url=mobile_url,
+                        summary=summary,
+                        metadata=metadata,
+                    )
+                )
         sources.append(
             SourceFetchResult(
                 source_id=source_id,
@@ -320,6 +330,48 @@ class SnapshotServiceTest(unittest.TestCase):
         finally:
             storage.cleanup()
             shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_snapshot_service_keeps_structured_context_on_hotlist_items(self):
+        tmp = self._create_workspace_tmpdir()
+        storage = self._create_storage(tmp)
+        try:
+            _save_crawl(
+                storage,
+                _today_at("09:00:00"),
+                {
+                    "s1": {
+                        "openai/openai-agents-python": {
+                            "ranks": [1],
+                            "url": "https://github.com/openai/openai-agents-python",
+                            "summary": "Official OpenAI Agents SDK for Python",
+                            "metadata": {
+                                "source_context_version": 1,
+                                "source_kind": "github_repository",
+                                "github": {
+                                    "full_name": "openai/openai-agents-python",
+                                    "language": "Python",
+                                    "topics": ["openai", "agent", "sdk"],
+                                },
+                            },
+                        }
+                    }
+                },
+            )
+
+            service = SnapshotService(
+                storage,
+                platform_ids=["s1"],
+                platform_names={"s1": "GitHub Trending"},
+            )
+            snapshot = service.build(SnapshotOptions(mode="current"))
+        finally:
+            storage.cleanup()
+            shutil.rmtree(tmp, ignore_errors=True)
+
+        self.assertEqual(len(snapshot.items), 1)
+        self.assertEqual(snapshot.items[0].summary, "Official OpenAI Agents SDK for Python")
+        self.assertEqual(snapshot.items[0].metadata["source_kind"], "github_repository")
+        self.assertEqual(snapshot.items[0].metadata["github"]["topics"], ["openai", "agent", "sdk"])
 
 
 if __name__ == "__main__":

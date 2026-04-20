@@ -20,6 +20,8 @@ class NewsItem:
     rank: int = 0
     url: str = ""
     mobile_url: str = ""
+    summary: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
     crawl_time: str = ""
     ranks: List[int] = field(default_factory=list)
     first_time: str = ""
@@ -35,6 +37,8 @@ class NewsItem:
             "rank": self.rank,
             "url": self.url,
             "mobile_url": self.mobile_url,
+            "summary": self.summary,
+            "metadata": dict(self.metadata),
             "crawl_time": self.crawl_time,
             "ranks": self.ranks,
             "first_time": self.first_time,
@@ -52,6 +56,8 @@ class NewsItem:
             rank=data.get("rank", 0),
             url=data.get("url", ""),
             mobile_url=data.get("mobile_url", ""),
+            summary=data.get("summary", ""),
+            metadata=dict(data.get("metadata", {}) or {}),
             crawl_time=data.get("crawl_time", ""),
             ranks=data.get("ranks", []),
             first_time=data.get("first_time", ""),
@@ -212,6 +218,10 @@ class NewsData:
                         existing.url = item.url
                     if not existing.mobile_url and item.mobile_url:
                         existing.mobile_url = item.mobile_url
+                    if item.summary:
+                        existing.summary = item.summary
+                    if item.metadata:
+                        existing.metadata = _merge_metadata(existing.metadata, item.metadata)
                 else:
                     merged_items[source_id][item.title] = item
 
@@ -476,6 +486,8 @@ def normalize_crawl_batch(
                     rank=position,
                     url=item.url,
                     mobile_url=item.mobile_url,
+                    summary=item.summary,
+                    metadata=dict(item.metadata or {}),
                     crawl_time=crawl_time,
                     ranks=[position],
                     first_time=crawl_time,
@@ -490,6 +502,10 @@ def normalize_crawl_batch(
                 existing.url = item.url
             if not existing.mobile_url and item.mobile_url:
                 existing.mobile_url = item.mobile_url
+            if item.summary:
+                existing.summary = item.summary
+            if item.metadata:
+                existing.metadata = _merge_metadata(existing.metadata, item.metadata)
 
         sources.append(
             NormalizedSourceBatch(
@@ -521,3 +537,18 @@ def normalize_crawl_batch(
         failures=failures,
         metadata=dict(crawl_batch.metadata),
     )
+
+
+def _merge_metadata(
+    existing: Dict[str, Any] | None,
+    incoming: Dict[str, Any] | None,
+) -> Dict[str, Any]:
+    merged = dict(existing or {})
+    for key, value in dict(incoming or {}).items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            child = dict(merged.get(key) or {})
+            child.update(value)
+            merged[key] = child
+            continue
+        merged[key] = value
+    return merged

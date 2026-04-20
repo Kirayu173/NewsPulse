@@ -10,6 +10,7 @@ from typing import Any, Callable, Mapping, Sequence
 from newspulse.core.config_paths import resolve_ai_interests_path
 from newspulse.workflow.selection.ai_classifier import AIBatchClassifier
 from newspulse.workflow.selection.catalog import parse_topic_catalog
+from newspulse.workflow.selection.context_builder import build_selection_context
 from newspulse.workflow.selection.keyword import KeywordSelectionStrategy
 from newspulse.workflow.selection.models import AIBatchNewsItem, AIQualityDecision, SelectionTopic
 from newspulse.workflow.selection.pipeline import SelectionPipelineProjector
@@ -150,16 +151,21 @@ class AISelectionStrategy:
                 ],
                 "semantic_candidates": [
                     {
-                        "news_item_id": candidate.news_item.news_item_id,
-                        "source_id": candidate.news_item.source_id,
-                        "source_name": candidate.news_item.source_name,
-                        "title": candidate.news_item.title,
-                        "current_rank": candidate.news_item.current_rank,
+                        **{
+                            "news_item_id": candidate.news_item.news_item_id,
+                            "source_id": candidate.news_item.source_id,
+                            "source_name": candidate.news_item.source_name,
+                            "title": candidate.news_item.title,
+                            "summary": candidate.news_item.summary,
+                            "current_rank": candidate.news_item.current_rank,
+                            "metadata": dict(candidate.news_item.metadata or {}),
+                        },
                         "topic_id": candidate.topic_id,
                         "topic_label": candidate.topic_label,
                         "score": round(candidate.score, 6),
                         "source_layers": list(candidate.source_layers),
                         "evidence": dict(candidate.evidence),
+                        "context_lines": list(build_selection_context(candidate.news_item).attributes),
                     }
                     for candidate in semantic_result.candidates
                 ],
