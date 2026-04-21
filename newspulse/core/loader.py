@@ -16,6 +16,20 @@ DEFAULT_REGION_ORDER = ["hotlist", "new_items", "standalone", "insight"]
 _MISSING = object()
 
 
+def _load_dotenv_file(path: Path) -> None:
+    if not path.exists():
+        return
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        normalized_key = key.strip()
+        normalized_value = value.strip().strip('"').strip("'")
+        os.environ.setdefault(normalized_key, normalized_value)
+
+
 def _get_section(mapping: Dict[str, Any], *keys: str) -> Dict[str, Any]:
     current: Any = mapping
     for key in keys:
@@ -615,6 +629,14 @@ def _print_notification_sources(config: Dict[str, Any]) -> None:
 def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     layout = get_config_layout(config_path)
     resolved_config_path = layout.config_path
+    dotenv_root = layout.config_root.parent
+    _load_dotenv_file(dotenv_root / ".env")
+    if (
+        config_path is None
+        or resolved_config_path.is_relative_to(layout.project_root)
+    ):
+        _load_dotenv_file(layout.project_root / ".env")
+
     if not resolved_config_path.exists():
         raise FileNotFoundError(f"config file not found: {resolved_config_path}")
 

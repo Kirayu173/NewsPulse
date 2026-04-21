@@ -220,6 +220,11 @@ class PartialResponseAIClient:
         )
 
 
+class EmptyResponseAIClient:
+    def chat(self, messages, **kwargs):
+        return ""
+
+
 class FakeEmbeddingClient:
     class _Config:
         model = "openai/embedding-test"
@@ -528,6 +533,45 @@ class AISelectionStrategyTest(unittest.TestCase):
             self.assertEqual(len(result.rejected_items), 1)
             self.assertEqual(result.rejected_items[0].rejected_stage, "llm")
             self.assertIn("quality score below threshold", result.rejected_items[0].rejected_reason)
+        finally:
+            storage.cleanup()
+
+    def test_service_falls_back_to_keyword_when_llm_returns_empty_payload(self):
+        tmp_root = _make_tmp_dir()
+        config_root = tmp_root / "config"
+        _write_test_ai_config(config_root)
+        _write_text(config_root / "custom" / "ai" / "unit.txt", "AI agents")
+
+        storage = _build_storage(str(tmp_root))
+        try:
+            _seed_hotlist(storage)
+            snapshot = _build_snapshot(storage)
+            snapshot.items = snapshot.items[:1]
+            service = SelectionService(
+                config_root=str(config_root),
+                ai_strategy=AISelectionStrategy(
+                    storage_manager=storage,
+                    client=EmptyResponseAIClient(),
+                    filter_config={"PROMPT_FILE": "prompt.txt"},
+                    config_root=config_root,
+                    sleep_func=lambda _: None,
+                ),
+            )
+
+            result = service.run(
+                snapshot,
+                SelectionOptions(
+                    strategy="ai",
+                    ai=SelectionAIOptions(interests_file="unit.txt", batch_size=1, batch_interval=0, min_score=0.7),
+                    semantic=SelectionSemanticOptions(enabled=False),
+                ),
+            )
+
+            self.assertEqual(result.strategy, "keyword")
+            self.assertEqual(result.total_selected, 1)
+            self.assertEqual(result.diagnostics["requested_strategy"], "ai")
+            self.assertEqual(result.diagnostics["fallback_strategy"], "keyword")
+            self.assertIn("AI response does not contain JSON", result.diagnostics["fallback_reason"])
         finally:
             storage.cleanup()
 

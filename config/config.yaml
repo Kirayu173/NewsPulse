@@ -120,8 +120,9 @@ workflow:
     aggregate:
       prompt_file: ai_analysis_prompt.txt
 
+ai:
   runtime:
-    # 全局默认 AI runtime；selection / insight 会继承或覆盖它。
+    # Default AI runtime inherited by selection / insight unless overridden.
     model: deepseek/deepseek-chat
     api_key: ''
     api_base: ''
@@ -134,12 +135,23 @@ workflow:
     selection:
       timeout: 480
       num_retries: 0
+      temperature: 0
+      max_tokens: 1200
       prompt_file: prompt.txt
       extract_prompt_file: extract_prompt.txt
       update_tags_prompt_file: update_tags_prompt.txt
+      extra_params:
+        do_sample: false
+        extra_body:
+          thinking:
+            type: disabled
     insight:
       prompt_file: ai_analysis_prompt.txt
       item_prompt_file: ai_insight_item_prompt.txt
+      extra_params:
+        extra_body:
+          thinking:
+            type: disabled
 
 storage:
   # 当前运行时仅使用本地存储。

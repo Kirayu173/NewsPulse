@@ -8,6 +8,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 from newspulse.workflow.selection.context_builder import build_selection_context
 from newspulse.workflow.selection.models import AIBatchNewsItem, AIQualityDecision
 from newspulse.workflow.shared.ai_runtime.codec import decode_json_response
+from newspulse.workflow.shared.ai_runtime.errors import AIRuntimeError
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate
 from newspulse.workflow.shared.contracts import HotlistItem
 from newspulse.workflow.shared.options import SelectionOptions
@@ -100,7 +101,17 @@ class AIBatchClassifier:
                 interests_content=interests_content,
                 focus_topics=focus_topics,
             )
+        except AIRuntimeError:
+            if len(batch_items) <= 1:
+                raise
+            return self._split_and_retry_batch(
+                batch_items,
+                interests_content=interests_content,
+                focus_topics=focus_topics,
+            )
         except Exception:
+            if len(batch_items) <= 1:
+                raise
             return self._split_and_retry_batch(
                 batch_items,
                 interests_content=interests_content,

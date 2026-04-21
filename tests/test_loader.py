@@ -16,6 +16,47 @@ def _write_text(path: Path, content: str) -> None:
 
 
 class LoaderConfigRootTest(unittest.TestCase):
+    def test_load_config_reads_dotenv_from_project_root(self):
+        with TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            config_dir = project / "config"
+            config_dir.mkdir(parents=True)
+            (project / ".env").write_text(
+                "API_KEY=dotenv-key\n"
+                "BASE_URL=https://dotenv.example/v1\n"
+                "MODEL=glm-4.6v\n"
+                "EMB_MODEL=embedding-3\n",
+                encoding="utf-8",
+            )
+            _write_text(
+                config_dir / "config.yaml",
+                """
+                app:
+                  timezone: Asia/Shanghai
+                schedule:
+                  enabled: false
+                  preset: always_on
+                workflow:
+                  selection:
+                    strategy: ai
+                    semantic:
+                      enabled: true
+                ai:
+                  runtime:
+                    model: deepseek/deepseek-chat
+                    api_key: ""
+                    api_base: ""
+                """,
+            )
+
+            with patch("newspulse.core.config_paths.get_project_root", return_value=project):
+                with patch.dict(os.environ, {}, clear=True):
+                    config = load_config()
+
+            self.assertEqual(config["AI"]["API_KEY"], "dotenv-key")
+            self.assertEqual(config["AI"]["API_BASE"], "https://dotenv.example/v1")
+            self.assertEqual(config["AI"]["MODEL"], "glm-4.6v")
+
     def test_load_config_uses_project_config_root_and_ignores_parent_env(self):
         with TemporaryDirectory() as tmp:
             workspace = Path(tmp)
