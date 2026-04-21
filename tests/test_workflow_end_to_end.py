@@ -9,12 +9,14 @@ from newspulse.storage import get_storage_manager
 from newspulse.storage.base import NewsData, NewsItem
 from newspulse.workflow.delivery import DeliveryService, GenericWebhookDeliveryAdapter
 from newspulse.workflow.insight.ai import AIInsightStrategy
+from newspulse.workflow.insight.models import InsightContentPayload, InsightItemAnalysis, ReducedContentBundle
 from newspulse.workflow.insight.service import InsightService
 from newspulse.workflow.localization import LocalizationService
 from newspulse.workflow.localization.ai import AILocalizationStrategy
 from newspulse.workflow.selection.ai import AISelectionStrategy
 from newspulse.workflow.selection.service import SelectionService
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate
+from newspulse.workflow.shared.contracts import InsightSection
 
 
 def _today_at(ctx: AppContext, time_text: str) -> str:
@@ -108,7 +110,7 @@ def _build_config(
                 "HOTLIST": True,
                 "NEW_ITEMS": True,
                 "STANDALONE": True,
-                "AI_ANALYSIS": True,
+                "INSIGHT": True,
             },
             "STANDALONE": {"PLATFORMS": ["producthunt"], "MAX_ITEMS": 10},
         },
@@ -132,9 +134,7 @@ def _build_config(
             "ENABLED": ai_analysis_enabled,
             "STRATEGY": "ai" if ai_analysis_enabled else "noop",
             "MODE": "daily",
-            "MAX_NEWS_FOR_ANALYSIS": 5,
-            "INCLUDE_STANDALONE": True,
-            "INCLUDE_RANK_TIMELINE": True,
+            "MAX_ITEMS": 5,
             "LANGUAGE": "Chinese",
             "PROMPT_FILE": "ai_analysis_prompt.txt",
         },
@@ -236,16 +236,69 @@ class FakeEmbeddingClient:
         return vectors
 
 
-class InsightClient:
-    def chat(self, messages, **kwargs):
-        return json.dumps(
-            {
-                "core_trends": "AI tools keep dominating the developer conversation.",
-                "sentiment_controversy": "Developers are excited but still cautious.",
-                "signals": "OpenAI launches and startup launches keep showing up together.",
-                "outlook_strategy": "Keep tracking launch cadence and developer adoption.",
-                "standalone_summaries": {"Product Hunt": "Startup launches remain a strong secondary signal."},
-            }
+class StubInsightFetcher:
+    def fetch_many(self, contexts):
+        return [
+            InsightContentPayload(
+                news_item_id=context.news_item_id,
+                status="ok",
+                source_type=context.source_context.source_kind or "article",
+                title=context.title,
+                excerpt=context.source_context.summary,
+                content_text=f"{context.title} -- enriched content",
+                content_markdown=f"{context.title} -- enriched content",
+                extractor_name="stub_fetcher",
+            )
+            for context in contexts
+        ]
+
+
+class StubInsightReducer:
+    def reduce_many(self, contexts, payloads):
+        return [
+            ReducedContentBundle(
+                news_item_id=context.news_item_id,
+                status="ok",
+                anchor_text=context.title,
+                reduced_text=f"{context.title} -- reduced content",
+                selected_sentences=(f"{context.title} -- reduced content",),
+                evidence_sentences=(f"{context.title} -- reduced evidence",),
+                reducer_name="stub_reducer",
+            )
+            for context in contexts
+        ]
+
+
+class StubInsightAnalyzer:
+    def analyze_many(self, contexts, bundles):
+        return [
+            InsightItemAnalysis(
+                news_item_id=context.news_item_id,
+                title=context.title,
+                what_happened=f"{context.title} happened",
+                why_it_matters=f"{context.title} matters",
+                evidence=(f"{context.title} evidence",),
+                diagnostics={"status": "ok"},
+            )
+            for context in contexts
+        ]
+
+
+class StubInsightAggregate:
+    def generate(self, item_analyses, contexts):
+        return (
+            [
+                InsightSection(
+                    key="core_trends",
+                    title="Core Trends",
+                    content="AI tools keep dominating the developer conversation.",
+                    metadata={
+                        "supporting_news_ids": [analysis.news_item_id for analysis in item_analyses],
+                    },
+                )
+            ],
+            "{\"sections\": []}",
+            {"item_count": len(item_analyses), "section_count": 1},
         )
 
 
@@ -396,24 +449,14 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
         )
 
     def _build_ai_insight_service(self, ctx: AppContext) -> InsightService:
-        prompt_template = PromptTemplate(
-            path=Path("insight-prompt.txt"),
-            user_prompt=(
-                "MODE={report_mode}\n"
-                "TYPE={report_type}\n"
-                "COUNT={news_count}\n"
-                "PLATFORMS={platforms}\n"
-                "KEYWORDS={keywords}\n"
-                "NEWS:\n{news_content}\n"
-                "STANDALONE:\n{standalone_content}\n"
-                "LANG={language}"
-            ),
-        )
         return InsightService(
             ai_strategy=AIInsightStrategy(
-                client=InsightClient(),
+                client=object(),
                 analysis_config=ctx.config["AI_ANALYSIS"],
-                prompt_template=prompt_template,
+                content_fetcher=StubInsightFetcher(),
+                content_reducer=StubInsightReducer(),
+                item_analyzer=StubInsightAnalyzer(),
+                aggregate_generator=StubInsightAggregate(),
             )
         )
 

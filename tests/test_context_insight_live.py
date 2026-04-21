@@ -35,9 +35,7 @@ class LiveAppContextInsightStageTest(unittest.TestCase):
         config = load_config(str(project_root / "config" / "config.yaml"))
         config["AI_ANALYSIS"]["ENABLED"] = True
         config["AI_ANALYSIS"]["MODE"] = "current"
-        config["AI_ANALYSIS"]["MAX_NEWS_FOR_ANALYSIS"] = 2
-        config["AI_ANALYSIS"]["INCLUDE_STANDALONE"] = True
-        config["AI_ANALYSIS"]["INCLUDE_RANK_TIMELINE"] = True
+        config["AI_ANALYSIS"]["MAX_ITEMS"] = 2
         ctx = AppContext(config)
 
         snapshot = HotlistSnapshot(

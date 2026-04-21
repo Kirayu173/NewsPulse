@@ -2,6 +2,7 @@
 """Storage package exports for the hotlist-only runtime."""
 
 from newspulse.storage.base import (
+    ArticleContentRecord,
     NewsData,
     NewsItem,
     NormalizedCrawlBatch,
@@ -14,11 +15,12 @@ from newspulse.storage.base import (
 )
 from newspulse.storage.local import LocalStorageBackend
 from newspulse.storage.manager import StorageManager, get_storage_manager
-from newspulse.storage.repos import AIFilterRepository, NewsRepository, ScheduleRepository
+from newspulse.storage.repos import AIFilterRepository, ArticleContentRepository, NewsRepository, ScheduleRepository
 from newspulse.storage.sqlite_runtime import SQLiteRuntime
 
 __all__ = [
     "StorageBackend",
+    "ArticleContentRecord",
     "NewsItem",
     "NewsData",
     "SourceFailureRecord",
@@ -32,6 +34,7 @@ __all__ = [
     "NewsRepository",
     "ScheduleRepository",
     "AIFilterRepository",
+    "ArticleContentRepository",
     "StorageManager",
     "get_storage_manager",
 ]

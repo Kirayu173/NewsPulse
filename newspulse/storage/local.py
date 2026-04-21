@@ -9,12 +9,13 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from newspulse.storage.base import (
+    ArticleContentRecord,
     NewsData,
     NormalizedCrawlBatch,
     StorageBackend,
     convert_news_data_to_normalized_batch,
 )
-from newspulse.storage.repos import AIFilterRepository, NewsRepository, ScheduleRepository
+from newspulse.storage.repos import AIFilterRepository, ArticleContentRepository, NewsRepository, ScheduleRepository
 from newspulse.storage.sqlite_runtime import SQLiteRuntime
 from newspulse.utils.time import DEFAULT_TIMEZONE
 
@@ -39,6 +40,7 @@ class LocalStorageBackend(StorageBackend):
         self.news_repo = NewsRepository(self.runtime)
         self.schedule_repo = ScheduleRepository(self.runtime)
         self.ai_filter_repo = AIFilterRepository(self.runtime)
+        self.article_content_repo = ArticleContentRepository(self.runtime)
 
     @property
     def backend_name(self) -> str:
@@ -123,6 +125,15 @@ class LocalStorageBackend(StorageBackend):
         if not exists:
             return None
         return self.news_repo._get_latest_crawl_data_impl(resolved_date)
+
+    def get_article_content(self, normalized_url: str, date: Optional[str] = None) -> Optional[ArticleContentRecord]:
+        exists, resolved_date = self._resolve_read_date(date, fallback_to_latest=False)
+        if date is not None and not exists:
+            return None
+        return self.article_content_repo._get_by_normalized_url_impl(normalized_url, resolved_date)
+
+    def save_article_content(self, record: ArticleContentRecord, date: Optional[str] = None) -> bool:
+        return self.article_content_repo._save_impl(record, date)
 
     def detect_new_titles(self, current_data: NewsData) -> Dict[str, Dict]:
         return self.news_repo._detect_new_titles_impl(current_data)

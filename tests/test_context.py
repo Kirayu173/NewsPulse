@@ -126,9 +126,7 @@ class AppContextTest(unittest.TestCase):
                     "ENABLED": True,
                     "STRATEGY": "noop",
                     "MODE": "follow_report",
-                    "MAX_NEWS_FOR_ANALYSIS": 6,
-                    "INCLUDE_STANDALONE": True,
-                    "INCLUDE_RANK_TIMELINE": False,
+                    "MAX_ITEMS": 6,
                 }
             }
         )
@@ -139,8 +137,6 @@ class AppContextTest(unittest.TestCase):
         self.assertEqual(options.strategy, "noop")
         self.assertEqual(options.mode, "daily")
         self.assertEqual(options.max_items, 6)
-        self.assertTrue(options.include_standalone)
-        self.assertFalse(options.include_rank_timeline)
 
     def test_build_insight_options_prefers_workflow_insight_config(self):
         ctx = AppContext(
@@ -151,17 +147,13 @@ class AppContextTest(unittest.TestCase):
                         "STRATEGY": "ai",
                         "MODE": "current",
                         "MAX_ITEMS": 12,
-                        "INCLUDE_STANDALONE": False,
-                        "INCLUDE_RANK_TIMELINE": True,
                     }
                 },
                 "AI_ANALYSIS": {
                     "ENABLED": True,
                     "STRATEGY": "noop",
                     "MODE": "follow_report",
-                    "MAX_NEWS_FOR_ANALYSIS": 6,
-                    "INCLUDE_STANDALONE": True,
-                    "INCLUDE_RANK_TIMELINE": False,
+                    "MAX_ITEMS": 6,
                 },
             }
         )
@@ -170,10 +162,9 @@ class AppContextTest(unittest.TestCase):
 
         self.assertTrue(options.enabled)
         self.assertEqual(options.strategy, "ai")
-        self.assertEqual(options.mode, "current")
+        self.assertEqual(options.mode, "daily")
+        self.assertTrue(options.metadata["mode_resolved_by_context"])
         self.assertEqual(options.max_items, 12)
-        self.assertFalse(options.include_standalone)
-        self.assertTrue(options.include_rank_timeline)
 
     def test_build_localization_options_supports_split_new_items_scope(self):
         ctx = AppContext(
@@ -269,8 +260,6 @@ class AppContextTest(unittest.TestCase):
                         "strategy": "ai",
                         "mode": "current",
                         "max_items": 8,
-                        "include_standalone": True,
-                        "include_rank_timeline": False,
                         "language": "Japanese",
                     },
                     "localization": {
@@ -331,6 +320,7 @@ class AppContextTest(unittest.TestCase):
         self.assertEqual(ctx.selection_stage_config["SEMANTIC"]["DIRECT_THRESHOLD"], 0.82)
 
         self.assertEqual(ctx.ai_analysis_config["PROMPT_FILE"], "insight_prompt.txt")
+        self.assertEqual(ctx.ai_analysis_config["MAX_ITEMS"], 8)
         self.assertEqual(ctx.ai_analysis_model_config["MODEL"], "openai/base")
         self.assertEqual(ctx.ai_analysis_model_config["API_KEY"], "insight-key")
         self.assertEqual(ctx.ai_analysis_model_config["TEMPERATURE"], 0.2)

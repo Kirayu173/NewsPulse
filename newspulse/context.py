@@ -140,6 +140,9 @@ class AppContext:
     def ai_analysis_config(self) -> Dict[str, Any]:
         insight = self.insight_stage_config
         operation = self._get_ai_operation_mapping("insight", legacy_key="AI_ANALYSIS")
+        content = self._get_nested_mapping(insight, "CONTENT", "content")
+        item_analysis = self._get_nested_mapping(insight, "ITEM_ANALYSIS", "item_analysis")
+        aggregate = self._get_nested_mapping(insight, "AGGREGATE", "aggregate")
         return {
             "ENABLED": bool(insight.get("ENABLED", False)),
             "STRATEGY": str(insight.get("STRATEGY", "noop") or "noop"),
@@ -149,9 +152,72 @@ class AppContext:
                 or "ai_analysis_prompt.txt"
             ),
             "MODE": str(insight.get("MODE", "follow_report") or "follow_report"),
-            "MAX_NEWS_FOR_ANALYSIS": int(insight.get("MAX_ITEMS", 50) or 50),
-            "INCLUDE_RANK_TIMELINE": bool(insight.get("INCLUDE_RANK_TIMELINE", False)),
-            "INCLUDE_STANDALONE": bool(insight.get("INCLUDE_STANDALONE", False)),
+            "MAX_ITEMS": int(insight.get("MAX_ITEMS", 50) or 50),
+            "TIMEOUT": self._mapping_get(operation, "TIMEOUT", "timeout"),
+            "NUM_RETRIES": self._mapping_get(operation, "NUM_RETRIES", "num_retries"),
+            "EXTRA_PARAMS": self._coerce_mapping(
+                self._mapping_get(operation, "EXTRA_PARAMS", "extra_params", default={}),
+            ),
+            "ITEM_PROMPT_FILE": str(
+                self._mapping_get(
+                    operation,
+                    "ITEM_PROMPT_FILE",
+                    "item_prompt_file",
+                    default="ai_insight_item_prompt.txt",
+                )
+                or "ai_insight_item_prompt.txt"
+            ),
+            "CONTENT": {
+                "CACHE_ENABLED": bool(
+                    self._mapping_get(content, "CACHE_ENABLED", "cache_enabled", default=True)
+                ),
+                "TIMEOUT": int(self._mapping_get(content, "TIMEOUT", "timeout", default=12) or 12),
+                "REDUCED_CHARS": int(
+                    self._mapping_get(content, "REDUCED_CHARS", "reduced_chars", default=1600) or 1600
+                ),
+            },
+            "ITEM_ANALYSIS": {
+                "MIN_EVIDENCE_SENTENCES": int(
+                    self._mapping_get(
+                        item_analysis,
+                        "MIN_EVIDENCE_SENTENCES",
+                        "min_evidence_sentences",
+                        default=3,
+                    )
+                    or 3
+                ),
+                "ITEM_PROMPT_FILE": str(
+                    self._mapping_get(
+                        item_analysis,
+                        "PROMPT_FILE",
+                        "prompt_file",
+                        default=(
+                            self._mapping_get(
+                                operation,
+                                "ITEM_PROMPT_FILE",
+                                "item_prompt_file",
+                                default="ai_insight_item_prompt.txt",
+                            )
+                            or "ai_insight_item_prompt.txt"
+                        ),
+                    )
+                    or "ai_insight_item_prompt.txt"
+                ),
+            },
+            "AGGREGATE": {
+                "PROMPT_FILE": str(
+                    self._mapping_get(
+                        aggregate,
+                        "PROMPT_FILE",
+                        "prompt_file",
+                        default=(
+                            self._mapping_get(operation, "PROMPT_FILE", "prompt_file", default="ai_analysis_prompt.txt")
+                            or "ai_analysis_prompt.txt"
+                        ),
+                    )
+                    or "ai_analysis_prompt.txt"
+                ),
+            },
         }
 
     @property
@@ -296,6 +362,9 @@ class AppContext:
     def insight_stage_config(self) -> Dict[str, Any]:
         workflow_insight = self._get_workflow_stage("INSIGHT", "insight")
         if workflow_insight:
+            workflow_content = self._get_nested_mapping(workflow_insight, "CONTENT", "content")
+            workflow_item_analysis = self._get_nested_mapping(workflow_insight, "ITEM_ANALYSIS", "item_analysis")
+            workflow_aggregate = self._get_nested_mapping(workflow_insight, "AGGREGATE", "aggregate")
             enabled = bool(self._mapping_get(workflow_insight, "ENABLED", "enabled", default=False))
             return {
                 "ENABLED": enabled,
@@ -305,13 +374,47 @@ class AppContext:
                 ),
                 "MODE": str(self._mapping_get(workflow_insight, "MODE", "mode", default="follow_report") or "follow_report"),
                 "MAX_ITEMS": int(self._mapping_get(workflow_insight, "MAX_ITEMS", "max_items", default=50) or 50),
-                "INCLUDE_STANDALONE": bool(
-                    self._mapping_get(workflow_insight, "INCLUDE_STANDALONE", "include_standalone", default=False)
-                ),
-                "INCLUDE_RANK_TIMELINE": bool(
-                    self._mapping_get(workflow_insight, "INCLUDE_RANK_TIMELINE", "include_rank_timeline", default=False)
-                ),
                 "LANGUAGE": str(self._mapping_get(workflow_insight, "LANGUAGE", "language", default="Chinese") or "Chinese"),
+                "CONTENT": {
+                    "CACHE_ENABLED": bool(
+                        self._mapping_get(workflow_content, "CACHE_ENABLED", "cache_enabled", default=True)
+                    ),
+                    "TIMEOUT": int(self._mapping_get(workflow_content, "TIMEOUT", "timeout", default=12) or 12),
+                    "REDUCED_CHARS": int(
+                        self._mapping_get(workflow_content, "REDUCED_CHARS", "reduced_chars", default=1600) or 1600
+                    ),
+                },
+                "ITEM_ANALYSIS": {
+                    "PROMPT_FILE": str(
+                        self._mapping_get(
+                            workflow_item_analysis,
+                            "PROMPT_FILE",
+                            "prompt_file",
+                            default="ai_insight_item_prompt.txt",
+                        )
+                        or "ai_insight_item_prompt.txt"
+                    ),
+                    "MIN_EVIDENCE_SENTENCES": int(
+                        self._mapping_get(
+                            workflow_item_analysis,
+                            "MIN_EVIDENCE_SENTENCES",
+                            "min_evidence_sentences",
+                            default=3,
+                        )
+                        or 3
+                    ),
+                },
+                "AGGREGATE": {
+                    "PROMPT_FILE": str(
+                        self._mapping_get(
+                            workflow_aggregate,
+                            "PROMPT_FILE",
+                            "prompt_file",
+                            default="ai_analysis_prompt.txt",
+                        )
+                        or "ai_analysis_prompt.txt"
+                    ),
+                },
             }
 
         analysis_config = self.config.get("AI_ANALYSIS", {})
@@ -320,10 +423,11 @@ class AppContext:
             "ENABLED": enabled,
             "STRATEGY": str(analysis_config.get("STRATEGY", "ai" if enabled else "noop") or ("ai" if enabled else "noop")),
             "MODE": str(analysis_config.get("MODE", "follow_report") or "follow_report"),
-            "MAX_ITEMS": int(analysis_config.get("MAX_NEWS_FOR_ANALYSIS", 50) or 50),
-            "INCLUDE_STANDALONE": bool(analysis_config.get("INCLUDE_STANDALONE", False)),
-            "INCLUDE_RANK_TIMELINE": bool(analysis_config.get("INCLUDE_RANK_TIMELINE", False)),
+            "MAX_ITEMS": int(analysis_config.get("MAX_ITEMS", 50) or 50),
             "LANGUAGE": str(analysis_config.get("LANGUAGE", "Chinese") or "Chinese"),
+            "CONTENT": self._coerce_mapping(analysis_config.get("CONTENT", {})),
+            "ITEM_ANALYSIS": self._coerce_mapping(analysis_config.get("ITEM_ANALYSIS", {})),
+            "AGGREGATE": self._coerce_mapping(analysis_config.get("AGGREGATE", {})),
         }
 
     @property
@@ -613,6 +717,8 @@ class AppContext:
             ai_runtime_config=self.ai_analysis_model_config,
             ai_analysis_config=self.ai_analysis_config,
             config_root=str(self.config_root),
+            storage_manager=self.get_storage_manager(),
+            proxy_url=self.config.get("DEFAULT_PROXY") if self.config.get("USE_PROXY") else None,
         )
 
     def create_report_assembler(self) -> HotlistReportAssembler:
@@ -679,18 +785,17 @@ class AppContext:
         enabled = bool(analysis_config.get("ENABLED", False))
         configured_strategy = str(analysis_config.get("STRATEGY", "ai" if enabled else "noop") or ("ai" if enabled else "noop")).strip()
         requested_mode = str(analysis_config.get("MODE", "follow_report") or "follow_report").strip()
-        effective_mode = requested_mode if requested_mode in {"daily", "current", "incremental"} else report_mode
+        effective_mode = report_mode
 
         return InsightOptions(
             enabled=enabled,
             strategy=configured_strategy or ("ai" if enabled else "noop"),
             mode=effective_mode,
             max_items=int(analysis_config.get("MAX_ITEMS", 50) or 50),
-            include_standalone=bool(analysis_config.get("INCLUDE_STANDALONE", False)),
-            include_rank_timeline=bool(analysis_config.get("INCLUDE_RANK_TIMELINE", False)),
             metadata={
                 "requested_mode": requested_mode,
                 "report_mode": report_mode,
+                "mode_resolved_by_context": requested_mode != report_mode,
             },
         )
 
@@ -830,7 +935,7 @@ class AppContext:
                     )
 
         selection_mode = options.mode
-        if snapshot is None or selection is None or selection_mode != report_mode:
+        if snapshot is None or selection is None:
             snapshot, selection = self.run_selection_stage(
                 mode=selection_mode,
                 strategy=self.filter_method if strategy is None else strategy,

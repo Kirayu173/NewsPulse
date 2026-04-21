@@ -86,8 +86,6 @@ class LiveAIInsightStrategyTest(unittest.TestCase):
                 strategy="ai",
                 mode="current",
                 max_items=2,
-                include_standalone=True,
-                include_rank_timeline=True,
             ),
         )
 

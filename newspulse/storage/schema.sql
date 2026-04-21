@@ -81,6 +81,31 @@ CREATE TABLE IF NOT EXISTS period_executions (
     UNIQUE(execution_date, period_key, action)
 );
 
+CREATE TABLE IF NOT EXISTS article_contents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    normalized_url TEXT NOT NULL UNIQUE,
+    source_type TEXT DEFAULT '',
+    source_id TEXT DEFAULT '',
+    source_name TEXT DEFAULT '',
+    source_kind TEXT DEFAULT '',
+    original_url TEXT DEFAULT '',
+    final_url TEXT DEFAULT '',
+    title TEXT DEFAULT '',
+    excerpt TEXT DEFAULT '',
+    content_text TEXT DEFAULT '',
+    content_markdown TEXT DEFAULT '',
+    content_hash TEXT DEFAULT '',
+    published_at TEXT DEFAULT '',
+    author TEXT DEFAULT '',
+    extractor_name TEXT DEFAULT '',
+    fetch_status TEXT DEFAULT '',
+    error_type TEXT DEFAULT '',
+    error_message TEXT DEFAULT '',
+    trace_json TEXT DEFAULT '{}',
+    fetched_at TEXT DEFAULT '',
+    updated_at TEXT DEFAULT ''
+);
+
 CREATE INDEX IF NOT EXISTS idx_news_platform ON news_items(platform_id);
 CREATE INDEX IF NOT EXISTS idx_news_crawl_time ON news_items(last_crawl_time);
 CREATE INDEX IF NOT EXISTS idx_news_title ON news_items(title);
@@ -91,3 +116,5 @@ CREATE INDEX IF NOT EXISTS idx_crawl_failures_record ON crawl_source_failures(cr
 CREATE INDEX IF NOT EXISTS idx_rank_history_news ON rank_history(news_item_id);
 CREATE INDEX IF NOT EXISTS idx_period_exec_lookup
     ON period_executions(execution_date, period_key, action);
+CREATE INDEX IF NOT EXISTS idx_article_content_source
+    ON article_contents(source_id, source_kind);

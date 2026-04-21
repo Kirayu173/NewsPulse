@@ -68,6 +68,84 @@ class NewsItem:
 
 
 @dataclass
+class ArticleContentRecord:
+    """Persisted article or equivalent content used by the insight stage."""
+
+    normalized_url: str
+    source_type: str = ""
+    source_id: str = ""
+    source_name: str = ""
+    source_kind: str = ""
+    original_url: str = ""
+    final_url: str = ""
+    title: str = ""
+    excerpt: str = ""
+    content_text: str = ""
+    content_markdown: str = ""
+    content_hash: str = ""
+    published_at: str = ""
+    author: str = ""
+    extractor_name: str = ""
+    fetch_status: str = ""
+    error_type: str = ""
+    error_message: str = ""
+    trace: Dict[str, Any] = field(default_factory=dict)
+    fetched_at: str = ""
+    updated_at: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "normalized_url": self.normalized_url,
+            "source_type": self.source_type,
+            "source_id": self.source_id,
+            "source_name": self.source_name,
+            "source_kind": self.source_kind,
+            "original_url": self.original_url,
+            "final_url": self.final_url,
+            "title": self.title,
+            "excerpt": self.excerpt,
+            "content_text": self.content_text,
+            "content_markdown": self.content_markdown,
+            "content_hash": self.content_hash,
+            "published_at": self.published_at,
+            "author": self.author,
+            "extractor_name": self.extractor_name,
+            "fetch_status": self.fetch_status,
+            "error_type": self.error_type,
+            "error_message": self.error_message,
+            "trace": dict(self.trace),
+            "fetched_at": self.fetched_at,
+            "updated_at": self.updated_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ArticleContentRecord":
+        return cls(
+            normalized_url=data.get("normalized_url", ""),
+            source_type=data.get("source_type", ""),
+            source_id=data.get("source_id", ""),
+            source_name=data.get("source_name", ""),
+            source_kind=data.get("source_kind", ""),
+            original_url=data.get("original_url", ""),
+            final_url=data.get("final_url", ""),
+            title=data.get("title", ""),
+            excerpt=data.get("excerpt", ""),
+            content_text=data.get("content_text", ""),
+            content_markdown=data.get("content_markdown", ""),
+            content_hash=data.get("content_hash", ""),
+            published_at=data.get("published_at", ""),
+            author=data.get("author", ""),
+            extractor_name=data.get("extractor_name", ""),
+            fetch_status=data.get("fetch_status", ""),
+            error_type=data.get("error_type", ""),
+            error_message=data.get("error_message", ""),
+            trace=dict(data.get("trace", {}) or {}),
+            fetched_at=data.get("fetched_at", ""),
+            updated_at=data.get("updated_at", ""),
+        )
+
+
+@dataclass
 class SourceFailureRecord:
     """Structured source failure persisted and restored by stage 2."""
 
@@ -370,6 +448,12 @@ class StorageBackend(ABC):
     @abstractmethod
     def cleanup_old_data(self, retention_days: int) -> int:
         pass
+
+    def get_article_content(self, normalized_url: str, date: Optional[str] = None) -> Optional[ArticleContentRecord]:
+        return None
+
+    def save_article_content(self, record: ArticleContentRecord, date: Optional[str] = None) -> bool:
+        return False
 
     @property
     @abstractmethod

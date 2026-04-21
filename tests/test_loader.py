@@ -194,8 +194,6 @@ class LoaderConfigRootTest(unittest.TestCase):
                     strategy: ai
                     mode: daily
                     max_items: 9
-                    include_standalone: true
-                    include_rank_timeline: true
                     language: Japanese
                   localization:
                     enabled: true
@@ -256,8 +254,6 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["WORKFLOW"]["INSIGHT"]["STRATEGY"], "ai")
             self.assertEqual(config["WORKFLOW"]["INSIGHT"]["MODE"], "daily")
             self.assertEqual(config["WORKFLOW"]["INSIGHT"]["MAX_ITEMS"], 9)
-            self.assertTrue(config["WORKFLOW"]["INSIGHT"]["INCLUDE_STANDALONE"])
-            self.assertTrue(config["WORKFLOW"]["INSIGHT"]["INCLUDE_RANK_TIMELINE"])
             self.assertEqual(config["WORKFLOW"]["INSIGHT"]["LANGUAGE"], "Japanese")
 
             self.assertTrue(config["WORKFLOW"]["LOCALIZATION"]["ENABLED"])
@@ -271,6 +267,7 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["FILTER"]["METHOD"], "ai")
             self.assertEqual(config["FILTER"]["FREQUENCY_FILE"], "topics.txt")
             self.assertEqual(config["AI_ANALYSIS"]["STRATEGY"], "ai")
+            self.assertEqual(config["AI_ANALYSIS"]["MAX_ITEMS"], 9)
             self.assertEqual(config["AI_ANALYSIS"]["PROMPT_FILE"], str(config_dir / "ai_analysis_prompt.txt"))
             self.assertEqual(config["AI_TRANSLATION"]["STRATEGY"], "ai")
             self.assertEqual(config["AI_TRANSLATION"]["PROMPT_FILE"], str(config_dir / "ai_translation_prompt.txt"))
@@ -321,8 +318,6 @@ class LoaderConfigRootTest(unittest.TestCase):
                     strategy: noop
                     mode: daily
                     max_items: 3
-                    include_standalone: false
-                    include_rank_timeline: false
                     language: Japanese
                   localization:
                     enabled: false
@@ -356,9 +351,7 @@ class LoaderConfigRootTest(unittest.TestCase):
                 ai_analysis:
                   enabled: true
                   mode: current
-                  max_news_for_analysis: 4
-                  include_standalone: true
-                  include_rank_timeline: false
+                  max_items: 4
                   language: Chinese
                   prompt_file: ai_analysis_prompt.txt
                 ai_translation:
@@ -395,6 +388,7 @@ class LoaderConfigRootTest(unittest.TestCase):
 
             self.assertEqual(config["FILTER"]["METHOD"], "keyword")
             self.assertEqual(config["AI_ANALYSIS"]["STRATEGY"], "noop")
+            self.assertEqual(config["AI_ANALYSIS"]["MAX_ITEMS"], 3)
             self.assertEqual(config["AI_TRANSLATION"]["STRATEGY"], "noop")
 
 

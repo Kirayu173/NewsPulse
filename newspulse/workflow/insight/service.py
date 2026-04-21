@@ -21,6 +21,8 @@ class InsightService:
         ai_runtime_config: dict[str, Any] | None = None,
         ai_analysis_config: dict[str, Any] | None = None,
         config_root: str | None = None,
+        storage_manager: Any | None = None,
+        proxy_url: str | None = None,
     ):
         self.noop_strategy = noop_strategy or NoopInsightStrategy()
         self.ai_strategy = ai_strategy
@@ -29,6 +31,8 @@ class InsightService:
                 ai_runtime_config=ai_runtime_config,
                 analysis_config=ai_analysis_config,
                 config_root=config_root,
+                storage_manager=storage_manager,
+                proxy_url=proxy_url,
             )
 
     def run(self, snapshot: Any, selection: Any, options: InsightOptions):

@@ -1,4 +1,5 @@
-.env
+﻿.env
+
 # Python caches
 __pycache__/
 .pytest_cache/
@@ -18,6 +19,10 @@ outbox/
 tmp_test_work/
 .trash-temp/
 
-5-数据流主链路精细化重构备忘.md
-4-整架构清理实施任务表.md
-3-原生AI工作流重构设计.md
+# Local research and planning artifacts
+.kiro/
+sources/
+/PROJECT_MODULE_MAP.md
+/module-*.md
+/REFACTOR_BACKLOG.md
+/[0-9]-*.md

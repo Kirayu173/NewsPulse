@@ -108,11 +108,17 @@ workflow:
     language: Chinese
     # `follow_report` / `daily` / `current` / `incremental`
     mode: follow_report
-    # 参与 AI 分析的最大热榜标题数。
+    # 参与 Insight 的最大入选新闻数。
     max_items: 150
-    # 是否把独立展示区和排名时间线一起交给 AI。
-    include_standalone: true
-    include_rank_timeline: true
+    content:
+      cache_enabled: true
+      timeout: 12
+      reduced_chars: 1800
+    item_analysis:
+      prompt_file: ai_insight_item_prompt.txt
+      min_evidence_sentences: 3
+    aggregate:
+      prompt_file: ai_analysis_prompt.txt
 
   localization:
     enabled: true
@@ -145,6 +151,7 @@ ai:
       update_tags_prompt_file: update_tags_prompt.txt
     insight:
       prompt_file: ai_analysis_prompt.txt
+      item_prompt_file: ai_insight_item_prompt.txt
     localization:
       prompt_file: ai_translation_prompt.txt
 

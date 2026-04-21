@@ -1,443 +1,153 @@
-import json
-import textwrap
 import unittest
-from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 from newspulse.context import AppContext
 from newspulse.storage import get_storage_manager
-from newspulse.storage.base import NewsData, NewsItem
-from newspulse.workflow.insight.ai import AIInsightStrategy
-from newspulse.workflow.insight.service import InsightService
-from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate
+from newspulse.workflow.shared.contracts import HotlistItem, HotlistSnapshot, InsightResult, InsightSection, SelectionResult
 
 
-def _write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(textwrap.dedent(content).strip(), encoding="utf-8")
-
-
-def _write_insight_configs(config_root: Path) -> None:
-    _write_text(
-        config_root / "custom" / "keyword" / "topics.txt",
-        """
-        [WORD_GROUPS]
-        [AI]
-        AI
-        OpenAI
-        agent
-
-        [Startups]
-        startup
-        launch
-        """,
-    )
-    _write_text(
-        config_root / "ai_analysis_prompt.txt",
-        """
-        [user]
-        MODE={report_mode}
-        TYPE={report_type}
-        COUNT={news_count}
-        PLATFORMS={platforms}
-        KEYWORDS={keywords}
-        NEWS:
-        {news_content}
-        STANDALONE:
-        {standalone_content}
-        LANG={language}
-        """,
-    )
-    _write_text(
-        config_root / "ai_filter" / "prompt.txt",
-        """
-        [user]
-        TAGS:
-        {tags_list}
-        NEWS:
-        {news_list}
-        """,
-    )
-    _write_text(
-        config_root / "ai_filter" / "extract_prompt.txt",
-        """
-        [user]
-        INTERESTS:
-        {interests_content}
-        """,
-    )
-    _write_text(
-        config_root / "ai_filter" / "update_tags_prompt.txt",
-        """
-        [user]
-        OLD:
-        {old_tags_json}
-        NEW:
-        {interests_content}
-        """,
-    )
-
-
-def _build_config(
-    config_root: Path,
-    output_dir: Path,
-    *,
-    ai_mode: str = "follow_report",
-    max_news: int = 50,
-) -> dict:
-    return {
-        "TIMEZONE": "Asia/Shanghai",
-        "RANK_THRESHOLD": 10,
-        "WEIGHT_CONFIG": {
-            "RANK_WEIGHT": 0.6,
-            "FREQUENCY_WEIGHT": 0.3,
-            "HOTNESS_WEIGHT": 0.1,
-        },
-        "PLATFORMS": [
-            {"id": "hackernews", "name": "Hacker News"},
-            {"id": "producthunt", "name": "Product Hunt"},
-        ],
-        "DISPLAY_MODE": "keyword",
-        "DISPLAY": {
-            "REGION_ORDER": ["hotlist", "new_items", "standalone", "insight"],
-            "REGIONS": {"NEW_ITEMS": True},
-            "STANDALONE": {"PLATFORMS": ["producthunt"], "MAX_ITEMS": 10},
-        },
-        "FILTER": {"METHOD": "keyword", "PRIORITY_SORT_ENABLED": True},
-        "AI": {"MODEL": "openai/base", "API_KEY": "test-key", "TIMEOUT": 30},
-        "AI_ANALYSIS_MODEL": {"MODEL": "openai/analysis", "API_KEY": "test-key", "TIMEOUT": 30},
-        "AI_TRANSLATION_MODEL": {"MODEL": "openai/translation", "API_KEY": "test-key", "TIMEOUT": 30},
-        "AI_FILTER_MODEL": {"MODEL": "openai/filter", "API_KEY": "test-key", "TIMEOUT": 30},
-        "AI_FILTER": {
-            "BATCH_SIZE": 2,
-            "BATCH_INTERVAL": 0,
-            "MIN_SCORE": 0.8,
-            "PROMPT_FILE": "prompt.txt",
-            "EXTRACT_PROMPT_FILE": "extract_prompt.txt",
-            "UPDATE_TAGS_PROMPT_FILE": "update_tags_prompt.txt",
-        },
-        "AI_ANALYSIS": {
-            "ENABLED": True,
-            "MODE": ai_mode,
-            "MAX_NEWS_FOR_ANALYSIS": max_news,
-            "INCLUDE_RANK_TIMELINE": True,
-            "INCLUDE_STANDALONE": True,
-            "LANGUAGE": "Chinese",
-            "PROMPT_FILE": "ai_analysis_prompt.txt",
-        },
-        "STORAGE": {
-            "BACKEND": "local",
-            "FORMATS": {"TXT": False, "HTML": False},
-            "LOCAL": {"DATA_DIR": str(output_dir), "RETENTION_DAYS": 0},
-        },
-        "MAX_NEWS_PER_KEYWORD": 0,
-        "SORT_BY_POSITION_FIRST": False,
-        "DEBUG": False,
-        "_PATHS": {"CONFIG_ROOT": str(config_root)},
-    }
-
-
-def _build_context(tmp: str, *, ai_mode: str = "follow_report", max_news: int = 50) -> AppContext:
-    root = Path(tmp)
-    config_root = root / "config"
-    output_dir = root / "output"
-    _write_insight_configs(config_root)
-    ctx = AppContext(_build_config(config_root, output_dir, ai_mode=ai_mode, max_news=max_news))
-    ctx._storage_manager = get_storage_manager(
-        backend_type="local",
-        data_dir=str(output_dir),
-        enable_txt=False,
-        enable_html=False,
-        timezone=ctx.timezone,
-        force_new=True,
-    )
-    return ctx
-
-
-def _today_at(ctx: AppContext, time_text: str) -> str:
-    return f"{ctx.format_date()} {time_text}"
-
-
-def _save_crawl(ctx: AppContext, crawl_time: str, items: dict[str, list[NewsItem]]) -> None:
-    ctx.get_storage_manager().save_news_data(
-        NewsData(
-            date=ctx.format_date(),
-            crawl_time=crawl_time,
-            items=items,
-            id_to_name={"hackernews": "Hacker News", "producthunt": "Product Hunt"},
-            failed_ids=[],
-        )
-    )
-
-
-def _seed_single_crawl(ctx: AppContext) -> None:
-    _save_crawl(
-        ctx,
-        _today_at(ctx, "10:00:00"),
-        {
-            "hackernews": [
-                NewsItem(
-                    title="OpenAI launches a new coding agent",
-                    source_id="hackernews",
-                    source_name="Hacker News",
-                    rank=1,
-                    url="https://example.com/openai",
-                    mobile_url="https://m.example.com/openai",
-                    crawl_time=_today_at(ctx, "10:00:00"),
-                    ranks=[1],
-                    first_time=_today_at(ctx, "10:00:00"),
-                    last_time=_today_at(ctx, "10:00:00"),
-                    count=1,
-                    rank_timeline=[{"time": "10:00", "rank": 1}],
-                ),
-            ],
-            "producthunt": [
-                NewsItem(
-                    title="Startup launches a new AI productivity app",
-                    source_id="producthunt",
-                    source_name="Product Hunt",
-                    rank=2,
-                    url="https://example.com/startup",
-                    mobile_url="https://m.example.com/startup",
-                    crawl_time=_today_at(ctx, "10:00:00"),
-                    ranks=[2],
-                    first_time=_today_at(ctx, "10:00:00"),
-                    last_time=_today_at(ctx, "10:00:00"),
-                    count=1,
-                    rank_timeline=[{"time": "10:00", "rank": 2}],
-                ),
-            ],
-        },
-    )
-
-
-def _seed_two_crawls(ctx: AppContext) -> None:
-    _save_crawl(
-        ctx,
-        _today_at(ctx, "09:00:00"),
-        {
-            "hackernews": [
-                NewsItem(
-                    title="Morning AI launch roundup",
-                    source_id="hackernews",
-                    source_name="Hacker News",
-                    rank=1,
-                    url="https://example.com/morning",
-                    mobile_url="https://m.example.com/morning",
-                    crawl_time=_today_at(ctx, "09:00:00"),
-                    ranks=[1],
-                    first_time=_today_at(ctx, "09:00:00"),
-                    last_time=_today_at(ctx, "09:00:00"),
-                    count=1,
-                    rank_timeline=[{"time": "09:00", "rank": 1}],
-                ),
-            ],
-        },
-    )
-    _save_crawl(
-        ctx,
-        _today_at(ctx, "10:00:00"),
-        {
-            "hackernews": [
-                NewsItem(
-                    title="Later AI agent release",
-                    source_id="hackernews",
-                    source_name="Hacker News",
-                    rank=1,
-                    url="https://example.com/later",
-                    mobile_url="https://m.example.com/later",
-                    crawl_time=_today_at(ctx, "10:00:00"),
-                    ranks=[1],
-                    first_time=_today_at(ctx, "10:00:00"),
-                    last_time=_today_at(ctx, "10:00:00"),
-                    count=1,
-                    rank_timeline=[{"time": "10:00", "rank": 1}],
-                ),
-            ],
-            "producthunt": [
-                NewsItem(
-                    title="Startup launch roundup",
-                    source_id="producthunt",
-                    source_name="Product Hunt",
-                    rank=2,
-                    url="https://example.com/roundup",
-                    mobile_url="https://m.example.com/roundup",
-                    crawl_time=_today_at(ctx, "10:00:00"),
-                    ranks=[2],
-                    first_time=_today_at(ctx, "10:00:00"),
-                    last_time=_today_at(ctx, "10:00:00"),
-                    count=1,
-                    rank_timeline=[{"time": "10:00", "rank": 2}],
-                ),
-            ],
-        },
-    )
-
-
-class CaptureInsightClient:
+class RecordingInsightService:
     def __init__(self):
         self.calls = []
 
-    def chat(self, messages, **kwargs):
-        self.calls.append(messages[-1]["content"])
-        return json.dumps(
-            {
-                "core_trends": "AI tools continue to dominate the hotlist.",
-                "sentiment_controversy": "Developers are excited but still cautious.",
-                "signals": "OpenAI and startup launches often appear together.",
-                "outlook_strategy": "Keep tracking release cadence and user adoption.",
-                "standalone_summaries": {
-                    "Product Hunt": "Startup launches remain a strong secondary signal."
-                },
-            }
+    def run(self, snapshot, selection, options):
+        self.calls.append((snapshot, selection, options))
+        return InsightResult(
+            enabled=True,
+            strategy='ai',
+            sections=[InsightSection(key='core_trends', title='Core Trends', content='ok')],
+            diagnostics={'report_mode': options.mode, 'analyzed_items': len(selection.selected_items)},
         )
-
-
-def _build_insight_service(ctx: AppContext, client: CaptureInsightClient) -> InsightService:
-    prompt_template = PromptTemplate(
-        path=Path("test-ai-analysis-prompt.txt"),
-        user_prompt=(
-            "MODE={report_mode}\n"
-            "TYPE={report_type}\n"
-            "COUNT={news_count}\n"
-            "PLATFORMS={platforms}\n"
-            "KEYWORDS={keywords}\n"
-            "NEWS:\n{news_content}\n"
-            "STANDALONE:\n{standalone_content}\n"
-            "LANG={language}"
-        ),
-    )
-    return InsightService(
-        ai_strategy=AIInsightStrategy(
-            client=client,
-            analysis_config=ctx.config["AI_ANALYSIS"],
-            prompt_template=prompt_template,
-        )
-    )
 
 
 class AppContextInsightStageTest(unittest.TestCase):
-    def test_build_insight_options_uses_native_insight_config(self):
+    def _build_context(self, tmp: str, *, ai_mode: str = 'follow_report') -> AppContext:
+        root = str(tmp)
+        config = {
+            'TIMEZONE': 'Asia/Shanghai',
+            'RANK_THRESHOLD': 10,
+            'WEIGHT_CONFIG': {},
+            'PLATFORMS': [{'id': 'hackernews', 'name': 'Hacker News'}],
+            'DISPLAY_MODE': 'keyword',
+            'DISPLAY': {
+                'REGION_ORDER': ['hotlist', 'new_items', 'standalone', 'insight'],
+                'REGIONS': {'NEW_ITEMS': True},
+                'STANDALONE': {'PLATFORMS': [], 'MAX_ITEMS': 10},
+            },
+            'FILTER': {'METHOD': 'keyword', 'PRIORITY_SORT_ENABLED': False},
+            'AI': {'MODEL': 'openai/base', 'API_KEY': 'test-key', 'TIMEOUT': 30},
+            'AI_ANALYSIS_MODEL': {'MODEL': 'openai/analysis', 'API_KEY': 'test-key', 'TIMEOUT': 30},
+            'AI_ANALYSIS': {
+                'ENABLED': True,
+                'STRATEGY': 'ai',
+                'MODE': ai_mode,
+                'MAX_ITEMS': 7,
+                'LANGUAGE': 'Chinese',
+                'PROMPT_FILE': 'ai_analysis_prompt.txt',
+                'ITEM_PROMPT_FILE': 'ai_insight_item_prompt.txt',
+                'CONTENT': {'CACHE_ENABLED': True, 'TIMEOUT': 12, 'REDUCED_CHARS': 1500},
+                'ITEM_ANALYSIS': {'PROMPT_FILE': 'ai_insight_item_prompt.txt', 'MIN_EVIDENCE_SENTENCES': 2},
+                'AGGREGATE': {'PROMPT_FILE': 'ai_analysis_prompt.txt'},
+            },
+            'STORAGE': {
+                'BACKEND': 'local',
+                'FORMATS': {'TXT': False, 'HTML': False},
+                'LOCAL': {'DATA_DIR': root, 'RETENTION_DAYS': 0},
+            },
+            'MAX_NEWS_PER_KEYWORD': 0,
+            'SORT_BY_POSITION_FIRST': False,
+            'DEBUG': False,
+            '_PATHS': {'CONFIG_ROOT': 'config'},
+        }
+        ctx = AppContext(config)
+        ctx._storage_manager = get_storage_manager(
+            backend_type='local',
+            data_dir=root,
+            enable_txt=False,
+            enable_html=False,
+            timezone=ctx.timezone,
+            force_new=True,
+        )
+        return ctx
+
+    def _snapshot_and_selection(self):
+        item = HotlistItem(
+            news_item_id='1',
+            source_id='hackernews',
+            source_name='Hacker News',
+            title='OpenAI launches a new coding agent',
+            current_rank=1,
+        )
+        snapshot = HotlistSnapshot(mode='current', generated_at='2026-04-20 10:00:00', items=[item])
+        selection = SelectionResult(strategy='keyword', selected_items=[item], total_candidates=1, total_selected=1)
+        return snapshot, selection
+
+    def test_build_insight_options_resolves_mode_in_context_layer(self):
         with TemporaryDirectory() as tmp:
-            ctx = _build_context(tmp, ai_mode="follow_report", max_news=7)
+            ctx = self._build_context(tmp, ai_mode='daily')
             try:
-                options = ctx.build_insight_options(report_mode="current")
+                options = ctx.build_insight_options(report_mode='current')
 
                 self.assertTrue(options.enabled)
-                self.assertEqual(options.strategy, "ai")
-                self.assertEqual(options.mode, "current")
+                self.assertEqual(options.strategy, 'ai')
+                self.assertEqual(options.mode, 'current')
                 self.assertEqual(options.max_items, 7)
-                self.assertTrue(options.include_standalone)
-                self.assertTrue(options.include_rank_timeline)
-                self.assertEqual(options.metadata["requested_mode"], "follow_report")
+                self.assertTrue(options.metadata['mode_resolved_by_context'])
             finally:
                 ctx.cleanup()
 
-    def test_run_insight_stage_returns_only_native_result(self):
+    def test_run_insight_stage_uses_provided_snapshot_and_selection_without_hidden_reselection(self):
         with TemporaryDirectory() as tmp:
-            ctx = _build_context(tmp)
+            ctx = self._build_context(tmp, ai_mode='daily')
+            snapshot, selection = self._snapshot_and_selection()
+            recorder = RecordingInsightService()
+            ctx.run_selection_stage = lambda **kwargs: (_ for _ in ()).throw(AssertionError('run_selection_stage should not be called'))
             try:
-                _seed_single_crawl(ctx)
-                snapshot, selection = ctx.run_selection_stage(
-                    mode="current",
-                    strategy="keyword",
-                    frequency_file="topics.txt",
-                )
-                client = CaptureInsightClient()
                 insight = ctx.run_insight_stage(
-                    report_mode="current",
+                    report_mode='current',
                     snapshot=snapshot,
                     selection=selection,
-                    strategy="keyword",
-                    frequency_file="topics.txt",
-                    insight_service=_build_insight_service(ctx, client),
+                    insight_service=recorder,
                 )
 
                 self.assertTrue(insight.enabled)
-                self.assertEqual(insight.strategy, "ai")
-                self.assertEqual(insight.diagnostics["report_mode"], "current")
-                self.assertEqual(insight.diagnostics["analyzed_items"], 2)
-                self.assertIn("standalone:Product Hunt", [section.key for section in insight.sections])
-                self.assertIn("OpenAI launches a new coding agent", client.calls[0])
-                self.assertIn("Startup launches a new AI productivity app", client.calls[0])
-            finally:
-                ctx.cleanup()
-
-    def test_run_insight_stage_rebuilds_selection_when_analysis_mode_differs(self):
-        with TemporaryDirectory() as tmp:
-            ctx = _build_context(tmp, ai_mode="daily")
-            try:
-                _seed_two_crawls(ctx)
-                snapshot, selection = ctx.run_selection_stage(
-                    mode="current",
-                    strategy="keyword",
-                    frequency_file="topics.txt",
-                )
-                self.assertEqual(selection.total_selected, 2)
-
-                client = CaptureInsightClient()
-                insight = ctx.run_insight_stage(
-                    report_mode="current",
-                    snapshot=snapshot,
-                    selection=selection,
-                    strategy="keyword",
-                    frequency_file="topics.txt",
-                    insight_service=_build_insight_service(ctx, client),
-                )
-
-                self.assertTrue(insight.enabled)
-                self.assertEqual(insight.diagnostics["report_mode"], "daily")
-                self.assertEqual(insight.diagnostics["analyzed_items"], 3)
-                self.assertIn("Morning AI launch roundup", client.calls[0])
-                self.assertIn("Later AI agent release", client.calls[0])
+                self.assertEqual(insight.diagnostics['report_mode'], 'current')
+                self.assertEqual(len(recorder.calls), 1)
+                self.assertIs(recorder.calls[0][0], snapshot)
+                self.assertIs(recorder.calls[0][1], selection)
             finally:
                 ctx.cleanup()
 
     def test_run_insight_stage_respects_schedule_switches_and_once_recording(self):
         with TemporaryDirectory() as tmp:
-            ctx = _build_context(tmp)
+            ctx = self._build_context(tmp)
+            snapshot, selection = self._snapshot_and_selection()
+            recorder = RecordingInsightService()
             try:
-                _seed_single_crawl(ctx)
-                snapshot, selection = ctx.run_selection_stage(
-                    mode="current",
-                    strategy="keyword",
-                    frequency_file="topics.txt",
-                )
-
-                disabled_insight = ctx.run_insight_stage(
-                    report_mode="current",
+                disabled = ctx.run_insight_stage(
+                    report_mode='current',
                     snapshot=snapshot,
                     selection=selection,
-                    strategy="keyword",
-                    frequency_file="topics.txt",
                     schedule=SimpleNamespace(analyze=False, once_analyze=False, period_key=None, period_name=None),
                 )
-                self.assertFalse(disabled_insight.enabled)
-                self.assertTrue(disabled_insight.diagnostics["skipped"])
+                self.assertFalse(disabled.enabled)
+                self.assertTrue(disabled.diagnostics['skipped'])
 
-                client = CaptureInsightClient()
-                schedule = SimpleNamespace(
-                    analyze=True,
-                    once_analyze=True,
-                    period_key="morning",
-                    period_name="Morning",
-                )
-                insight = ctx.run_insight_stage(
-                    report_mode="current",
+                schedule = SimpleNamespace(analyze=True, once_analyze=True, period_key='morning', period_name='Morning')
+                result = ctx.run_insight_stage(
+                    report_mode='current',
                     snapshot=snapshot,
                     selection=selection,
-                    strategy="keyword",
-                    frequency_file="topics.txt",
                     schedule=schedule,
-                    insight_service=_build_insight_service(ctx, client),
+                    insight_service=recorder,
                 )
 
-                self.assertTrue(insight.enabled)
-                self.assertTrue(ctx.get_storage_manager().has_period_executed(ctx.format_date(), "morning", "analyze"))
+                self.assertTrue(result.enabled)
+                self.assertTrue(ctx.get_storage_manager().has_period_executed(ctx.format_date(), 'morning', 'analyze'))
             finally:
                 ctx.cleanup()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()
