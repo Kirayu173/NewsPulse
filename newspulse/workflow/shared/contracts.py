@@ -146,7 +146,7 @@ class SelectionResult:
 
 @dataclass
 class InsightResult:
-    """Insight stage output shared with report assembly and localization."""
+    """Insight stage output shared with report assembly."""
 
     enabled: bool = False
     strategy: str = "noop"
@@ -157,26 +157,48 @@ class InsightResult:
 
 
 @dataclass
-class RenderableReport:
-    """Unified report object assembled before localization and rendering."""
+class ReportPackageMeta:
+    """Metadata describing the assembled report package."""
 
-    meta: Dict[str, Any] = field(default_factory=dict)
-    selection: SelectionResult = field(default_factory=lambda: SelectionResult(strategy="keyword"))
-    insight: InsightResult = field(default_factory=InsightResult)
-    new_items: List[HotlistItem] = field(default_factory=list)
-    standalone_sections: List[StandaloneSection] = field(default_factory=list)
-    display_regions: List[str] = field(default_factory=list)
+    mode: str = ""
+    report_type: str = ""
+    generated_at: str = ""
+    timezone: str = ""
+    display_mode: str = "keyword"
+    selection_strategy: str = ""
+    insight_strategy: str = ""
 
 
 @dataclass
-class LocalizedReport:
-    """Localized representation of a renderable report."""
+class ReportContent:
+    """Normalized report content that downstream presentation can consume directly."""
 
-    base_report: RenderableReport = field(default_factory=RenderableReport)
-    localized_titles: Dict[str, str] = field(default_factory=dict)
-    localized_sections: Dict[str, str] = field(default_factory=dict)
-    language: str = ""
-    translation_meta: Dict[str, Any] = field(default_factory=dict)
+    hotlist_groups: List[SelectionGroup] = field(default_factory=list)
+    selected_items: List[HotlistItem] = field(default_factory=list)
+    new_items: List[HotlistItem] = field(default_factory=list)
+    standalone_sections: List[StandaloneSection] = field(default_factory=list)
+    insight_sections: List[InsightSection] = field(default_factory=list)
+
+
+@dataclass
+class ReportIntegrity:
+    """Integrity and validation details for the assembled report package."""
+
+    valid: bool = True
+    warnings: List[str] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)
+    skipped_regions: List[str] = field(default_factory=list)
+    counters: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ReportPackage:
+    """Unified Stage 6 output assembled from snapshot, selection and insight."""
+
+    meta: ReportPackageMeta = field(default_factory=ReportPackageMeta)
+    content: ReportContent = field(default_factory=ReportContent)
+    integrity: ReportIntegrity = field(default_factory=ReportIntegrity)
+    diagnostics: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

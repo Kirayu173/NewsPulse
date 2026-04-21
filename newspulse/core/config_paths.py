@@ -12,7 +12,6 @@ DEFAULT_TIMELINE_FILE = "timeline.yaml"
 DEFAULT_FREQUENCY_WORDS_FILE = "frequency_words.txt"
 DEFAULT_AI_INTERESTS_FILE = "ai_interests.txt"
 DEFAULT_AI_ANALYSIS_PROMPT_FILE = "ai_analysis_prompt.txt"
-DEFAULT_AI_TRANSLATION_PROMPT_FILE = "ai_translation_prompt.txt"
 
 
 @dataclass(frozen=True)

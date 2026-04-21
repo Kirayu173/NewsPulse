@@ -120,20 +120,8 @@ workflow:
     aggregate:
       prompt_file: ai_analysis_prompt.txt
 
-  localization:
-    enabled: true
-    strategy: ai
-    language: 中文
-    scope:
-      # `selection_titles`: 主热榜区域；`standalone`: 独立展示区。
-      selection_titles: false
-      new_items: false
-      standalone: true
-      insight_sections: false
-
-ai:
   runtime:
-    # 全局默认 AI runtime；selection / insight / localization 会继承或覆盖它。
+    # 全局默认 AI runtime；selection / insight 会继承或覆盖它。
     model: deepseek/deepseek-chat
     api_key: ''
     api_base: ''
@@ -152,8 +140,6 @@ ai:
     insight:
       prompt_file: ai_analysis_prompt.txt
       item_prompt_file: ai_insight_item_prompt.txt
-    localization:
-      prompt_file: ai_translation_prompt.txt
 
 storage:
   # 当前运行时仅使用本地存储。

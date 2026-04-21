@@ -24,7 +24,9 @@ class LoaderConfigRootTest(unittest.TestCase):
             config_dir.mkdir(parents=True)
 
             (workspace / ".env").write_text(
-                "API_KEY=parent-key\nBASE_URL=https://parent.example/v1\nMODEL=openai/parent-model\n",
+                "API_KEY=parent-key\n"
+                "BASE_URL=https://parent.example/v1\n"
+                "MODEL=openai/parent-model\n",
                 encoding="utf-8",
             )
             _write_text(
@@ -72,7 +74,6 @@ class LoaderConfigRootTest(unittest.TestCase):
                 """,
             )
             _write_text(config_dir / "ai_analysis_prompt.txt", "[user]\nhello")
-            _write_text(config_dir / "ai_translation_prompt.txt", "[user]\ntranslate")
             _write_text(config_dir / "ai_filter" / "prompt.txt", "[user]\nclassify")
             _write_text(config_dir / "ai_filter" / "extract_prompt.txt", "[user]\nextract")
             _write_text(config_dir / "ai_filter" / "update_tags_prompt.txt", "[user]\nupdate")
@@ -95,10 +96,6 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(
                 config["AI_ANALYSIS"]["PROMPT_FILE"],
                 str(config_dir / "ai_analysis_prompt.txt"),
-            )
-            self.assertEqual(
-                config["AI_TRANSLATION"]["PROMPT_FILE"],
-                str(config_dir / "ai_translation_prompt.txt"),
             )
             self.assertEqual(
                 config["AI_FILTER"]["PROMPT_FILE"],
@@ -130,9 +127,6 @@ class LoaderConfigRootTest(unittest.TestCase):
                     insight:
                       model: openai/analysis-model
                       timeout: 240
-                    localization:
-                      api_key: translation-key
-                      temperature: 0.2
                     selection:
                       timeout: 480
                       num_retries: 0
@@ -146,8 +140,6 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["AI"]["MODEL"], "openai/base-model")
             self.assertEqual(config["AI_ANALYSIS_MODEL"]["MODEL"], "openai/analysis-model")
             self.assertEqual(config["AI_ANALYSIS_MODEL"]["TIMEOUT"], 240)
-            self.assertEqual(config["AI_TRANSLATION_MODEL"]["API_KEY"], "translation-key")
-            self.assertEqual(config["AI_TRANSLATION_MODEL"]["TEMPERATURE"], 0.2)
             self.assertEqual(config["AI_FILTER_MODEL"]["TIMEOUT"], 480)
             self.assertEqual(config["AI_FILTER_MODEL"]["NUM_RETRIES"], 0)
             self.assertEqual(config["AI_FILTER_MODEL"]["MAX_TOKENS"], 2000)
@@ -160,7 +152,6 @@ class LoaderConfigRootTest(unittest.TestCase):
             config_dir = workspace / "config"
             config_file = config_dir / "config.yaml"
             _write_text(config_dir / "ai_analysis_prompt.txt", "[user]\nanalysis")
-            _write_text(config_dir / "ai_translation_prompt.txt", "[user]\ntranslate")
             _write_text(config_dir / "ai_filter" / "prompt.txt", "[user]\nfilter")
             _write_text(config_dir / "ai_filter" / "extract_prompt.txt", "[user]\nextract")
             _write_text(config_dir / "ai_filter" / "update_tags_prompt.txt", "[user]\nupdate")
@@ -195,15 +186,6 @@ class LoaderConfigRootTest(unittest.TestCase):
                     mode: daily
                     max_items: 9
                     language: Japanese
-                  localization:
-                    enabled: true
-                    strategy: ai
-                    language: English
-                    scope:
-                      selection_titles: false
-                      new_items: true
-                      standalone: false
-                      insight_sections: true
                 ai:
                   runtime:
                     model: openai/base-model
@@ -226,10 +208,6 @@ class LoaderConfigRootTest(unittest.TestCase):
                       prompt_file: ai_analysis_prompt.txt
                       api_key: insight-key
                       temperature: 0.8
-                    localization:
-                      prompt_file: ai_translation_prompt.txt
-                      api_base: https://translation.example/v1
-                      num_retries: 0
                 """,
             )
 
@@ -256,24 +234,11 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["WORKFLOW"]["INSIGHT"]["MAX_ITEMS"], 9)
             self.assertEqual(config["WORKFLOW"]["INSIGHT"]["LANGUAGE"], "Japanese")
 
-            self.assertTrue(config["WORKFLOW"]["LOCALIZATION"]["ENABLED"])
-            self.assertEqual(config["WORKFLOW"]["LOCALIZATION"]["STRATEGY"], "ai")
-            self.assertEqual(config["WORKFLOW"]["LOCALIZATION"]["LANGUAGE"], "English")
-            self.assertFalse(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["SELECTION_TITLES"])
-            self.assertTrue(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["NEW_ITEMS"])
-            self.assertFalse(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["STANDALONE"])
-            self.assertTrue(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["INSIGHT_SECTIONS"])
-
             self.assertEqual(config["FILTER"]["METHOD"], "ai")
             self.assertEqual(config["FILTER"]["FREQUENCY_FILE"], "topics.txt")
             self.assertEqual(config["AI_ANALYSIS"]["STRATEGY"], "ai")
             self.assertEqual(config["AI_ANALYSIS"]["MAX_ITEMS"], 9)
             self.assertEqual(config["AI_ANALYSIS"]["PROMPT_FILE"], str(config_dir / "ai_analysis_prompt.txt"))
-            self.assertEqual(config["AI_TRANSLATION"]["STRATEGY"], "ai")
-            self.assertEqual(config["AI_TRANSLATION"]["PROMPT_FILE"], str(config_dir / "ai_translation_prompt.txt"))
-            self.assertFalse(config["AI_TRANSLATION"]["SCOPE"]["HOTLIST"])
-            self.assertTrue(config["AI_TRANSLATION"]["SCOPE"]["NEW_ITEMS"])
-            self.assertTrue(config["AI_TRANSLATION"]["SCOPE"]["INSIGHT"])
             self.assertEqual(config["AI_FILTER"]["PROMPT_FILE"], str(config_dir / "ai_filter" / "prompt.txt"))
             self.assertEqual(config["AI_FILTER"]["EXTRA_PARAMS"], {"top_p": 0.9})
             self.assertFalse(config["AI_FILTER"]["FALLBACK_TO_KEYWORD"])
@@ -285,111 +250,6 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["AI_FILTER_MODEL"]["TIMEOUT"], 222)
             self.assertEqual(config["AI_ANALYSIS_MODEL"]["API_KEY"], "insight-key")
             self.assertEqual(config["AI_ANALYSIS_MODEL"]["TEMPERATURE"], 0.8)
-            self.assertEqual(config["AI_TRANSLATION_MODEL"]["API_BASE"], "https://translation.example/v1")
-            self.assertEqual(config["AI_TRANSLATION_MODEL"]["NUM_RETRIES"], 0)
-
-    def test_load_config_prefers_workflow_stage_sections_over_legacy_stage_inputs(self):
-        with TemporaryDirectory() as tmp:
-            workspace = Path(tmp)
-            config_dir = workspace / "config"
-            config_file = config_dir / "config.yaml"
-            _write_text(config_dir / "ai_analysis_prompt.txt", "[user]\nanalysis")
-            _write_text(config_dir / "ai_translation_prompt.txt", "[user]\ntranslate")
-            _write_text(config_dir / "ai_filter" / "prompt.txt", "[user]\nfilter")
-            _write_text(config_dir / "ai_filter" / "extract_prompt.txt", "[user]\nextract")
-            _write_text(config_dir / "ai_filter" / "update_tags_prompt.txt", "[user]\nupdate")
-            _write_text(
-                config_file,
-                """
-                app:
-                  timezone: Asia/Shanghai
-                schedule:
-                  enabled: false
-                  preset: always_on
-                workflow:
-                  selection:
-                    strategy: keyword
-                    priority_sort_enabled: false
-                    ai:
-                      interests_file: workflow.txt
-                      batch_size: 7
-                  insight:
-                    enabled: false
-                    strategy: noop
-                    mode: daily
-                    max_items: 3
-                    language: Japanese
-                  localization:
-                    enabled: false
-                    strategy: noop
-                    language: English
-                    scope:
-                      selection_titles: true
-                      new_items: true
-                      standalone: false
-                      insight_sections: false
-                ai:
-                  runtime:
-                    model: openai/base-model
-                  operations:
-                    selection:
-                      prompt_file: ai_filter/prompt.txt
-                      extract_prompt_file: ai_filter/extract_prompt.txt
-                      update_tags_prompt_file: ai_filter/update_tags_prompt.txt
-                    insight:
-                      prompt_file: ai_analysis_prompt.txt
-                    localization:
-                      prompt_file: ai_translation_prompt.txt
-                filter:
-                  method: ai
-                  priority_sort_enabled: true
-                ai_filter:
-                  interests_file: ai.txt
-                  batch_size: 12
-                  batch_interval: 3
-                  min_score: 0.7
-                ai_analysis:
-                  enabled: true
-                  mode: current
-                  max_items: 4
-                  language: Chinese
-                  prompt_file: ai_analysis_prompt.txt
-                ai_translation:
-                  enabled: true
-                  language: German
-                  prompt_file: ai_translation_prompt.txt
-                  scope:
-                    hotlist: false
-                    standalone: true
-                    insight: true
-                """,
-            )
-
-            with patch.dict(os.environ, {}, clear=True):
-                config = load_config(str(config_file))
-
-            self.assertEqual(config["WORKFLOW"]["SELECTION"]["STRATEGY"], "keyword")
-            self.assertFalse(config["WORKFLOW"]["SELECTION"]["PRIORITY_SORT_ENABLED"])
-            self.assertEqual(config["WORKFLOW"]["SELECTION"]["AI"]["INTERESTS_FILE"], "workflow.txt")
-            self.assertEqual(config["WORKFLOW"]["SELECTION"]["AI"]["BATCH_SIZE"], 7)
-            self.assertTrue(config["WORKFLOW"]["SELECTION"]["SEMANTIC"]["ENABLED"])
-            self.assertEqual(config["WORKFLOW"]["SELECTION"]["SEMANTIC"]["TOP_K"], 3)
-            self.assertAlmostEqual(config["WORKFLOW"]["SELECTION"]["SEMANTIC"]["MIN_SCORE"], 0.55)
-            self.assertAlmostEqual(config["WORKFLOW"]["SELECTION"]["SEMANTIC"]["DIRECT_THRESHOLD"], 0.78)
-            self.assertFalse(config["WORKFLOW"]["INSIGHT"]["ENABLED"])
-            self.assertEqual(config["WORKFLOW"]["INSIGHT"]["STRATEGY"], "noop")
-            self.assertEqual(config["WORKFLOW"]["INSIGHT"]["MODE"], "daily")
-            self.assertEqual(config["WORKFLOW"]["INSIGHT"]["MAX_ITEMS"], 3)
-            self.assertEqual(config["WORKFLOW"]["LOCALIZATION"]["LANGUAGE"], "English")
-            self.assertTrue(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["SELECTION_TITLES"])
-            self.assertTrue(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["NEW_ITEMS"])
-            self.assertFalse(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["STANDALONE"])
-            self.assertFalse(config["WORKFLOW"]["LOCALIZATION"]["SCOPE"]["INSIGHT_SECTIONS"])
-
-            self.assertEqual(config["FILTER"]["METHOD"], "keyword")
-            self.assertEqual(config["AI_ANALYSIS"]["STRATEGY"], "noop")
-            self.assertEqual(config["AI_ANALYSIS"]["MAX_ITEMS"], 3)
-            self.assertEqual(config["AI_TRANSLATION"]["STRATEGY"], "noop")
 
 
 class FrequencyWordsPathTest(unittest.TestCase):

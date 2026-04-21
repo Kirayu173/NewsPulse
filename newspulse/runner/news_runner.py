@@ -16,7 +16,7 @@ from newspulse.crawler import CrawlBatchResult, CrawlSourceSpec, DataFetcher
 from newspulse.crawler.source_names import resolve_source_display_name
 from newspulse.storage import normalize_crawl_batch
 from newspulse.utils.time import DEFAULT_TIMEZONE
-from newspulse.workflow.shared.contracts import DeliveryPayload, HotlistSnapshot, SelectionResult
+from newspulse.workflow.shared.contracts import DeliveryPayload, ReportPackage, SelectionResult
 
 
 class NewsRunner:
@@ -122,10 +122,14 @@ class NewsRunner:
     def _has_notification_configured(self) -> bool:
         return bool(self.ctx.config.get("GENERIC_WEBHOOK_URL"))
 
-    def _has_valid_content(self, snapshot: HotlistSnapshot, selection: SelectionResult) -> bool:
-        if snapshot.mode in {"incremental", "current"}:
-            return selection.total_selected > 0
-        return selection.total_selected > 0 or bool(selection.resolve_selected_new_items(snapshot.new_items))
+    def _has_valid_content(self, report_package: ReportPackage) -> bool:
+        if not report_package.integrity.valid:
+            return False
+        selected_count = len(report_package.content.selected_items)
+        new_item_count = len(report_package.content.new_items)
+        if report_package.meta.mode in {"incremental", "current"}:
+            return selected_count > 0
+        return selected_count > 0 or new_item_count > 0
 
     def _log_selection_result(self, selection: SelectionResult) -> None:
         rejected_count = len(getattr(selection, "rejected_items", []) or [])
@@ -147,8 +151,7 @@ class NewsRunner:
 
     def _should_emit_notification(
         self,
-        snapshot: HotlistSnapshot,
-        selection: SelectionResult,
+        report_package: ReportPackage,
         report_type: str,
         schedule: ResolvedSchedule,
     ) -> bool:
@@ -161,8 +164,14 @@ class NewsRunner:
             print("已启用通知，但未配置任何可用通知渠道")
             return False
 
-        if not self._has_valid_content(snapshot, selection):
-            if snapshot.mode == "incremental":
+        if not self._has_valid_content(report_package):
+            if not report_package.integrity.valid:
+                print(
+                    "[推送] Stage 6 ReportPackage 校验未通过，跳过通知: "
+                    + "; ".join(report_package.integrity.errors or ["unknown validation error"])
+                )
+                return False
+            if report_package.meta.mode == "incremental":
                 print("增量模式下没有新增内容，跳过通知")
             else:
                 print(f"当前{self._get_mode_strategy()['mode_name']}没有可发送内容")
@@ -288,18 +297,16 @@ class NewsRunner:
             interests_file=self.interests_file,
             schedule=schedule,
         )
-        report = self.ctx.assemble_renderable_report(snapshot, selection, insight)
-        localized_report = self.ctx.run_localization_stage(report)
+        report_package = self.ctx.assemble_report_package(snapshot, selection, insight)
 
         emit_html = bool(self.ctx.config["STORAGE"]["FORMATS"].get("HTML", True))
         emit_notification = mode_strategy["should_send_notification"] and self._should_emit_notification(
-            snapshot,
-            selection,
+            report_package,
             mode_strategy["report_type"],
             schedule,
         )
         render_result = self.ctx.run_render_stage(
-            localized_report,
+            report_package,
             emit_html=emit_html,
             emit_notification=emit_notification,
             update_info=self.update_info if self.ctx.config.get("SHOW_VERSION_UPDATE", False) else None,

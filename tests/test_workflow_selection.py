@@ -3,10 +3,11 @@ import unittest
 from pathlib import Path
 from uuid import uuid4
 
+from newspulse.workflow.report import ReportPackageAssembler
 from newspulse.workflow import build_render_view_model
 from newspulse.workflow.render import render_hotlist_stats_html
 from newspulse.workflow.selection.service import SelectionService
-from newspulse.workflow.shared.contracts import HotlistItem, HotlistSnapshot, InsightResult, LocalizedReport, RenderableReport
+from newspulse.workflow.shared.contracts import HotlistItem, HotlistSnapshot, InsightResult
 from newspulse.workflow.shared.options import SelectionOptions
 
 TEST_TMPDIR = Path("tmp_test_work")
@@ -67,7 +68,7 @@ class SelectionServiceTest(unittest.TestCase):
         self.assertIn("global blacklist", result.rejected_items[0].rejected_reason)
         self.assertEqual(result.diagnostics["blacklist_rejected_count"], 1)
 
-    def test_keyword_selection_result_feeds_render_with_source_groups(self):
+    def test_keyword_selection_result_feeds_render_with_report_package(self):
         tmp_root = _make_tmp_dir()
         config_root = tmp_root / "config"
         _write_text(
@@ -91,8 +92,8 @@ class SelectionServiceTest(unittest.TestCase):
                     mobile_url="https://m.example.com/a",
                     ranks=[2, 1],
                     current_rank=1,
-                    first_time="09-00",
-                    last_time="10-00",
+                    first_time="09:00",
+                    last_time="10:00",
                     count=3,
                     is_new=True,
                 ),
@@ -108,15 +109,16 @@ class SelectionServiceTest(unittest.TestCase):
 
         service = SelectionService(config_root=str(config_root))
         result = service.run(snapshot, SelectionOptions(strategy="keyword", frequency_file="render.txt"))
-        localized = LocalizedReport(
-            base_report=RenderableReport(
-                meta={"mode": "current", "report_type": "实时报告"},
-                selection=result,
-                insight=InsightResult(),
-                display_regions=["hotlist"],
-            )
+        result.groups = []
+        package = ReportPackageAssembler(
+            timezone="Asia/Hong_Kong",
+            display_mode="keyword",
+        ).assemble(
+            snapshot,
+            result,
+            InsightResult(enabled=False, strategy="noop", diagnostics={"reason": "disabled"}),
         )
-        view_model = build_render_view_model(localized, display_mode="keyword", rank_threshold=5)
+        view_model = build_render_view_model(package, display_mode="keyword", rank_threshold=5)
         html = render_hotlist_stats_html(view_model.hotlist_groups, display_mode=view_model.display_mode)
 
         self.assertEqual([group.label for group in view_model.hotlist_groups], ["Platform 1"])

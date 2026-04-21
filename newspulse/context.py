@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from newspulse.core.scheduler import ResolvedSchedule
 from newspulse.core import (
@@ -15,8 +15,7 @@ from newspulse.crawler.source_names import resolve_source_display_name
 from newspulse.storage import get_storage_manager
 from newspulse.workflow.delivery import DeliveryService, GenericWebhookDeliveryAdapter
 from newspulse.workflow.insight import InsightService
-from newspulse.workflow.localization import LocalizationService
-from newspulse.workflow.render import HTMLRenderAdapter, HotlistReportAssembler, NotificationRenderAdapter, RenderService
+from newspulse.workflow.report import ReportPackageAssembler
 from newspulse.utils.time import (
     DEFAULT_TIMEZONE,
     format_date_folder,
@@ -26,12 +25,15 @@ from newspulse.utils.time import (
 )
 from newspulse.workflow.selection import SelectionService
 from newspulse.workflow.selection.ai import build_embedding_runtime_config
-from newspulse.workflow.shared.contracts import HotlistSnapshot, InsightResult, LocalizedReport, RenderableReport, SelectionResult
+from newspulse.workflow.shared.contracts import (
+    HotlistSnapshot,
+    InsightResult,
+    ReportPackage,
+    SelectionResult,
+)
 from newspulse.workflow.shared.options import (
     DeliveryOptions,
     InsightOptions,
-    LocalizationOptions,
-    LocalizationScope,
     RenderOptions,
     SelectionAIOptions,
     SelectionOptions,
@@ -39,6 +41,24 @@ from newspulse.workflow.shared.options import (
     SnapshotOptions,
 )
 from newspulse.workflow.snapshot import SnapshotService
+
+if TYPE_CHECKING:
+    from newspulse.workflow.render.service import RenderService
+
+
+DEFAULT_REGION_ORDER = ["hotlist", "new_items", "standalone", "insight"]
+REGION_FLAG_KEYS = {
+    "hotlist": "HOTLIST",
+    "new_items": "NEW_ITEMS",
+    "standalone": "STANDALONE",
+    "insight": "INSIGHT",
+}
+REGION_FLAG_DEFAULTS = {
+    "hotlist": True,
+    "new_items": True,
+    "standalone": False,
+    "insight": True,
+}
 
 
 class AppContext:
@@ -92,9 +112,32 @@ class AppContext:
 
     @property
     def region_order(self) -> List[str]:
-        return self.config.get(
-            "DISPLAY", {}
-        ).get("REGION_ORDER", ["hotlist", "new_items", "standalone", "insight"])
+        display = self.config.get("DISPLAY", {})
+        configured_order = display.get("REGION_ORDER")
+        base_order = configured_order if isinstance(configured_order, list) and configured_order else DEFAULT_REGION_ORDER
+        regions = display.get("REGIONS")
+
+        if not isinstance(regions, dict) or not regions:
+            normalized_defaults: List[str] = []
+            for region in base_order:
+                region_name = str(region or "").strip().lower()
+                if region_name in REGION_FLAG_KEYS and region_name not in normalized_defaults:
+                    normalized_defaults.append(region_name)
+            return normalized_defaults or list(DEFAULT_REGION_ORDER)
+
+        normalized: List[str] = []
+        for region in base_order:
+            region_name = str(region or "").strip().lower()
+            if region_name not in REGION_FLAG_KEYS or region_name in normalized:
+                continue
+            flag_key = REGION_FLAG_KEYS[region_name]
+            enabled = regions.get(flag_key, REGION_FLAG_DEFAULTS[region_name])
+            if enabled:
+                normalized.append(region_name)
+
+        if normalized or isinstance(configured_order, list):
+            return normalized
+        return list(DEFAULT_REGION_ORDER)
 
     @property
     def filter_method(self) -> str:
@@ -221,32 +264,6 @@ class AppContext:
         }
 
     @property
-    def ai_translation_config(self) -> Dict[str, Any]:
-        localization = self.localization_stage_config
-        scope = localization.get("SCOPE", {})
-        operation = self._get_ai_operation_mapping("localization", legacy_key="AI_TRANSLATION")
-        return {
-            "ENABLED": bool(localization.get("ENABLED", False)),
-            "STRATEGY": str(localization.get("STRATEGY", "noop") or "noop"),
-            "LANGUAGE": str(localization.get("LANGUAGE", "English") or "English"),
-            "PROMPT_FILE": str(
-                self._mapping_get(operation, "PROMPT_FILE", "prompt_file", default="ai_translation_prompt.txt")
-                or "ai_translation_prompt.txt"
-            ),
-            "TIMEOUT": self._mapping_get(operation, "TIMEOUT", "timeout"),
-            "NUM_RETRIES": self._mapping_get(operation, "NUM_RETRIES", "num_retries"),
-            "EXTRA_PARAMS": self._coerce_mapping(
-                self._mapping_get(operation, "EXTRA_PARAMS", "extra_params", default={}),
-            ),
-            "SCOPE": {
-                "HOTLIST": bool(scope.get("SELECTION_TITLES", True)),
-                "NEW_ITEMS": bool(scope.get("NEW_ITEMS", True)),
-                "STANDALONE": bool(scope.get("STANDALONE", True)),
-                "INSIGHT": bool(scope.get("INSIGHT_SECTIONS", False)),
-            },
-        }
-
-    @property
     def ai_analysis_model_config(self) -> Dict[str, Any]:
         configured = self.config.get("AI_ANALYSIS_MODEL", {})
         if isinstance(configured, dict) and configured:
@@ -254,16 +271,6 @@ class AppContext:
         return self._merge_ai_runtime_config(
             self.ai_runtime_config,
             self._get_ai_operation_mapping("insight", legacy_key="AI_ANALYSIS"),
-        )
-
-    @property
-    def ai_translation_model_config(self) -> Dict[str, Any]:
-        configured = self.config.get("AI_TRANSLATION_MODEL", {})
-        if isinstance(configured, dict) and configured:
-            return configured
-        return self._merge_ai_runtime_config(
-            self.ai_runtime_config,
-            self._get_ai_operation_mapping("localization", legacy_key="AI_TRANSLATION"),
         )
 
     @property
@@ -428,51 +435,6 @@ class AppContext:
             "CONTENT": self._coerce_mapping(analysis_config.get("CONTENT", {})),
             "ITEM_ANALYSIS": self._coerce_mapping(analysis_config.get("ITEM_ANALYSIS", {})),
             "AGGREGATE": self._coerce_mapping(analysis_config.get("AGGREGATE", {})),
-        }
-
-    @property
-    def localization_stage_config(self) -> Dict[str, Any]:
-        workflow_localization = self._get_workflow_stage("LOCALIZATION", "localization")
-        if workflow_localization:
-            workflow_scope = self._get_nested_mapping(workflow_localization, "SCOPE", "scope")
-            enabled = bool(self._mapping_get(workflow_localization, "ENABLED", "enabled", default=False))
-            return {
-                "ENABLED": enabled,
-                "STRATEGY": str(
-                    self._mapping_get(workflow_localization, "STRATEGY", "strategy", default="ai" if enabled else "noop")
-                    or ("ai" if enabled else "noop")
-                ),
-                "LANGUAGE": str(
-                    self._mapping_get(workflow_localization, "LANGUAGE", "language", default="English") or "English"
-                ),
-                "SCOPE": {
-                    "SELECTION_TITLES": bool(
-                        self._mapping_get(workflow_scope, "SELECTION_TITLES", "selection_titles", default=True)
-                    ),
-                    "NEW_ITEMS": bool(self._mapping_get(workflow_scope, "NEW_ITEMS", "new_items", default=True)),
-                    "STANDALONE": bool(self._mapping_get(workflow_scope, "STANDALONE", "standalone", default=True)),
-                    "INSIGHT_SECTIONS": bool(
-                        self._mapping_get(workflow_scope, "INSIGHT_SECTIONS", "insight_sections", default=False)
-                    ),
-                },
-            }
-
-        translation_config = self.config.get("AI_TRANSLATION", {})
-        scope = translation_config.get("SCOPE", {})
-        hotlist_scope = bool(scope.get("HOTLIST", True))
-        return {
-            "ENABLED": bool(translation_config.get("ENABLED", False)),
-            "STRATEGY": str(
-                translation_config.get("STRATEGY", "ai" if translation_config.get("ENABLED", False) else "noop")
-                or ("ai" if translation_config.get("ENABLED", False) else "noop")
-            ),
-            "LANGUAGE": str(translation_config.get("LANGUAGE", "English") or "English"),
-            "SCOPE": {
-                "SELECTION_TITLES": hotlist_scope,
-                "NEW_ITEMS": bool(scope.get("NEW_ITEMS", hotlist_scope)),
-                "STANDALONE": bool(scope.get("STANDALONE", True)),
-                "INSIGHT_SECTIONS": bool(scope.get("INSIGHT", False)),
-            },
         }
 
     @staticmethod
@@ -721,26 +683,20 @@ class AppContext:
             proxy_url=self.config.get("DEFAULT_PROXY") if self.config.get("USE_PROXY") else None,
         )
 
-    def create_report_assembler(self) -> HotlistReportAssembler:
-        """Create the renderable report assembler for the current project config."""
+    def create_report_assembler(self) -> ReportPackageAssembler:
+        """Create the Stage 6 report package assembler for the current project config."""
 
-        return HotlistReportAssembler(
-            display_regions=self.region_order,
+        return ReportPackageAssembler(
             timezone=self.timezone,
             display_mode=self.display_mode,
         )
 
-    def create_localization_service(self) -> LocalizationService:
-        """Create the workflow localization service with the current project config."""
-
-        return LocalizationService(
-            ai_translation_config=self.ai_translation_config,
-            ai_runtime_config=self.ai_translation_model_config,
-            config_root=str(self.config_root),
-        )
-
     def create_render_service(self) -> RenderService:
         """Create the workflow render service with the current project config."""
+
+        from newspulse.workflow.render.html import HTMLRenderAdapter
+        from newspulse.workflow.render.notification import NotificationRenderAdapter
+        from newspulse.workflow.render.service import RenderService
 
         html_adapter = HTMLRenderAdapter(
             output_dir=str(self.get_data_dir()),
@@ -796,34 +752,6 @@ class AppContext:
                 "requested_mode": requested_mode,
                 "report_mode": report_mode,
                 "mode_resolved_by_context": requested_mode != report_mode,
-            },
-        )
-
-    def build_localization_options(
-        self,
-        *,
-        strategy: Optional[str] = None,
-    ) -> LocalizationOptions:
-        """Build workflow localization options from the current app config."""
-
-        translation_config = self.localization_stage_config
-        enabled = bool(translation_config.get("ENABLED", False))
-        scope = translation_config.get("SCOPE", {})
-        hotlist_scope = bool(scope.get("SELECTION_TITLES", True))
-        new_items_scope = bool(scope.get("NEW_ITEMS", hotlist_scope))
-
-        return LocalizationOptions(
-            enabled=enabled,
-            strategy=strategy or str(translation_config.get("STRATEGY", "ai" if enabled else "noop") or ("ai" if enabled else "noop")),
-            language=str(translation_config.get("LANGUAGE", "English")),
-            scope=LocalizationScope(
-                selection_titles=hotlist_scope,
-                new_items=new_items_scope,
-                standalone=bool(scope.get("STANDALONE", True)),
-                insight_sections=bool(scope.get("INSIGHT_SECTIONS", False)),
-            ),
-            metadata={
-                "workflow_scope": dict(scope),
             },
         )
 
@@ -952,35 +880,22 @@ class AppContext:
 
         return insight
 
-    def assemble_renderable_report(
+    def assemble_report_package(
         self,
         snapshot: HotlistSnapshot,
         selection: SelectionResult,
         insight: InsightResult,
         *,
-        report_assembler: Optional[HotlistReportAssembler] = None,
-    ) -> RenderableReport:
-        """Assemble a render-ready workflow report from native stage outputs."""
+        report_assembler: Optional[ReportPackageAssembler] = None,
+    ) -> ReportPackage:
+        """Assemble the Stage 6 report package from native stage outputs."""
 
         assembler = report_assembler or self.create_report_assembler()
         return assembler.assemble(snapshot, selection, insight)
 
-    def run_localization_stage(
-        self,
-        report: RenderableReport,
-        *,
-        strategy: Optional[str] = None,
-        localization_service: Optional[LocalizationService] = None,
-    ) -> LocalizedReport:
-        """Run the native localization stage for the assembled renderable report."""
-
-        options = self.build_localization_options(strategy=strategy)
-        service = localization_service or self.create_localization_service()
-        return service.run(report, options)
-
     def run_render_stage(
         self,
-        report: LocalizedReport,
+        report: ReportPackage,
         *,
         emit_html: Optional[bool] = None,
         emit_notification: Optional[bool] = None,
@@ -988,7 +903,7 @@ class AppContext:
         update_info: Optional[Dict[str, Any]] = None,
         render_service: Optional[RenderService] = None,
     ):
-        """Run the native render stage for the localized report."""
+        """Run the native render stage for the assembled report package."""
 
         options = self.build_render_options(
             emit_html=emit_html,

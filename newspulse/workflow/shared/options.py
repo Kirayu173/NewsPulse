@@ -63,27 +63,6 @@ class InsightOptions:
 
 
 @dataclass
-class LocalizationScope:
-    """Fine-grained scope switches for localization."""
-
-    selection_titles: bool = True
-    new_items: bool = True
-    standalone: bool = True
-    insight_sections: bool = False
-
-
-@dataclass
-class LocalizationOptions:
-    """Options for the localization stage."""
-
-    enabled: bool = False
-    strategy: str = "noop"
-    language: str = "Chinese"
-    scope: LocalizationScope = field(default_factory=LocalizationScope)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
 class RenderOptions:
     """Options for the render stage."""
 
@@ -112,6 +91,5 @@ class WorkflowOptions:
     snapshot: SnapshotOptions = field(default_factory=SnapshotOptions)
     selection: SelectionOptions = field(default_factory=SelectionOptions)
     insight: InsightOptions = field(default_factory=InsightOptions)
-    localization: LocalizationOptions = field(default_factory=LocalizationOptions)
     render: RenderOptions = field(default_factory=RenderOptions)
     delivery: DeliveryOptions = field(default_factory=DeliveryOptions)

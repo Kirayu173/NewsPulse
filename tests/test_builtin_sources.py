@@ -146,7 +146,7 @@ class BuiltinSourceRegistryTest(unittest.TestCase):
             ):
                 fetcher = DataFetcher()
                 batch = fetcher.crawl(
-                    [CrawlSourceSpec(source_id="unit-test-source", source_name="????")],
+                    [CrawlSourceSpec(source_id="unit-test-source", source_name="??")],
                     request_interval=0,
                 )
 

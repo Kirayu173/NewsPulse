@@ -5,14 +5,34 @@ from __future__ import annotations
 
 from typing import Protocol, Sequence, runtime_checkable
 
+from newspulse.workflow.delivery import (
+    ChannelDeliveryResult,
+    DeliveryResult,
+    DeliveryService,
+    GenericWebhookDeliveryAdapter,
+)
+from newspulse.workflow.report import ReportPackageAssembler, ReportPackageValidator
+from newspulse.workflow.render import (
+    HTMLArtifact,
+    HTMLRenderAdapter,
+    NotificationRenderAdapter,
+    RenderArtifacts,
+    RenderService,
+    RenderViewModel,
+    build_render_view_model,
+    render_hotlist_stats_html,
+    split_content_into_batches,
+)
 from newspulse.workflow.shared.contracts import (
     DeliveryPayload,
     HotlistItem,
     HotlistSnapshot,
     InsightResult,
     InsightSection,
-    LocalizedReport,
-    RenderableReport,
+    ReportContent,
+    ReportIntegrity,
+    ReportPackage,
+    ReportPackageMeta,
     SelectionGroup,
     SelectionRejectedItem,
     SelectionResult,
@@ -22,8 +42,6 @@ from newspulse.workflow.shared.contracts import (
 from newspulse.workflow.shared.options import (
     DeliveryOptions,
     InsightOptions,
-    LocalizationOptions,
-    LocalizationScope,
     RenderOptions,
     SelectionAIOptions,
     SelectionOptions,
@@ -31,29 +49,12 @@ from newspulse.workflow.shared.options import (
     SnapshotOptions,
     WorkflowOptions,
 )
-from newspulse.workflow.render import (
-    HTMLArtifact,
-    HTMLRenderAdapter,
-    HotlistReportAssembler,
-    NotificationRenderAdapter,
-    RenderArtifacts,
-    RenderReportMeta,
-    RenderService,
-    RenderViewModel,
-    build_render_view_model,
-)
-from newspulse.workflow.delivery import (
-    ChannelDeliveryResult,
-    DeliveryResult,
-    DeliveryService,
-    GenericWebhookDeliveryAdapter,
-)
 
 WORKFLOW_STAGE_NAMES = (
     "snapshot",
     "selection",
     "insight",
-    "localization",
+    "report",
     "render",
     "delivery",
 )
@@ -90,31 +91,23 @@ class InsightStage(Protocol):
 
 @runtime_checkable
 class ReportAssembler(Protocol):
-    """Assemble a render-ready report object from stage outputs."""
+    """Assemble the Stage 6 report package from stage outputs."""
 
     def assemble(
         self,
         snapshot: HotlistSnapshot,
         selection: SelectionResult,
         insight: InsightResult,
-    ) -> RenderableReport:
-        """Combine stage outputs into a renderable report."""
-
-
-@runtime_checkable
-class LocalizationStage(Protocol):
-    """Localize a renderable report before rendering and delivery."""
-
-    def run(self, report: RenderableReport, options: LocalizationOptions) -> LocalizedReport:
-        """Execute report localization."""
+    ) -> ReportPackage:
+        """Combine stage outputs into a report package."""
 
 
 @runtime_checkable
 class RenderStage(Protocol):
-    """Render a localized report into HTML and delivery artifacts."""
+    """Render a report package into downstream artifacts."""
 
-    def run(self, report: LocalizedReport, options: RenderOptions) -> object:
-        """Render the localized report into downstream artifacts."""
+    def run(self, report: ReportPackage, options: RenderOptions) -> object:
+        """Render the report package into downstream artifacts."""
 
 
 @runtime_checkable
@@ -127,39 +120,38 @@ class DeliveryStage(Protocol):
 
 __all__ = [
     "WORKFLOW_STAGE_NAMES",
+    "ChannelDeliveryResult",
     "DeliveryOptions",
     "DeliveryPayload",
     "DeliveryResult",
-    "DeliveryStage",
     "DeliveryService",
+    "DeliveryStage",
     "GenericWebhookDeliveryAdapter",
-    "ChannelDeliveryResult",
     "HTMLArtifact",
     "HTMLRenderAdapter",
     "HotlistItem",
     "HotlistSnapshot",
-    "HotlistReportAssembler",
     "InsightOptions",
     "InsightResult",
     "InsightSection",
     "InsightStage",
-    "LocalizationOptions",
-    "LocalizationScope",
-    "LocalizationStage",
-    "LocalizedReport",
     "NotificationRenderAdapter",
-    "RenderOptions",
     "RenderArtifacts",
-    "RenderReportMeta",
-    "RenderViewModel",
+    "RenderOptions",
     "RenderService",
     "RenderStage",
-    "RenderableReport",
+    "RenderViewModel",
     "ReportAssembler",
+    "ReportContent",
+    "ReportIntegrity",
+    "ReportPackage",
+    "ReportPackageAssembler",
+    "ReportPackageMeta",
+    "ReportPackageValidator",
     "SelectionAIOptions",
     "SelectionGroup",
-    "SelectionRejectedItem",
     "SelectionOptions",
+    "SelectionRejectedItem",
     "SelectionResult",
     "SelectionSemanticOptions",
     "SelectionStage",
@@ -169,4 +161,6 @@ __all__ = [
     "StandaloneSection",
     "WorkflowOptions",
     "build_render_view_model",
+    "render_hotlist_stats_html",
+    "split_content_into_batches",
 ]

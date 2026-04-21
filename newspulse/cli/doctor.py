@@ -130,9 +130,8 @@ def run_doctor(config_path: Optional[str] = None) -> bool:
 
         # 5) AI 配置检查（按功能场景区分严重级别）
         ai_analysis_enabled = config.get("AI_ANALYSIS", {}).get("ENABLED", False)
-        ai_translation_enabled = config.get("AI_TRANSLATION", {}).get("ENABLED", False)
         ai_filter_enabled = config.get("FILTER", {}).get("METHOD", "keyword") == "ai"
-        ai_enabled = ai_analysis_enabled or ai_translation_enabled or ai_filter_enabled
+        ai_enabled = ai_analysis_enabled or ai_filter_enabled
 
         if ai_enabled:
             try:
@@ -140,8 +139,6 @@ def run_doctor(config_path: Optional[str] = None) -> bool:
                 ai_targets = []
                 if ai_analysis_enabled:
                     ai_targets.append(("analysis", config.get("AI_ANALYSIS_MODEL", {}), "fail"))
-                if ai_translation_enabled:
-                    ai_targets.append(("translation", config.get("AI_TRANSLATION_MODEL", {}), "fail"))
                 if ai_filter_enabled:
                     ai_targets.append(("filter", config.get("AI_FILTER_MODEL", {}), "warn"))
 

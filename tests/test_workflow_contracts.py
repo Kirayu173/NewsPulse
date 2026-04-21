@@ -11,14 +11,13 @@ from newspulse.workflow import (
     InsightResult,
     InsightSection,
     InsightStage,
-    LocalizationOptions,
-    LocalizationScope,
-    LocalizationStage,
-    LocalizedReport,
     RenderOptions,
     RenderStage,
-    RenderableReport,
     ReportAssembler,
+    ReportContent,
+    ReportIntegrity,
+    ReportPackage,
+    ReportPackageMeta,
     SelectionGroup,
     SelectionOptions,
     SelectionResult,
@@ -37,14 +36,12 @@ class WorkflowContractsTest(unittest.TestCase):
 
         self.assertEqual(
             WORKFLOW_STAGE_NAMES,
-            ("snapshot", "selection", "insight", "localization", "render", "delivery"),
+            ("snapshot", "selection", "insight", "report", "render", "delivery"),
         )
         self.assertEqual(options.snapshot.mode, "current")
         self.assertEqual(options.selection.strategy, "keyword")
         self.assertEqual(options.selection.ai.interests_file, "ai_interests.txt")
         self.assertEqual(options.insight.strategy, "noop")
-        self.assertFalse(options.localization.enabled)
-        self.assertEqual(options.localization.language, "Chinese")
         self.assertEqual(
             options.render.display_regions,
             ["hotlist", "new_items", "standalone", "insight"],
@@ -85,36 +82,38 @@ class WorkflowContractsTest(unittest.TestCase):
         insight = InsightResult(
             enabled=True,
             strategy="ai",
-            sections=[InsightSection(key="trend", title="趋势", content="测试洞察")],
-            raw_response="{\"trend\": \"测试洞察\"}",
+            sections=[InsightSection(key="trend", title="趋势", content="AI 新闻持续升温")],
+            raw_response='{"trend": "AI 新闻持续升温"}',
         )
-        report = RenderableReport(
-            meta={"mode": snapshot.mode},
-            selection=selection,
-            insight=insight,
-            new_items=selection.selected_new_items,
-            standalone_sections=snapshot.standalone_sections,
-            display_regions=["hotlist", "insight"],
-        )
-        localized = LocalizedReport(
-            base_report=report,
-            localized_titles={item.news_item_id: "你好，世界"},
-            localized_sections={"trend": "Localized trend"},
-            language="English",
+        report = ReportPackage(
+            meta=ReportPackageMeta(mode=snapshot.mode, report_type="测试报告", selection_strategy="keyword", insight_strategy="ai"),
+            content=ReportContent(
+                hotlist_groups=selection.groups,
+                selected_items=selection.selected_items,
+                new_items=selection.selected_new_items,
+                standalone_sections=snapshot.standalone_sections,
+                insight_sections=insight.sections,
+            ),
+            integrity=ReportIntegrity(valid=True),
+            diagnostics={
+                "snapshot_summary": snapshot.summary,
+                "failed_sources": [{"source_id": "toutiao"}],
+                "insight": {"enabled": True, "strategy": "ai", "diagnostics": {}},
+            },
         )
         payload = DeliveryPayload(
             channel="generic_webhook",
             title="NewsPulse report",
             content="content",
-            metadata={"language": localized.language},
+            metadata={"mode": report.meta.mode},
         )
 
         self.assertEqual(snapshot.item_count, 1)
         self.assertEqual(selection.selected_items[0].news_item_id, item.news_item_id)
         self.assertEqual(selection.selected_new_items[0].news_item_id, item.news_item_id)
         self.assertEqual(insight.sections[0].key, "trend")
-        self.assertEqual(localized.base_report.selection.total_selected, 1)
-        self.assertEqual(payload.metadata["language"], "English")
+        self.assertEqual(report.content.selected_items[0].news_item_id, item.news_item_id)
+        self.assertEqual(payload.metadata["mode"], "current")
 
     def test_runtime_protocols_accept_stage_like_services(self):
         class FakeSnapshotBuilder:
@@ -140,19 +139,15 @@ class WorkflowContractsTest(unittest.TestCase):
                 snapshot: HotlistSnapshot,
                 selection: SelectionResult,
                 insight: InsightResult,
-            ) -> RenderableReport:
-                return RenderableReport(
-                    meta={"mode": snapshot.mode},
-                    selection=selection,
-                    insight=insight,
+            ) -> ReportPackage:
+                return ReportPackage(
+                    meta=ReportPackageMeta(mode=snapshot.mode),
+                    content=ReportContent(selected_items=selection.selected_items),
+                    integrity=ReportIntegrity(valid=True),
                 )
 
-        class FakeLocalizationStage:
-            def run(self, report: RenderableReport, options: LocalizationOptions) -> LocalizedReport:
-                return LocalizedReport(base_report=report, language=options.language)
-
         class FakeRenderStage:
-            def run(self, report: LocalizedReport, options: RenderOptions) -> dict:
+            def run(self, report: ReportPackage, options: RenderOptions) -> dict:
                 return {"report": report, "regions": options.display_regions}
 
         class FakeDeliveryStage:
@@ -163,17 +158,8 @@ class WorkflowContractsTest(unittest.TestCase):
         self.assertIsInstance(FakeSelectionStage(), SelectionStage)
         self.assertIsInstance(FakeInsightStage(), InsightStage)
         self.assertIsInstance(FakeReportAssembler(), ReportAssembler)
-        self.assertIsInstance(FakeLocalizationStage(), LocalizationStage)
         self.assertIsInstance(FakeRenderStage(), RenderStage)
         self.assertIsInstance(FakeDeliveryStage(), DeliveryStage)
-
-    def test_localization_scope_defaults_follow_native_design(self):
-        scope = LocalizationScope()
-
-        self.assertTrue(scope.selection_titles)
-        self.assertTrue(scope.new_items)
-        self.assertTrue(scope.standalone)
-        self.assertFalse(scope.insight_sections)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-﻿import json
+import json
 import textwrap
 import unittest
 from pathlib import Path
@@ -11,8 +11,6 @@ from newspulse.workflow.delivery import DeliveryService, GenericWebhookDeliveryA
 from newspulse.workflow.insight.ai import AIInsightStrategy
 from newspulse.workflow.insight.models import InsightContentPayload, InsightItemAnalysis, ReducedContentBundle
 from newspulse.workflow.insight.service import InsightService
-from newspulse.workflow.localization import LocalizationService
-from newspulse.workflow.localization.ai import AILocalizationStrategy
 from newspulse.workflow.selection.ai import AISelectionStrategy
 from newspulse.workflow.selection.service import SelectionService
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate
@@ -89,7 +87,6 @@ def _build_config(
     *,
     selection_strategy: str = "keyword",
     ai_analysis_enabled: bool = False,
-    ai_translation_enabled: bool = False,
 ) -> dict:
     return {
         "TIMEZONE": "Asia/Shanghai",
@@ -122,7 +119,6 @@ def _build_config(
         "AI": {"MODEL": "openai/base", "API_KEY": "test-key", "TIMEOUT": 30},
         "AI_FILTER_MODEL": {"MODEL": "openai/filter", "API_KEY": "test-key", "TIMEOUT": 30},
         "AI_ANALYSIS_MODEL": {"MODEL": "openai/analysis", "API_KEY": "test-key", "TIMEOUT": 30},
-        "AI_TRANSLATION_MODEL": {"MODEL": "openai/translation", "API_KEY": "test-key", "TIMEOUT": 30},
         "AI_FILTER": {
             "INTERESTS_FILE": "interests.txt",
             "BATCH_SIZE": 2,
@@ -137,18 +133,6 @@ def _build_config(
             "MAX_ITEMS": 5,
             "LANGUAGE": "Chinese",
             "PROMPT_FILE": "ai_analysis_prompt.txt",
-        },
-        "AI_TRANSLATION": {
-            "ENABLED": ai_translation_enabled,
-            "STRATEGY": "ai" if ai_translation_enabled else "noop",
-            "LANGUAGE": "Chinese",
-            "PROMPT_FILE": "ai_translation_prompt.txt",
-            "SCOPE": {
-                "HOTLIST": True,
-                "NEW_ITEMS": True,
-                "STANDALONE": True,
-                "INSIGHT": True,
-            },
         },
         "ENABLE_NOTIFICATION": True,
         "GENERIC_WEBHOOK_URL": "https://example.com/webhook",
@@ -297,27 +281,8 @@ class StubInsightAggregate:
                     },
                 )
             ],
-            "{\"sections\": []}",
+            '{"sections": []}',
             {"item_count": len(item_analyses), "section_count": 1},
-        )
-
-
-class RecordingLocalizationClient:
-    def __init__(self):
-        self.calls = []
-
-    def chat(self, messages, **kwargs):
-        texts = []
-        for line in messages[-1]["content"].splitlines():
-            stripped = line.strip()
-            if not stripped.startswith("[") or "]" not in stripped:
-                continue
-            texts.append(stripped[stripped.index("]") + 1 :].strip())
-
-        self.calls.append(texts)
-        return "\n".join(
-            f"[{index}] ZH:{text}"
-            for index, text in enumerate(texts, start=1)
         )
 
 
@@ -337,7 +302,6 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
         *,
         selection_strategy: str = "keyword",
         ai_analysis_enabled: bool = False,
-        ai_translation_enabled: bool = False,
     ) -> AppContext:
         root = Path(tmp)
         config_root = root / "config"
@@ -349,7 +313,6 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                 output_dir,
                 selection_strategy=selection_strategy,
                 ai_analysis_enabled=ai_analysis_enabled,
-                ai_translation_enabled=ai_translation_enabled,
             )
         )
         ctx._storage_manager = get_storage_manager(
@@ -460,18 +423,6 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
             )
         )
 
-    def _build_localization_service(self, client: RecordingLocalizationClient) -> LocalizationService:
-        prompt_template = PromptTemplate(
-            path=Path("localization-prompt.txt"),
-            user_prompt="LANG={target_language}\n{content}",
-        )
-        return LocalizationService(
-            ai_strategy=AILocalizationStrategy(
-                client=client,
-                prompt_template=prompt_template,
-            )
-        )
-
     def _build_delivery_service(self, ctx: AppContext, sender: RecordingSender) -> DeliveryService:
         return DeliveryService(
             generic_webhook_adapter=GenericWebhookDeliveryAdapter(ctx.config, sender_func=sender)
@@ -484,7 +435,6 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
         selection_strategy: str,
         selection_service: SelectionService | None = None,
         insight_service: InsightService | None = None,
-        localization_service: LocalizationService | None = None,
         delivery_service: DeliveryService | None = None,
     ):
         snapshot, selection = ctx.run_selection_stage(
@@ -503,11 +453,10 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
             interests_file="interests.txt" if selection_strategy == "ai" else None,
             insight_service=insight_service,
         )
-        report = ctx.assemble_renderable_report(snapshot, selection, insight)
-        localized = ctx.run_localization_stage(report, localization_service=localization_service)
-        render_result = ctx.run_render_stage(localized, emit_html=True, emit_notification=True)
+        report_package = ctx.assemble_report_package(snapshot, selection, insight)
+        render_result = ctx.run_render_stage(report_package, emit_html=True, emit_notification=True)
         delivery_result = ctx.run_delivery_stage(render_result.payloads, delivery_service=delivery_service)
-        return snapshot, selection, insight, localized, render_result, delivery_result
+        return snapshot, selection, insight, report_package, render_result, delivery_result
 
     def test_end_to_end_runs_with_all_ai_disabled(self):
         with TemporaryDirectory() as tmp:
@@ -515,7 +464,7 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
             sender = RecordingSender()
             try:
                 self._seed_hotlist(ctx)
-                _, selection, insight, localized, render_result, delivery_result = self._run_pipeline(
+                _, selection, insight, report_package, render_result, delivery_result = self._run_pipeline(
                     ctx,
                     selection_strategy="keyword",
                     delivery_service=self._build_delivery_service(ctx, sender),
@@ -524,9 +473,9 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                 joined_payload = "\n".join(payload.content for payload in render_result.payloads)
                 self.assertEqual(selection.strategy, "keyword")
                 self.assertEqual(insight.strategy, "noop")
-                self.assertEqual(localized.translation_meta["strategy"], "noop")
+                self.assertEqual(report_package.meta.selection_strategy, "keyword")
                 self.assertEqual(
-                    [item.title for item in selection.selected_new_items],
+                    [item.title for item in report_package.content.new_items],
                     [
                         "NBA finals schedule announced",
                         "OpenAI launches a new coding agent",
@@ -548,7 +497,7 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
             sender = RecordingSender()
             try:
                 self._seed_hotlist(ctx)
-                _, selection, insight, localized, render_result, _ = self._run_pipeline(
+                _, selection, insight, report_package, render_result, _ = self._run_pipeline(
                     ctx,
                     selection_strategy="ai",
                     selection_service=self._build_ai_selection_service(ctx),
@@ -559,11 +508,10 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                 self.assertEqual(selection.strategy, "ai")
                 self.assertGreaterEqual(selection.total_selected, 2)
                 self.assertEqual(insight.strategy, "noop")
-                self.assertEqual(localized.translation_meta["strategy"], "noop")
                 self.assertIn("OpenAI launches a new coding agent", joined_payload)
                 self.assertNotIn("NBA finals schedule announced", joined_payload)
                 self.assertEqual(
-                    [item.title for item in selection.selected_new_items],
+                    [item.title for item in report_package.content.new_items],
                     ["OpenAI launches a new coding agent", "Startup launches AI productivity app"],
                 )
                 self.assertNotIn("AI tools keep dominating the developer conversation.", joined_payload)
@@ -576,7 +524,7 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
             sender = RecordingSender()
             try:
                 self._seed_hotlist(ctx)
-                _, selection, insight, _, render_result, delivery_result = self._run_pipeline(
+                _, selection, insight, report_package, render_result, delivery_result = self._run_pipeline(
                     ctx,
                     selection_strategy="ai",
                     selection_service=self._build_ai_selection_service(ctx),
@@ -590,54 +538,15 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                 self.assertEqual(insight.diagnostics["analyzed_items"], 2)
                 self.assertIn("AI tools keep dominating the developer conversation.", render_result.html.content)
                 self.assertIn("AI tools keep dominating the developer conversation.", joined_payload)
+                self.assertEqual(report_package.meta.insight_strategy, "ai")
                 self.assertNotIn("NBA finals schedule announced", render_result.html.content)
                 self.assertNotIn("NBA finals schedule announced", joined_payload)
                 self.assertTrue(delivery_result.success)
                 self.assertTrue(sender.calls)
-            finally:
-                ctx.cleanup()
 
-    def test_end_to_end_reuses_same_translation_for_html_and_notification(self):
-        with TemporaryDirectory() as tmp:
-            ctx = self._create_context(tmp, ai_analysis_enabled=True, ai_translation_enabled=True)
-            localization_client = RecordingLocalizationClient()
-            sender = RecordingSender()
-            try:
-                self._seed_hotlist(ctx)
-                _, _, _, localized, render_result, delivery_result = self._run_pipeline(
-                    ctx,
-                    selection_strategy="keyword",
-                    insight_service=self._build_ai_insight_service(ctx),
-                    localization_service=self._build_localization_service(localization_client),
-                    delivery_service=self._build_delivery_service(ctx, sender),
-                )
-
-                translated_titles = set(localized.localized_titles.values())
-                translated_title = "ZH:OpenAI launches a new coding agent"
-                translated_section = localized.localized_sections["core_trends"]
-                joined_payload = "\n".join(payload.content for payload in render_result.payloads)
                 delivered_content = "\n".join(call["content"] for call in sender.calls)
-
-                self.assertIn(translated_title, translated_titles)
-                self.assertEqual(translated_section, "ZH:AI tools keep dominating the developer conversation.")
-                self.assertEqual(
-                    [item.title for item in localized.base_report.new_items],
-                    [
-                        "NBA finals schedule announced",
-                        "OpenAI launches a new coding agent",
-                        "Startup launches AI productivity app",
-                    ],
-                )
-                self.assertIn(translated_title, render_result.html.content)
-                self.assertIn(translated_title, joined_payload)
-                self.assertIn(translated_title, delivered_content)
-                self.assertIn("ZH:NBA finals schedule announced", render_result.html.content)
-                self.assertIn("ZH:NBA finals schedule announced", joined_payload)
-                self.assertIn("ZH:NBA finals schedule announced", delivered_content)
-                self.assertIn(translated_section, render_result.html.content)
-                self.assertIn(translated_section, joined_payload)
-                self.assertTrue(delivery_result.success)
-                self.assertEqual(len(localization_client.calls), 2)
+                self.assertIn("OpenAI launches a new coding agent", delivered_content)
+                self.assertIn("AI tools keep dominating the developer conversation.", delivered_content)
             finally:
                 ctx.cleanup()
 

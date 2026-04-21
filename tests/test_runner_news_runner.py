@@ -11,9 +11,11 @@ from newspulse.workflow import (
     HotlistItem,
     HotlistSnapshot,
     InsightResult,
-    LocalizedReport,
     RenderArtifacts,
-    RenderableReport,
+    ReportContent,
+    ReportIntegrity,
+    ReportPackage,
+    ReportPackageMeta,
     SelectionGroup,
     SelectionResult,
 )
@@ -76,15 +78,18 @@ class FakeContext:
         self.render_result = render_result
         self.filter_method = "keyword"
         self.insight = InsightResult(enabled=True, strategy="ai")
-        self.report = RenderableReport(
-            meta={"mode": snapshot.mode},
-            selection=selection,
-            insight=self.insight,
-            new_items=selection.selected_new_items,
-            standalone_sections=snapshot.standalone_sections,
-            display_regions=["hotlist", "new_items", "standalone", "insight"],
+        self.report_package = ReportPackage(
+            meta=ReportPackageMeta(mode=snapshot.mode, report_type="测试报告"),
+            content=ReportContent(
+                hotlist_groups=selection.groups,
+                selected_items=selection.selected_items,
+                new_items=selection.selected_new_items,
+                standalone_sections=snapshot.standalone_sections,
+                insight_sections=[],
+            ),
+            integrity=ReportIntegrity(valid=True),
+            diagnostics={"insight": {"enabled": True, "strategy": "ai", "diagnostics": {}}, "failed_sources": []},
         )
-        self.localized = LocalizedReport(base_report=self.report)
         self.calls = []
         self.config = {
             "ENABLE_NOTIFICATION": True,
@@ -108,13 +113,9 @@ class FakeContext:
         self.calls.append(("insight", kwargs))
         return self.insight
 
-    def assemble_renderable_report(self, snapshot, selection, insight):
-        self.calls.append(("assemble", snapshot, selection, insight))
-        return self.report
-
-    def run_localization_stage(self, report):
-        self.calls.append(("localize", report))
-        return self.localized
+    def assemble_report_package(self, snapshot, selection, insight):
+        self.calls.append(("report", snapshot, selection, insight))
+        return self.report_package
 
     def run_render_stage(self, report, **kwargs):
         self.calls.append(("render", report, kwargs))
@@ -247,7 +248,7 @@ class NewsRunnerWorkflowStageTest(unittest.TestCase):
         scheduler = FakeScheduler(schedule)
         render_result = RenderArtifacts(
             html=HTMLArtifact(file_path="output/html/2026-04-17/103000.html", content="<html></html>"),
-            payloads=[DeliveryPayload(channel="generic_webhook", title="实时报告", content="payload")],
+            payloads=[DeliveryPayload(channel="generic_webhook", title="测试推送", content="payload")],
         )
         ctx = FakeContext(snapshot, selection, scheduler, render_result)
         runner = self._build_runner(ctx)
@@ -255,15 +256,15 @@ class NewsRunnerWorkflowStageTest(unittest.TestCase):
         html_file = runner._execute_mode_strategy(runner._get_mode_strategy(), schedule=schedule)
 
         self.assertEqual(html_file, "output/html/2026-04-17/103000.html")
-        self.assertEqual([call[0] for call in ctx.calls], ["selection", "insight", "assemble", "localize", "render", "deliver"])
+        self.assertEqual([call[0] for call in ctx.calls], ["selection", "insight", "report", "render", "deliver"])
         self.assertEqual(ctx.calls[0][1]["mode"], "current")
         self.assertEqual(ctx.calls[0][1]["strategy"], "ai")
         self.assertEqual(ctx.calls[1][1]["snapshot"], snapshot)
         self.assertEqual(ctx.calls[1][1]["selection"], selection)
-        self.assertTrue(ctx.calls[4][2]["emit_html"])
-        self.assertTrue(ctx.calls[4][2]["emit_notification"])
-        self.assertEqual(ctx.calls[4][2]["update_info"]["remote_version"], "1.1.0")
-        self.assertEqual(ctx.calls[5][2]["proxy_url"], "http://127.0.0.1:1080")
+        self.assertTrue(ctx.calls[3][2]["emit_html"])
+        self.assertTrue(ctx.calls[3][2]["emit_notification"])
+        self.assertEqual(ctx.calls[3][2]["update_info"]["remote_version"], "1.1.0")
+        self.assertEqual(ctx.calls[4][2]["proxy_url"], "http://127.0.0.1:1080")
         self.assertEqual(scheduler.recorded, [("morning", "push", "2026-04-17")])
 
     def test_execute_mode_strategy_skips_delivery_when_no_notifiable_content(self):
@@ -288,37 +289,77 @@ class NewsRunnerWorkflowStageTest(unittest.TestCase):
 
         runner._execute_mode_strategy(runner._get_mode_strategy(), schedule=schedule)
 
-        self.assertEqual([call[0] for call in ctx.calls], ["selection", "insight", "assemble", "localize", "render"])
-        self.assertFalse(ctx.calls[4][2]["emit_notification"])
+        self.assertEqual([call[0] for call in ctx.calls], ["selection", "insight", "report", "render"])
+        self.assertFalse(ctx.calls[3][2]["emit_notification"])
         self.assertEqual(scheduler.already_calls, [])
+        self.assertEqual(scheduler.recorded, [])
+
+    def test_execute_mode_strategy_skips_delivery_when_report_package_invalid(self):
+        snapshot, selection = _build_snapshot(mode="current", total_selected=1)
+        schedule = SimpleNamespace(
+            report_mode="current",
+            frequency_file=None,
+            filter_method=None,
+            interests_file=None,
+            push=True,
+            once_push=False,
+            period_key=None,
+            period_name=None,
+        )
+        scheduler = FakeScheduler(schedule)
+        render_result = RenderArtifacts(
+            html=HTMLArtifact(file_path="output/html/2026-04-17/103000.html", content="<html></html>"),
+            payloads=[DeliveryPayload(channel="generic_webhook", title="实时报告", content="payload")],
+        )
+        ctx = FakeContext(snapshot, selection, scheduler, render_result)
+        ctx.report_package.integrity = ReportIntegrity(valid=False, errors=["snapshot linkage missing"])
+        runner = self._build_runner(ctx)
+
+        runner._execute_mode_strategy(runner._get_mode_strategy(), schedule=schedule)
+
+        self.assertEqual([call[0] for call in ctx.calls], ["selection", "insight", "report", "render"])
+        self.assertFalse(ctx.calls[3][2]["emit_notification"])
         self.assertEqual(scheduler.recorded, [])
 
     def test_daily_notifiable_content_requires_selection_filtered_new_items(self):
         runner = self._build_runner(SimpleNamespace())
-        item = HotlistItem(
-            news_item_id="nba-1",
-            source_id="hackernews",
-            source_name="Hacker News",
-            title="NBA finals schedule announced",
-            current_rank=3,
-            ranks=[3],
-        )
-        snapshot = HotlistSnapshot(
-            mode="daily",
-            generated_at="2026-04-17 10:30:00",
-            items=[item],
-            new_items=[item],
-            summary={"total_items": 1, "total_new_items": 1},
-        )
-        selection = SelectionResult(
-            strategy="keyword",
-            groups=[],
-            selected_items=[],
-            total_candidates=1,
-            total_selected=0,
+        report_package = ReportPackage(
+            meta=ReportPackageMeta(mode="daily", report_type="日报"),
+            content=ReportContent(
+                hotlist_groups=[],
+                selected_items=[],
+                new_items=[],
+                standalone_sections=[],
+                insight_sections=[],
+            ),
+            integrity=ReportIntegrity(valid=True),
         )
 
-        self.assertFalse(runner._has_valid_content(snapshot, selection))
+        self.assertFalse(runner._has_valid_content(report_package))
+
+    def test_has_valid_content_requires_valid_report_package(self):
+        runner = self._build_runner(SimpleNamespace())
+        item = HotlistItem(
+            news_item_id="1",
+            source_id="hackernews",
+            source_name="Hacker News",
+            title="OpenAI launches a new coding agent",
+            current_rank=1,
+            ranks=[1],
+        )
+        report_package = ReportPackage(
+            meta=ReportPackageMeta(mode="current", report_type="实时报告"),
+            content=ReportContent(
+                hotlist_groups=[SelectionGroup(key="ai", label="AI", items=[item], position=0)],
+                selected_items=[item],
+                new_items=[],
+                standalone_sections=[],
+                insight_sections=[],
+            ),
+            integrity=ReportIntegrity(valid=False, errors=["selection mismatch"]),
+        )
+
+        self.assertFalse(runner._has_valid_content(report_package))
 
 
 if __name__ == "__main__":

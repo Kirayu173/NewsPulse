@@ -10,13 +10,11 @@ class AppContextTest(unittest.TestCase):
             {
                 "AI": {"MODEL": "openai/base", "TIMEOUT": 120},
                 "AI_ANALYSIS_MODEL": {"MODEL": "openai/analysis", "TIMEOUT": 180},
-                "AI_TRANSLATION_MODEL": {"MODEL": "openai/translation", "TIMEOUT": 90},
                 "AI_FILTER_MODEL": {"MODEL": "openai/filter", "TIMEOUT": 360},
             }
         )
 
         self.assertEqual(ctx.ai_analysis_model_config["MODEL"], "openai/analysis")
-        self.assertEqual(ctx.ai_translation_model_config["MODEL"], "openai/translation")
         self.assertEqual(ctx.ai_filter_model_config["MODEL"], "openai/filter")
         self.assertEqual(ctx.ai_filter_model_config["TIMEOUT"], 360)
 
@@ -166,71 +164,22 @@ class AppContextTest(unittest.TestCase):
         self.assertTrue(options.metadata["mode_resolved_by_context"])
         self.assertEqual(options.max_items, 12)
 
-    def test_build_localization_options_supports_split_new_items_scope(self):
+    def test_region_order_filters_disabled_regions_even_if_region_order_lists_them(self):
         ctx = AppContext(
             {
-                "AI_TRANSLATION": {
-                    "ENABLED": True,
-                    "STRATEGY": "ai",
-                    "LANGUAGE": "Japanese",
-                    "SCOPE": {
-                        "HOTLIST": False,
-                        "NEW_ITEMS": True,
+                "DISPLAY": {
+                    "REGION_ORDER": ["hotlist", "new_items", "standalone", "insight"],
+                    "REGIONS": {
+                        "HOTLIST": True,
+                        "NEW_ITEMS": False,
                         "STANDALONE": True,
-                        "INSIGHT": True,
+                        "INSIGHT": False,
                     },
                 }
             }
         )
 
-        options = ctx.build_localization_options()
-
-        self.assertTrue(options.enabled)
-        self.assertEqual(options.strategy, "ai")
-        self.assertEqual(options.language, "Japanese")
-        self.assertFalse(options.scope.selection_titles)
-        self.assertTrue(options.scope.new_items)
-        self.assertTrue(options.scope.standalone)
-        self.assertTrue(options.scope.insight_sections)
-
-    def test_build_localization_options_prefers_workflow_localization_config(self):
-        ctx = AppContext(
-            {
-                "WORKFLOW": {
-                    "LOCALIZATION": {
-                        "ENABLED": True,
-                        "STRATEGY": "ai",
-                        "LANGUAGE": "German",
-                        "SCOPE": {
-                            "SELECTION_TITLES": True,
-                            "NEW_ITEMS": False,
-                            "STANDALONE": False,
-                            "INSIGHT_SECTIONS": True,
-                        },
-                    }
-                },
-                "AI_TRANSLATION": {
-                    "ENABLED": True,
-                    "STRATEGY": "ai",
-                    "LANGUAGE": "Japanese",
-                    "SCOPE": {
-                        "HOTLIST": False,
-                        "NEW_ITEMS": True,
-                        "STANDALONE": True,
-                        "INSIGHT": False,
-                    },
-                },
-            }
-        )
-
-        options = ctx.build_localization_options()
-
-        self.assertTrue(options.enabled)
-        self.assertEqual(options.language, "German")
-        self.assertTrue(options.scope.selection_titles)
-        self.assertFalse(options.scope.new_items)
-        self.assertFalse(options.scope.standalone)
-        self.assertTrue(options.scope.insight_sections)
+        self.assertEqual(ctx.region_order, ["hotlist", "standalone"])
 
     def test_native_workflow_and_raw_ai_sections_drive_derived_stage_configs(self):
         ctx = AppContext(
@@ -262,17 +211,6 @@ class AppContextTest(unittest.TestCase):
                         "max_items": 8,
                         "language": "Japanese",
                     },
-                    "localization": {
-                        "enabled": True,
-                        "strategy": "ai",
-                        "language": "German",
-                        "scope": {
-                            "selection_titles": True,
-                            "new_items": False,
-                            "standalone": True,
-                            "insight_sections": True,
-                        },
-                    },
                 },
                 "ai": {
                     "runtime": {
@@ -295,18 +233,11 @@ class AppContextTest(unittest.TestCase):
                             "temperature": 0.2,
                             "prompt_file": "insight_prompt.txt",
                         },
-                        "localization": {
-                            "api_base": "https://translation.example/v1",
-                            "num_retries": 3,
-                            "prompt_file": "translation_prompt.txt",
-                            "extra_params": {"top_p": 0.9},
-                        },
                     },
                 },
                 "FILTER": {"METHOD": "keyword"},
                 "AI_FILTER": {"PROMPT_FILE": "legacy_selection_prompt.txt"},
                 "AI_ANALYSIS": {"PROMPT_FILE": "legacy_insight_prompt.txt"},
-                "AI_TRANSLATION": {"PROMPT_FILE": "legacy_translation_prompt.txt"},
             }
         )
 
@@ -325,13 +256,10 @@ class AppContextTest(unittest.TestCase):
         self.assertEqual(ctx.ai_analysis_model_config["API_KEY"], "insight-key")
         self.assertEqual(ctx.ai_analysis_model_config["TEMPERATURE"], 0.2)
 
-        self.assertEqual(ctx.ai_translation_config["PROMPT_FILE"], "translation_prompt.txt")
-        self.assertEqual(ctx.ai_translation_config["NUM_RETRIES"], 3)
-        self.assertEqual(ctx.ai_translation_config["EXTRA_PARAMS"], {"top_p": 0.9})
-        self.assertEqual(ctx.ai_translation_model_config["API_BASE"], "https://translation.example/v1")
-        self.assertEqual(ctx.ai_translation_model_config["NUM_RETRIES"], 3)
-
-    def test_context_no_longer_exposes_legacy_report_helpers(self):
+    def test_context_no_longer_exposes_removed_localization_or_legacy_report_helpers(self):
+        self.assertFalse(hasattr(AppContext, "build_localization_options"))
+        self.assertFalse(hasattr(AppContext, "create_localization_service"))
+        self.assertFalse(hasattr(AppContext, "run_localization_stage"))
         self.assertFalse(hasattr(AppContext, "load_frequency_words"))
         self.assertFalse(hasattr(AppContext, "matches_word_groups"))
         self.assertFalse(hasattr(AppContext, "count_frequency"))

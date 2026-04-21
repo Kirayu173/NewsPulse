@@ -78,7 +78,6 @@ def _build_config(config_root: Path, output_dir: Path) -> dict:
         "AI": {"MODEL": "openai/base", "API_KEY": "test-key", "TIMEOUT": 30},
         "AI_FILTER_MODEL": {"MODEL": "openai/filter", "API_KEY": "test-key", "TIMEOUT": 30},
         "AI_ANALYSIS_MODEL": {"MODEL": "openai/analysis", "API_KEY": "test-key", "TIMEOUT": 30},
-        "AI_TRANSLATION_MODEL": {"MODEL": "openai/translation", "API_KEY": "test-key", "TIMEOUT": 30},
         "AI_FILTER": {
             "BATCH_SIZE": 2,
             "BATCH_INTERVAL": 0,

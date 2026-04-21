@@ -38,7 +38,7 @@ def render_hotlist_stats_html(groups: list["RenderGroupView"], display_mode: str
             f'<button class="tab-btn" data-tab-index="{tab_i}">'
             f'{escaped_tab_word}<span class="tab-count">{tab_count}</span></button>'
         )
-    tab_bar_html += '<button class="tab-btn" data-tab-index="all">鍏ㄩ儴</button></div>'
+    tab_bar_html += '<button class="tab-btn" data-tab-index="all">全部</button></div>'
 
     stats_html = ""
     for index, group in enumerate(groups, 1):
@@ -56,9 +56,9 @@ def render_hotlist_stats_html(groups: list["RenderGroupView"], display_mode: str
                     <div class="word-header">
                         <div class="word-title">
                             <div class="word-name">{escaped_word}</div>
-                            <div class="word-count {count_class}">{count} 鏉?/div>
+                            <div class="word-count {count_class}">{count} 条</div>
                         </div>
-                        <div class="word-index"><span class="collapse-icon">鈻?/span>{index}/{total_count}</div>
+                        <div class="word-index"><span class="collapse-icon">▾</span>{index}/{total_count}</div>
                     </div>"""
 
         for title_index, item in enumerate(group.items, 1):
@@ -93,7 +93,7 @@ def render_hotlist_stats_html(groups: list["RenderGroupView"], display_mode: str
                 stats_html += f'<span class="time-info">{html_escape(simplified_time)}</span>'
 
             if item.count > 1:
-                stats_html += f'<span class="count-info">{item.count}娆?/span>'
+                stats_html += f'<span class="count-info">{item.count} 次</span>'
 
             stats_html += """
                             </div>
@@ -129,7 +129,7 @@ def render_new_titles_html(groups: list["RenderGroupView"], total_new_count: int
 
     new_titles_html = f"""
                 <div class="new-section">
-                    <div class="new-section-title">鏈鏂板鐑偣 (鍏?{total_new_count} 鏉?</div>
+                    <div class="new-section-title">本次新增热点（共 {total_new_count} 条）</div>
                     <div class="new-sources-grid">"""
 
     for group in groups:
@@ -138,7 +138,7 @@ def render_new_titles_html(groups: list["RenderGroupView"], total_new_count: int
 
         new_titles_html += f"""
                         <div class="new-source-group">
-                            <div class="new-source-title">{html_escape(group.label)} ({len(group.items)} 鏉?/div>"""
+                            <div class="new-source-title">{html_escape(group.label)} ({len(group.items)} 条)</div>"""
 
         for index, item in enumerate(group.items, 1):
             title = html_escape(item.title)
@@ -190,8 +190,8 @@ def render_standalone_html(groups: list["RenderGroupView"]) -> str:
     standalone_html = f"""
                 <div class="standalone-section">
                     <div class="standalone-section-header">
-                        <div class="standalone-section-title">鐙珛灞曠ず鍖?/div>
-                        <div class="standalone-section-count">{total_count} 鏉?/div>
+                        <div class="standalone-section-title">独立展示</div>
+                        <div class="standalone-section-count">{total_count} 条</div>
                     </div>"""
 
     if len(groups) >= 2:
@@ -207,7 +207,7 @@ def render_standalone_html(groups: list["RenderGroupView"]) -> str:
                 f'{name}<span class="tab-count">{len(group.items)}</span></button>'
             )
         standalone_html += f"""
-                        <button class="tab-btn" data-standalone-tab="all">鍏ㄩ儴<span class="tab-count">{total_count}</span></button>
+                        <button class="tab-btn" data-standalone-tab="all">全部<span class="tab-count">{total_count}</span></button>
                     </div>"""
 
     standalone_html += """
@@ -221,7 +221,7 @@ def render_standalone_html(groups: list["RenderGroupView"]) -> str:
                     <div class="standalone-group" data-standalone-tab="{idx}">
                         <div class="standalone-header">
                             <div class="standalone-name">{html_escape(group.label)}</div>
-                            <div class="standalone-count">{len(group.items)} 鏉?/div>
+                            <div class="standalone-count">{len(group.items)} 条</div>
                         </div>"""
 
         for item_index, item in enumerate(group.items, 1):
@@ -247,7 +247,7 @@ def render_standalone_html(groups: list["RenderGroupView"]) -> str:
                 standalone_html += f'<span class="time-info">{html_escape(simplified_time)}</span>'
 
             if item.count > 1:
-                standalone_html += f'<span class="count-info">{item.count}娆?/span>'
+                standalone_html += f'<span class="count-info">{item.count} 次</span>'
 
             standalone_html += """
                                 </div>

@@ -3,17 +3,18 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from newspulse.utils.time import convert_time_for_display
+from newspulse.workflow.report import DEFAULT_REPORT_TYPE, REPORT_TYPE_BY_MODE
 from newspulse.workflow.shared.contracts import (
     DeliveryPayload,
     HotlistItem,
-    InsightResult,
-    LocalizedReport,
+    InsightSection,
+    ReportPackage,
     SelectionGroup,
-    SelectionResult,
     StandaloneSection,
 )
 from newspulse.workflow.shared.scoring import calculate_news_weight
@@ -26,61 +27,11 @@ DEFAULT_RENDER_REGIONS = [
     "insight",
 ]
 
-REPORT_TYPE_BY_MODE = {
-    "daily": "每日报告",
-    "current": "实时报告",
-    "incremental": "增量报告",
-}
-
 DEFAULT_WEIGHT_CONFIG = {
     "RANK_WEIGHT": 0.6,
     "FREQUENCY_WEIGHT": 0.3,
     "HOTNESS_WEIGHT": 0.1,
 }
-
-
-@dataclass(frozen=True)
-class RenderReportMeta:
-    """Normalized report metadata assembled before localization/rendering."""
-
-    mode: str
-    generated_at: str
-    report_type: str
-    timezone: str = ""
-    display_mode: str = "keyword"
-    selection_strategy: str = ""
-    insight_strategy: str = ""
-    total_items: int = 0
-    total_selected: int = 0
-    total_new_items: int = 0
-    total_standalone_sections: int = 0
-    total_failed_sources: int = 0
-    snapshot_summary: dict[str, Any] = field(default_factory=dict)
-    selection_diagnostics: dict[str, Any] = field(default_factory=dict)
-    insight_diagnostics: dict[str, Any] = field(default_factory=dict)
-    failed_sources: list[dict[str, Any]] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert the normalized metadata to the public report shape."""
-
-        return {
-            "mode": self.mode,
-            "generated_at": self.generated_at,
-            "report_type": self.report_type,
-            "timezone": self.timezone,
-            "display_mode": self.display_mode,
-            "selection_strategy": self.selection_strategy,
-            "insight_strategy": self.insight_strategy,
-            "total_items": self.total_items,
-            "total_selected": self.total_selected,
-            "total_new_items": self.total_new_items,
-            "total_standalone_sections": self.total_standalone_sections,
-            "total_failed_sources": self.total_failed_sources,
-            "snapshot_summary": dict(self.snapshot_summary),
-            "selection_diagnostics": dict(self.selection_diagnostics),
-            "insight_diagnostics": dict(self.insight_diagnostics),
-            "failed_sources": [dict(item) for item in self.failed_sources],
-        }
 
 
 @dataclass(frozen=True)
@@ -93,6 +44,8 @@ class RenderTitleView:
     source_name: str = ""
     url: str = ""
     mobile_url: str = ""
+    summary: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
     current_rank: int = 0
     ranks: list[int] = field(default_factory=list)
     time_display: str = ""
@@ -151,8 +104,72 @@ class RenderGroupView:
 
 
 @dataclass(frozen=True)
+class RenderSelectionEvidenceView:
+    """Selection-funnel evidence shown on the HTML news card."""
+
+    matched_topics: list[str] = field(default_factory=list)
+    llm_reasons: list[str] = field(default_factory=list)
+    evidence: str = ""
+    semantic_score: float = 0.0
+    quality_score: float = 0.0
+    decision_layer: str = ""
+
+    @property
+    def visible(self) -> bool:
+        return bool(
+            self.matched_topics
+            or self.llm_reasons
+            or self.evidence
+            or self.semantic_score > 0
+            or self.quality_score > 0
+            or self.decision_layer
+        )
+
+
+@dataclass(frozen=True)
+class RenderItemAnalysisView:
+    """Per-news LLM analysis shown next to the original news signal."""
+
+    status: str = "missing"
+    what_happened: str = ""
+    key_facts: list[str] = field(default_factory=list)
+    why_it_matters: str = ""
+    watchpoints: list[str] = field(default_factory=list)
+    uncertainties: list[str] = field(default_factory=list)
+    evidence: list[str] = field(default_factory=list)
+    confidence: float = 0.0
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def visible(self) -> bool:
+        return bool(
+            self.what_happened
+            or self.key_facts
+            or self.why_it_matters
+            or self.watchpoints
+            or self.uncertainties
+            or self.evidence
+        )
+
+
+@dataclass(frozen=True)
+class RenderNewsCardView:
+    """Flat news-card view used by the redesigned HTML report."""
+
+    item: RenderTitleView
+    source_summary: str = ""
+    source_attributes: list[str] = field(default_factory=list)
+    selection_evidence: RenderSelectionEvidenceView = field(default_factory=RenderSelectionEvidenceView)
+    analysis: RenderItemAnalysisView = field(default_factory=RenderItemAnalysisView)
+    is_selected: bool = False
+    is_new: bool = False
+    is_standalone: bool = False
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class RenderInsightSectionView:
-    """Localized insight block used by both HTML and notification rendering."""
+    """Insight block used by both HTML and notification rendering."""
 
     key: str
     title: str
@@ -175,15 +192,16 @@ class RenderInsightView:
     def visible(self) -> bool:
         """Return whether the insight region should be rendered."""
 
-        return bool(self.sections or self.message)
+        return bool(self.sections) or (
+            self.status in {"skipped", "error"} and bool(self.message)
+        )
 
 
 @dataclass(frozen=True)
 class RenderViewModel:
-    """Native render view model built from the localized workflow report."""
+    """Native render view model built from the assembled report package."""
 
     meta: dict[str, Any] = field(default_factory=dict)
-    display_regions: list[str] = field(default_factory=list)
     display_mode: str = "keyword"
     rank_threshold: int = 10
     total_titles: int = 0
@@ -191,9 +209,8 @@ class RenderViewModel:
     hotlist_groups: list[RenderGroupView] = field(default_factory=list)
     new_item_groups: list[RenderGroupView] = field(default_factory=list)
     standalone_groups: list[RenderGroupView] = field(default_factory=list)
+    news_cards: list[RenderNewsCardView] = field(default_factory=list)
     insight: RenderInsightView = field(default_factory=RenderInsightView)
-    language: str = ""
-    translation_meta: dict[str, Any] = field(default_factory=dict)
 
     @property
     def mode(self) -> str:
@@ -201,11 +218,15 @@ class RenderViewModel:
 
     @property
     def report_type(self) -> str:
-        return str(self.meta.get("report_type", REPORT_TYPE_BY_MODE.get(self.mode, "热点报告")))
+        return str(self.meta.get("report_type", REPORT_TYPE_BY_MODE.get(self.mode, DEFAULT_REPORT_TYPE)))
 
     @property
     def total_new_items(self) -> int:
         return sum(len(group.items) for group in self.new_item_groups)
+
+    @property
+    def analyzed_card_count(self) -> int:
+        return sum(1 for card in self.news_cards if card.analysis.visible)
 
 
 @dataclass(frozen=True)
@@ -226,99 +247,96 @@ class RenderArtifacts:
 
 
 def build_render_view_model(
-    report: LocalizedReport,
+    report: ReportPackage,
     *,
     display_mode: str = "keyword",
     rank_threshold: int = 50,
     weight_config: dict[str, float] | None = None,
     convert_time_func: Callable[[str], str] = convert_time_for_display,
 ) -> RenderViewModel:
-    """Build the native render view model from the localized workflow report."""
+    """Build the native render view model from the assembled report package."""
 
-    base_report = report.base_report
-    meta = dict(base_report.meta or {})
-    mode = str(meta.get("mode", "daily"))
-    meta.setdefault("mode", mode)
-    meta.setdefault("report_type", REPORT_TYPE_BY_MODE.get(mode, "热点报告"))
-    meta.setdefault("display_mode", display_mode)
+    mode = str(report.meta.mode or "daily")
+    effective_display_mode = display_mode or str(report.meta.display_mode or "keyword")
+    selection_meta = deepcopy(report.diagnostics.get("selection", {}))
+    insight_meta = deepcopy(report.diagnostics.get("insight", {}))
+    meta = {
+        "mode": mode,
+        "generated_at": report.meta.generated_at,
+        "report_type": report.meta.report_type or REPORT_TYPE_BY_MODE.get(mode, DEFAULT_REPORT_TYPE),
+        "timezone": report.meta.timezone,
+        "display_mode": report.meta.display_mode or effective_display_mode,
+        "selection_strategy": report.meta.selection_strategy,
+        "insight_strategy": report.meta.insight_strategy,
+        "integrity": {
+            "valid": report.integrity.valid,
+            "warnings": list(report.integrity.warnings),
+            "errors": list(report.integrity.errors),
+            "skipped_regions": list(report.integrity.skipped_regions),
+            "counters": dict(report.integrity.counters),
+        },
+        "snapshot_summary": deepcopy(report.diagnostics.get("snapshot_summary", {})),
+        "selection": selection_meta,
+        "insight": insight_meta,
+        "failed_sources": [dict(item) for item in report.diagnostics.get("failed_sources", [])],
+    }
 
     hotlist_groups = _build_hotlist_groups(
-        base_report.selection,
-        report.localized_titles,
-        display_mode=display_mode,
+        report.content.hotlist_groups,
+        display_mode=effective_display_mode,
         rank_threshold=rank_threshold,
         weight_config=weight_config,
         convert_time_func=convert_time_func,
     )
     new_item_groups = _build_source_groups(
-        base_report.new_items,
-        report.localized_titles,
+        report.content.new_items,
         rank_threshold=rank_threshold,
         convert_time_func=convert_time_func,
     )
     standalone_groups = _build_standalone_groups(
-        base_report.standalone_sections,
-        report.localized_titles,
+        report.content.standalone_sections,
+        rank_threshold=rank_threshold,
+        convert_time_func=convert_time_func,
+    )
+    news_cards = _build_news_cards(
+        report,
         rank_threshold=rank_threshold,
         convert_time_func=convert_time_func,
     )
     insight_view = _build_insight_view(
-        base_report.insight,
-        report.localized_sections,
-        total_titles=base_report.selection.total_selected,
+        report.content.insight_sections,
+        insight_metadata=insight_meta,
+        total_titles=len(report.content.selected_items),
         report_meta=meta,
     )
 
     return RenderViewModel(
         meta=meta,
-        display_regions=_normalize_display_regions(base_report.display_regions),
-        display_mode=display_mode,
+        display_mode=effective_display_mode,
         rank_threshold=rank_threshold,
-        total_titles=base_report.selection.total_selected,
+        total_titles=len(report.content.selected_items),
         failed_source_names=_build_failed_source_names(meta),
         hotlist_groups=hotlist_groups,
         new_item_groups=new_item_groups,
         standalone_groups=standalone_groups,
+        news_cards=news_cards,
         insight=insight_view,
-        language=report.language,
-        translation_meta=dict(report.translation_meta or {}),
     )
 
 
-def _normalize_display_regions(display_regions: list[str]) -> list[str]:
-    normalized: list[str] = []
-    for value in display_regions or DEFAULT_RENDER_REGIONS:
-        region = str(value or "").strip().lower()
-        if region and region not in normalized:
-            normalized.append(region)
-    return normalized or list(DEFAULT_RENDER_REGIONS)
-
-
 def _build_hotlist_groups(
-    selection: SelectionResult,
-    localized_titles: dict[str, str],
+    groups: list[SelectionGroup],
     *,
     display_mode: str,
     rank_threshold: int,
     weight_config: dict[str, float] | None,
     convert_time_func: Callable[[str], str],
 ) -> list[RenderGroupView]:
-    groups = list(selection.groups or [])
-    if not groups or _is_compat_qualified_group(groups):
-        fallback_items = list(selection.qualified_items or selection.selected_items or [])
-        return _build_source_groups(
-            fallback_items,
-            localized_titles,
-            rank_threshold=rank_threshold,
-            convert_time_func=convert_time_func,
-        )
-
     keyword_groups: list[RenderGroupView] = []
     for group in groups:
         items = [
             _build_title_view(
                 item,
-                localized_titles,
                 rank_threshold=rank_threshold,
                 convert_time_func=convert_time_func,
                 matched_keyword=group.label,
@@ -342,13 +360,6 @@ def _build_hotlist_groups(
     return _build_platform_groups(keyword_groups, rank_threshold=rank_threshold, weight_config=weight_config)
 
 
-def _is_compat_qualified_group(groups: list[SelectionGroup]) -> bool:
-    if len(groups) != 1:
-        return False
-    group = groups[0]
-    return str(group.key or "").strip().lower() == "qualified"
-
-
 def _build_platform_groups(
     keyword_groups: list[RenderGroupView],
     *,
@@ -365,7 +376,7 @@ def _build_platform_groups(
     for group in keyword_groups:
         for item in group.items:
             source_id = item.source_id or item.source_name or "unknown"
-            source_name = item.source_name or item.source_id or "未知来源"
+            source_name = item.source_name or item.source_id or "Unknown"
             platform_key = (source_id, source_name)
             dedupe_key = item.news_item_id or item.title
             seen = seen_titles.setdefault(platform_key, set())
@@ -406,7 +417,6 @@ def _platform_item_sort_key(item: RenderTitleView, weight_config: dict[str, floa
 
 def _build_source_groups(
     items: list[HotlistItem],
-    localized_titles: dict[str, str],
     *,
     rank_threshold: int,
     convert_time_func: Callable[[str], str],
@@ -415,13 +425,12 @@ def _build_source_groups(
     for item in items:
         title_view = _build_title_view(
             item,
-            localized_titles,
             rank_threshold=rank_threshold,
             convert_time_func=convert_time_func,
         )
         source_key = (
             title_view.source_id or item.source_id or title_view.source_name or "unknown",
-            title_view.source_name or item.source_name or item.source_id or "未知来源",
+            title_view.source_name or item.source_name or item.source_id or "Unknown",
         )
         grouped.setdefault(source_key, []).append(title_view)
 
@@ -441,7 +450,6 @@ def _build_source_groups(
 
 def _build_standalone_groups(
     sections: list[StandaloneSection],
-    localized_titles: dict[str, str],
     *,
     rank_threshold: int,
     convert_time_func: Callable[[str], str],
@@ -451,7 +459,6 @@ def _build_standalone_groups(
         items = [
             _build_title_view(
                 item,
-                localized_titles,
                 rank_threshold=rank_threshold,
                 convert_time_func=convert_time_func,
             )
@@ -471,24 +478,267 @@ def _build_standalone_groups(
     return groups
 
 
-def _build_insight_view(
-    insight: InsightResult,
-    localized_sections: dict[str, str],
+def _build_news_cards(
+    report: ReportPackage,
     *,
+    rank_threshold: int,
+    convert_time_func: Callable[[str], str],
+) -> list[RenderNewsCardView]:
+    selected_items = list(report.content.selected_items or [])
+    selected_ids = {str(item.news_item_id or "").strip() for item in selected_items}
+    new_ids = {str(item.news_item_id or "").strip() for item in report.content.new_items}
+    standalone_rows = _collect_standalone_rows(report.content.standalone_sections)
+    standalone_ids = set(standalone_rows)
+    group_labels = _build_group_labels_map(report.content.hotlist_groups)
+
+    selection_meta = dict(report.diagnostics.get("selection", {}))
+    insight_meta = dict(report.diagnostics.get("insight", {}))
+    selection_matches = _build_selection_match_map(selection_meta)
+    input_contexts = _build_input_context_map(insight_meta)
+    item_analyses = _build_item_analysis_map(insight_meta)
+
+    ordered_items: list[HotlistItem] = list(selected_items)
+    seen_ids = {str(item.news_item_id or "").strip() for item in ordered_items}
+    for row in standalone_rows.values():
+        item = row["item"]
+        item_id = str(item.news_item_id or "").strip()
+        if item_id in seen_ids:
+            continue
+        ordered_items.append(item)
+        seen_ids.add(item_id)
+
+    cards: list[RenderNewsCardView] = []
+    for item in ordered_items:
+        item_id = str(item.news_item_id or "").strip()
+        if not item_id:
+            continue
+
+        context_payload = input_contexts.get(item_id, {})
+        analysis_payload = item_analyses.get(item_id, {})
+        standalone_meta = standalone_rows.get(item_id, {})
+
+        cards.append(
+            RenderNewsCardView(
+                item=_build_title_view(
+                    item,
+                    rank_threshold=rank_threshold,
+                    convert_time_func=convert_time_func,
+                    matched_keyword=", ".join(group_labels.get(item_id, [])),
+                ),
+                source_summary=_build_source_summary(item, context_payload),
+                source_attributes=_coerce_str_list(
+                    context_payload.get("source_context", {}).get("attributes", [])
+                    if isinstance(context_payload.get("source_context"), dict)
+                    else []
+                ),
+                selection_evidence=_build_selection_evidence_view(
+                    context_payload=context_payload,
+                    match_payload=selection_matches.get(item_id, {}),
+                ),
+                analysis=_build_item_analysis_view(analysis_payload),
+                is_selected=item_id in selected_ids,
+                is_new=item.is_new or item_id in new_ids,
+                is_standalone=item_id in standalone_ids,
+                metadata={
+                    "group_labels": list(group_labels.get(item_id, [])),
+                    "standalone_section_key": str(standalone_meta.get("section_key", "") or ""),
+                    "standalone_section_label": str(standalone_meta.get("section_label", "") or ""),
+                },
+            )
+        )
+    return cards
+
+
+def _collect_standalone_rows(
+    sections: list[StandaloneSection],
+) -> dict[str, dict[str, Any]]:
+    rows: dict[str, dict[str, Any]] = {}
+    for section in sections:
+        for item in section.items:
+            item_id = str(item.news_item_id or "").strip()
+            if not item_id or item_id in rows:
+                continue
+            rows[item_id] = {
+                "item": item,
+                "section_key": section.key,
+                "section_label": section.label,
+            }
+    return rows
+
+
+def _build_group_labels_map(groups: list[SelectionGroup]) -> dict[str, list[str]]:
+    labels_by_item: dict[str, list[str]] = {}
+    for group in groups:
+        label = str(group.label or "").strip()
+        if not label:
+            continue
+        for item in group.items:
+            item_id = str(item.news_item_id or "").strip()
+            if not item_id:
+                continue
+            labels = labels_by_item.setdefault(item_id, [])
+            if label not in labels:
+                labels.append(label)
+    return labels_by_item
+
+
+def _build_selection_match_map(selection_meta: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    diagnostics = selection_meta.get("diagnostics", {})
+    if not isinstance(diagnostics, dict):
+        return {}
+    rows = diagnostics.get("selected_matches", [])
+    if not isinstance(rows, list):
+        return {}
+
+    payload: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        item_id = str(row.get("news_item_id", "") or "").strip()
+        if item_id:
+            payload[item_id] = dict(row)
+    return payload
+
+
+def _build_input_context_map(insight_meta: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    diagnostics = insight_meta.get("diagnostics", {})
+    if not isinstance(diagnostics, dict):
+        return {}
+    rows = diagnostics.get("input_contexts", [])
+    if not isinstance(rows, list):
+        return {}
+
+    payload: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        item_id = str(row.get("news_item_id", "") or "").strip()
+        if item_id:
+            payload[item_id] = dict(row)
+    return payload
+
+
+def _build_item_analysis_map(insight_meta: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    diagnostics = insight_meta.get("diagnostics", {})
+    if not isinstance(diagnostics, dict):
+        return {}
+    rows = diagnostics.get("item_analysis_payloads", [])
+    if not isinstance(rows, list):
+        return {}
+
+    payload: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        item_id = str(row.get("news_item_id", "") or "").strip()
+        if item_id:
+            payload[item_id] = dict(row)
+    return payload
+
+
+def _build_source_summary(item: HotlistItem, context_payload: dict[str, Any]) -> str:
+    source_context = context_payload.get("source_context", {}) if isinstance(context_payload, dict) else {}
+    if isinstance(source_context, dict):
+        summary = str(source_context.get("summary", "") or "").strip()
+        if summary:
+            return summary
+    return str(item.summary or "").strip()
+
+
+def _build_selection_evidence_view(
+    *,
+    context_payload: dict[str, Any],
+    match_payload: dict[str, Any],
+) -> RenderSelectionEvidenceView:
+    selection_payload = context_payload.get("selection_evidence", {}) if isinstance(context_payload, dict) else {}
+    if not isinstance(selection_payload, dict):
+        selection_payload = {}
+
+    matched_topics = _coerce_str_list(selection_payload.get("matched_topics", []))
+    if not matched_topics:
+        matched_topics = _coerce_str_list(match_payload.get("matched_topics", []))
+
+    llm_reasons = _coerce_str_list(selection_payload.get("llm_reasons", []))
+    if not llm_reasons:
+        llm_reasons = _coerce_str_list(match_payload.get("reasons", []))
+
+    return RenderSelectionEvidenceView(
+        matched_topics=matched_topics,
+        llm_reasons=llm_reasons,
+        evidence=str(match_payload.get("evidence", "") or "").strip(),
+        semantic_score=_coerce_float(selection_payload.get("semantic_score", 0.0)),
+        quality_score=_coerce_float(
+            selection_payload.get("quality_score", match_payload.get("quality_score", 0.0))
+        ),
+        decision_layer=str(
+            selection_payload.get("decision_layer", match_payload.get("decision_layer", "")) or ""
+        ).strip(),
+    )
+
+
+def _build_item_analysis_view(payload: dict[str, Any]) -> RenderItemAnalysisView:
+    if not payload:
+        return RenderItemAnalysisView()
+
+    diagnostics = payload.get("diagnostics", {})
+    if not isinstance(diagnostics, dict):
+        diagnostics = {}
+
+    return RenderItemAnalysisView(
+        status=str(diagnostics.get("status", "ok") or "ok").strip(),
+        what_happened=str(payload.get("what_happened", "") or "").strip(),
+        key_facts=_coerce_str_list(payload.get("key_facts", [])),
+        why_it_matters=str(payload.get("why_it_matters", "") or "").strip(),
+        watchpoints=_coerce_str_list(payload.get("watchpoints", [])),
+        uncertainties=_coerce_str_list(payload.get("uncertainties", [])),
+        evidence=_coerce_str_list(payload.get("evidence", [])),
+        confidence=_coerce_float(payload.get("confidence", 0.0)),
+        diagnostics=diagnostics,
+    )
+
+
+def _coerce_str_list(value: Any) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    normalized: list[str] = []
+    for item in value:
+        text = str(item or "").strip()
+        if text:
+            normalized.append(text)
+    return normalized
+
+
+def _coerce_float(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _build_insight_view(
+    sections: list[InsightSection],
+    *,
+    insight_metadata: dict[str, Any],
     total_titles: int,
     report_meta: dict[str, Any],
 ) -> RenderInsightView:
-    diagnostics = dict(insight.diagnostics or {})
-    sections = [
+    diagnostics = dict(insight_metadata.get("diagnostics", {}))
+    enabled = bool(insight_metadata.get("enabled", False))
+    strategy = str(
+        insight_metadata.get("strategy")
+        or report_meta.get("insight_strategy", "")
+        or "noop"
+    ).strip() or "noop"
+    section_views = [
         RenderInsightSectionView(
             key=section.key,
             title=section.title,
-            content=localized_sections.get(section.key, section.content),
+            content=section.content,
             summary=section.summary,
             metadata=dict(section.metadata or {}),
         )
-        for section in insight.sections
-        if str(localized_sections.get(section.key, section.content) or "").strip()
+        for section in sections
+        if str(section.content or "").strip()
     ]
 
     message = str(
@@ -498,13 +748,13 @@ def _build_insight_view(
         or ""
     ).strip()
 
-    if not insight.enabled and insight.strategy == "noop":
-        status = "disabled"
-    elif diagnostics.get("skipped"):
+    if diagnostics.get("skipped"):
         status = "skipped"
+    elif not enabled and strategy == "noop":
+        status = "disabled"
     elif diagnostics.get("error") or diagnostics.get("parse_error"):
         status = "error"
-    elif sections:
+    elif section_views:
         status = "ok"
     elif message:
         status = "error"
@@ -514,10 +764,13 @@ def _build_insight_view(
     return RenderInsightView(
         status=status,
         message=message,
-        sections=sections,
+        sections=section_views,
         stats={
             "total_news": total_titles,
-            "analyzed_news": int(diagnostics.get("analyzed_items", 0) or 0),
+            "analyzed_news": int(
+                diagnostics.get("analyzed_items", insight_metadata.get("item_analysis_count", 0))
+                or 0
+            ),
             "max_news_limit": int(diagnostics.get("max_items", 0) or 0),
             "hotlist_count": total_titles,
             "ai_mode": str(diagnostics.get("report_mode", report_meta.get("mode", "")) or ""),
@@ -528,20 +781,20 @@ def _build_insight_view(
 
 def _build_title_view(
     item: HotlistItem,
-    localized_titles: dict[str, str],
     *,
     rank_threshold: int,
     convert_time_func: Callable[[str], str],
     matched_keyword: str = "",
 ) -> RenderTitleView:
-    localized_title = localized_titles.get(str(item.news_item_id), item.title)
     return RenderTitleView(
         news_item_id=str(item.news_item_id),
-        title=localized_title,
+        title=item.title,
         source_id=item.source_id,
         source_name=item.source_name,
         url=item.url,
         mobile_url=item.mobile_url,
+        summary=item.summary,
+        metadata=deepcopy(item.metadata),
         current_rank=item.current_rank,
         ranks=list(item.ranks),
         time_display=_build_time_display(item, convert_time_func),

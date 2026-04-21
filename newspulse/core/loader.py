@@ -450,72 +450,10 @@ def _load_workflow_insight_config(config_data: Dict[str, Any]) -> Dict[str, Any]
         },
     }
 
-
-def _load_workflow_localization_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
-    localization = _get_section(config_data, "workflow", "localization")
-    localization_scope = _get_section(localization, "scope")
-    enabled_env = _get_env_bool("AI_TRANSLATION_ENABLED")
-    enabled = bool(
-        _coalesce(
-            _get_present_value(localization, "enabled"),
-            default=False,
-        )
-        if enabled_env is None
-        else enabled_env
-    )
-
-    return {
-        "ENABLED": enabled,
-        "STRATEGY": str(
-            _coalesce(
-                _get_present_value(localization, "strategy"),
-                default="ai" if enabled else "noop",
-            )
-            or ("ai" if enabled else "noop")
-        ).strip()
-        or ("ai" if enabled else "noop"),
-        "LANGUAGE": _get_env_str("AI_TRANSLATION_LANGUAGE")
-        or str(
-            _coalesce(
-                _get_present_value(localization, "language"),
-                default="English",
-            )
-            or "English"
-        ),
-        "SCOPE": {
-            "SELECTION_TITLES": bool(
-                _coalesce(
-                    _get_present_value(localization_scope, "selection_titles"),
-                    default=True,
-                )
-            ),
-            "NEW_ITEMS": bool(
-                _coalesce(
-                    _get_present_value(localization_scope, "new_items"),
-                    default=True,
-                )
-            ),
-            "STANDALONE": bool(
-                _coalesce(
-                    _get_present_value(localization_scope, "standalone"),
-                    default=True,
-                )
-            ),
-            "INSIGHT_SECTIONS": bool(
-                _coalesce(
-                    _get_present_value(localization_scope, "insight_sections"),
-                    default=False,
-                )
-            ),
-        },
-    }
-
-
 def _load_workflow_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "SELECTION": _load_workflow_selection_config(config_data),
         "INSIGHT": _load_workflow_insight_config(config_data),
-        "LOCALIZATION": _load_workflow_localization_config(config_data),
     }
 
 
@@ -553,14 +491,6 @@ def _load_ai_analysis_model_config(config_data: Dict[str, Any], base_ai_config: 
     return _merge_ai_runtime_config(base_ai_config, _get_ai_operation_config(config_data, "insight"), "AI_ANALYSIS")
 
 
-def _load_ai_translation_model_config(config_data: Dict[str, Any], base_ai_config: Dict[str, Any]) -> Dict[str, Any]:
-    return _merge_ai_runtime_config(
-        base_ai_config,
-        _get_ai_operation_config(config_data, "localization"),
-        "AI_TRANSLATION",
-    )
-
-
 def _load_ai_filter_model_config(config_data: Dict[str, Any], base_ai_config: Dict[str, Any]) -> Dict[str, Any]:
     return _merge_ai_runtime_config(base_ai_config, _get_ai_operation_config(config_data, "selection"), "AI_FILTER")
 
@@ -590,19 +520,6 @@ def _load_ai_insight_operation_config(config_data: Dict[str, Any], config_root: 
         "EXTRA_PARAMS": dict(_coalesce(_get_present_value(operation, "extra_params"), default={}) or {}),
     }
 
-
-def _load_ai_localization_operation_config(config_data: Dict[str, Any], config_root: Path) -> Dict[str, Any]:
-    operation = _get_ai_operation_config(config_data, "localization")
-    return {
-        "PROMPT_FILE": str(
-            resolve_prompt_path(
-                str(_coalesce(_get_present_value(operation, "prompt_file"), default="ai_translation_prompt.txt")),
-                config_root=config_root,
-            )
-        ),
-    }
-
-
 def _load_ai_analysis_config(workflow_config: Dict[str, Any], operation_config: Dict[str, Any]) -> Dict[str, Any]:
     insight = workflow_config["INSIGHT"]
     return {
@@ -620,24 +537,6 @@ def _load_ai_analysis_config(workflow_config: Dict[str, Any], operation_config: 
         "ITEM_ANALYSIS": dict(insight.get("ITEM_ANALYSIS", {}) or {}),
         "AGGREGATE": dict(insight.get("AGGREGATE", {}) or {}),
     }
-
-
-def _load_ai_translation_config(workflow_config: Dict[str, Any], operation_config: Dict[str, Any]) -> Dict[str, Any]:
-    localization = workflow_config["LOCALIZATION"]
-    scope = localization["SCOPE"]
-    return {
-        "ENABLED": localization["ENABLED"],
-        "STRATEGY": localization["STRATEGY"],
-        "LANGUAGE": localization["LANGUAGE"],
-        "PROMPT_FILE": operation_config["PROMPT_FILE"],
-        "SCOPE": {
-            "HOTLIST": scope["SELECTION_TITLES"],
-            "NEW_ITEMS": scope["NEW_ITEMS"],
-            "STANDALONE": scope["STANDALONE"],
-            "INSIGHT": scope["INSIGHT_SECTIONS"],
-        },
-    }
-
 
 def _load_ai_filter_config(workflow_config: Dict[str, Any], operation_config: Dict[str, Any]) -> Dict[str, Any]:
     selection_ai = workflow_config["SELECTION"]["AI"]
@@ -738,14 +637,11 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     workflow_config = _load_workflow_config(config_data)
     selection_operation_config = _load_ai_selection_operation_config(config_data, layout.config_root)
     insight_operation_config = _load_ai_insight_operation_config(config_data, layout.config_root)
-    localization_operation_config = _load_ai_localization_operation_config(config_data, layout.config_root)
 
     config["WORKFLOW"] = workflow_config
     config["AI"] = _load_ai_config(config_data)
     config["AI_ANALYSIS"] = _load_ai_analysis_config(workflow_config, insight_operation_config)
     config["AI_ANALYSIS_MODEL"] = _load_ai_analysis_model_config(config_data, config["AI"])
-    config["AI_TRANSLATION"] = _load_ai_translation_config(workflow_config, localization_operation_config)
-    config["AI_TRANSLATION_MODEL"] = _load_ai_translation_model_config(config_data, config["AI"])
     config["AI_FILTER"] = _load_ai_filter_config(workflow_config, selection_operation_config)
     config["AI_FILTER_MODEL"] = _load_ai_filter_model_config(config_data, config["AI"])
 
