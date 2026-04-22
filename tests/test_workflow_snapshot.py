@@ -227,7 +227,7 @@ class SnapshotServiceTest(unittest.TestCase):
 
             storage.get_latest_crawl_data = _boom
             storage.get_today_all_data = _boom
-            storage.get_all_news_ids = _boom
+            storage.news_repo.list_all_news_ids = _boom
             storage.is_first_crawl_today = _boom
 
             self.assertEqual(snapshot.summary["total_items"], 2)

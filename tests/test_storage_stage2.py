@@ -368,7 +368,8 @@ class StorageStage2Test(unittest.TestCase):
         tmp = self._create_workspace_tmpdir()
         storage = self._create_storage(tmp)
         try:
-            storage.save_analyzed_news(
+            repo = storage.ai_filter_repo
+            repo.save_analyzed_news(
                 news_ids=[1, 2],
                 source_type='hotlist',
                 interests_file='scope.txt',
@@ -377,7 +378,7 @@ class StorageStage2Test(unittest.TestCase):
                 tag_version=1,
                 model_key='openai/filter-v1',
             )
-            storage.save_analyzed_news(
+            repo.save_analyzed_news(
                 news_ids=[1, 3],
                 source_type='hotlist',
                 interests_file='scope.txt',
@@ -387,21 +388,21 @@ class StorageStage2Test(unittest.TestCase):
                 model_key='openai/filter-v1',
             )
 
-            all_ids = storage.get_analyzed_news_ids(interests_file='scope.txt')
-            scoped_ids = storage.get_analyzed_news_ids(
+            all_ids = repo.get_analyzed_news_ids(interests_file='scope.txt')
+            scoped_ids = repo.get_analyzed_news_ids(
                 interests_file='scope.txt',
                 prompt_hash='hash-a',
                 tag_version=1,
                 model_key='openai/filter-v1',
             )
-            scoped_cache = storage.get_cached_classifications(
+            scoped_cache = repo.get_cached_classifications(
                 [1, 2, 3],
                 interests_file='scope.txt',
                 prompt_hash='hash-b',
                 tag_version=2,
                 model_key='openai/filter-v1',
             )
-            single_cache = storage.get_cached_classification(
+            single_cache = repo.get_cached_classification(
                 1,
                 interests_file='scope.txt',
                 prompt_hash='hash-a',
@@ -463,12 +464,13 @@ class StorageStage2Test(unittest.TestCase):
         try:
             backend = storage.get_backend()
             migrated_conn = backend.runtime.get_connection('2026-04-18')
+            repo = storage.ai_filter_repo
             pk_columns = [
                 row[1]
                 for row in migrated_conn.execute("PRAGMA table_info(ai_filter_analyzed_news)").fetchall()
                 if row[5] > 0
             ]
-            cached = storage.get_cached_classification(
+            cached = repo.get_cached_classification(
                 7,
                 date='2026-04-18',
                 interests_file='legacy.txt',

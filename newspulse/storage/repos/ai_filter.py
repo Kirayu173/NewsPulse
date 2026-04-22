@@ -10,6 +10,88 @@ logger = get_logger(__name__)
 
 
 class AIFilterRepository(SQLiteRepositoryBase):
+    def save_analyzed_news(
+        self,
+        news_ids: List[int],
+        source_type: str,
+        interests_file: str,
+        prompt_hash: str,
+        matched_ids: set,
+        date: Optional[str] = None,
+        tag_version: int = 0,
+        model_key: str = "",
+    ) -> int:
+        return self._save_analyzed_news_impl(
+            date,
+            news_ids,
+            source_type,
+            interests_file,
+            prompt_hash,
+            matched_ids,
+            tag_version=tag_version,
+            model_key=model_key,
+        )
+
+    def get_analyzed_news_ids(
+        self,
+        source_type: str = "hotlist",
+        date: Optional[str] = None,
+        interests_file: str = "ai_interests.txt",
+        prompt_hash: Optional[str] = None,
+        tag_version: Optional[int] = None,
+        model_key: Optional[str] = None,
+    ) -> set:
+        return self._get_analyzed_news_ids_impl(
+            date,
+            source_type,
+            interests_file,
+            prompt_hash,
+            tag_version,
+            model_key,
+        )
+
+    def get_cached_classification(
+        self,
+        news_item_id: int,
+        date: Optional[str] = None,
+        *,
+        source_type: str = "hotlist",
+        interests_file: str = "ai_interests.txt",
+        prompt_hash: str = "",
+        tag_version: int = 0,
+        model_key: str = "",
+    ) -> Optional[Dict[str, Any]]:
+        return self._get_cached_classification_impl(
+            news_item_id,
+            date,
+            source_type=source_type,
+            interests_file=interests_file,
+            prompt_hash=prompt_hash,
+            tag_version=tag_version,
+            model_key=model_key,
+        )
+
+    def get_cached_classifications(
+        self,
+        news_item_ids: List[int],
+        date: Optional[str] = None,
+        *,
+        source_type: str = "hotlist",
+        interests_file: str = "ai_interests.txt",
+        prompt_hash: str = "",
+        tag_version: int = 0,
+        model_key: str = "",
+    ) -> Dict[int, Dict[str, Any]]:
+        return self._get_cached_classifications_impl(
+            news_item_ids,
+            date,
+            source_type=source_type,
+            interests_file=interests_file,
+            prompt_hash=prompt_hash,
+            tag_version=tag_version,
+            model_key=model_key,
+        )
+
     @staticmethod
     def _normalize_model_key(model_key: Optional[str]) -> str:
         return str(model_key or "").strip()

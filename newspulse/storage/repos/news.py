@@ -31,6 +31,12 @@ class _PreparedNewsItem:
 
 
 class NewsRepository(SQLiteRepositoryBase):
+    def detect_new_titles(self, current_data: NewsData) -> Dict[str, Dict]:
+        return self._detect_new_titles_impl(current_data)
+
+    def list_all_news_ids(self, date: Optional[str] = None) -> List[Dict]:
+        return self._get_all_news_ids_impl(date)
+
     def _save_news_data_impl(self, data: NewsData, log_prefix: str = "[存储]") -> tuple[bool, int, int, int, int]:
         return self._save_normalized_crawl_batch_impl(
             convert_news_data_to_normalized_batch(data),

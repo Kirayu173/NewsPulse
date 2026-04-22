@@ -84,7 +84,11 @@ class SnapshotBundleLoader:
 
     def _load_stable_ids(self) -> Dict[tuple[str, str], str]:
         stable_ids: Dict[tuple[str, str], str] = {}
-        for item in self.storage_manager.get_all_news_ids():
+        news_repo = getattr(self.storage_manager, "news_repo", None)
+        if news_repo is None:
+            return stable_ids
+
+        for item in news_repo.list_all_news_ids():
             source_id = str(item.get("source_id", "")).strip()
             title = str(item.get("title", "")).strip()
             raw_id = item.get("id")
