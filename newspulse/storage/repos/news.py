@@ -12,7 +12,11 @@ from newspulse.storage.base import (
     convert_news_data_to_normalized_batch,
 )
 from newspulse.storage.repos.base import SQLiteRepositoryBase
+from newspulse.utils.logging import get_logger
 from newspulse.utils.url import normalize_url
+
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -464,7 +468,7 @@ class NewsRepository(SQLiteRepositoryBase):
             return True, new_count, updated_count, title_changed_count, off_list_count
 
         except Exception as e:
-            print(f"{log_prefix} ????: {e}")
+            logger.exception("%s ????", log_prefix)
             return False, 0, 0, 0, 0
     def _load_existing_news_items(
         self,
@@ -605,7 +609,7 @@ class NewsRepository(SQLiteRepositoryBase):
             )
 
         except Exception as e:
-            print(f"[存储] 读取数据失败: {e}")
+            logger.exception(f"[存储] 读取数据失败: {e}")
             return None
 
     def _get_latest_crawl_data_impl(self, date: Optional[str] = None) -> Optional[NewsData]:
@@ -667,7 +671,7 @@ class NewsRepository(SQLiteRepositoryBase):
             )
 
         except Exception as e:
-            print(f"[存储] 获取最新数据失败: {e}")
+            logger.exception(f"[存储] 获取最新数据失败: {e}")
             return None
 
     def _detect_new_titles_impl(self, current_data: NewsData) -> Dict[str, Dict]:
@@ -726,7 +730,7 @@ class NewsRepository(SQLiteRepositoryBase):
             return new_titles
 
         except Exception as e:
-            print(f"[存储] 检测新标题失败: {e}")
+            logger.exception(f"[存储] 检测新标题失败: {e}")
             return {}
 
     def _is_first_crawl_today_impl(self, date: Optional[str] = None) -> bool:
@@ -754,7 +758,7 @@ class NewsRepository(SQLiteRepositoryBase):
             return count <= 1
 
         except Exception as e:
-            print(f"[存储] 检查首次抓取失败: {e}")
+            logger.exception(f"[存储] 检查首次抓取失败: {e}")
             return True
 
     def _get_crawl_times_impl(self, date: Optional[str] = None) -> List[str]:
@@ -780,7 +784,7 @@ class NewsRepository(SQLiteRepositoryBase):
             return [row[0] for row in rows]
 
         except Exception as e:
-            print(f"[存储] 获取抓取时间列表失败: {e}")
+            logger.exception(f"[存储] 获取抓取时间列表失败: {e}")
             return []
 
     def _get_all_news_ids_impl(self, date: Optional[str] = None) -> List[Dict]:
@@ -804,7 +808,7 @@ class NewsRepository(SQLiteRepositoryBase):
                 for row in cursor.fetchall()
             ]
         except Exception as e:
-            print(f"[AI筛选] 获取新闻列表失败: {e}")
+            logger.exception(f"[AI筛选] 获取新闻列表失败: {e}")
             return []
 
 

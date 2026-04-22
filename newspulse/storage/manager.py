@@ -5,10 +5,12 @@ from typing import Optional
 
 from newspulse.storage.base import ArticleContentRecord, NewsData, NormalizedCrawlBatch, StorageBackend
 from newspulse.storage.local import LocalStorageBackend
+from newspulse.utils.logging import get_logger
 from newspulse.utils.time import DEFAULT_TIMEZONE
 
 
 _storage_manager: Optional["StorageManager"] = None
+logger = get_logger(__name__)
 
 
 class StorageManager:
@@ -32,7 +34,7 @@ class StorageManager:
     def get_backend(self) -> StorageBackend:
         if self._backend is None:
             if self.backend_type != "local":
-                print(f"[存储管理器] 已移除远程存储，忽略 backend={self.backend_type}，改用本地存储")
+                logger.warning("[存储管理器] 已移除远程存储，忽略 backend=%s，改用本地存储", self.backend_type)
 
             self._backend = LocalStorageBackend(
                 data_dir=self.data_dir,
@@ -40,7 +42,7 @@ class StorageManager:
                 enable_html=self.enable_html,
                 timezone=self.timezone,
             )
-            print(f"[存储管理器] 使用本地存储后端 (数据目录: {self.data_dir})")
+            logger.info("[存储管理器] 使用本地存储后端 (数据目录: %s)", self.data_dir)
 
         return self._backend
 

@@ -187,6 +187,33 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["AI"]["TIMEOUT"], 120)
             self.assertEqual(config["AI"]["NUM_RETRIES"], 1)
 
+    def test_load_config_reads_logging_settings_from_advanced_section(self):
+        with TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            config_dir = workspace / "config"
+            config_file = config_dir / "config.yaml"
+            _write_text(
+                config_file,
+                """
+                app:
+                  timezone: Asia/Shanghai
+                schedule:
+                  enabled: false
+                  preset: always_on
+                advanced:
+                  log_level: DEBUG
+                  log_file: logs/newspulse.log
+                  log_json: true
+                """,
+            )
+
+            with patch.dict(os.environ, {}, clear=True):
+                config = load_config(str(config_file))
+
+            self.assertEqual(config["LOG_LEVEL"], "DEBUG")
+            self.assertEqual(config["LOG_FILE"], "logs/newspulse.log")
+            self.assertTrue(config["LOG_JSON"])
+
     def test_load_config_supports_workflow_stage_sections_and_ai_operations(self):
         with TemporaryDirectory() as tmp:
             workspace = Path(tmp)

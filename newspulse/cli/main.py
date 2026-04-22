@@ -12,11 +12,16 @@ from newspulse.cli.versioning import check_all_versions
 from newspulse.core import load_config
 from newspulse.core.config_paths import get_config_layout, resolve_frequency_words_path
 from newspulse.runner import NewsRunner
+from newspulse.utils.logging import configure_logging, get_logger
+
+
+logger = get_logger(__name__)
 
 
 def main() -> None:
     """Program entrypoint."""
     configure_console_output()
+    configure_logging()
     parser = argparse.ArgumentParser(
         description="NewsPulse - hotlist aggregation and analysis",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -86,12 +91,12 @@ Examples:
         runner.run()
     except FileNotFoundError as e:
         layout = get_config_layout()
-        print(f"Config file error: {e}")
-        print("\nRequired files:")
-        print(f"  - {layout.config_path}")
-        print(f"  - {resolve_frequency_words_path(config_root=layout.config_root)}")
-        print("\nPlease update your local config before running again.")
-    except Exception as e:
-        print(f"Runtime error: {e}")
+        logger.error("Config file error: %s", e)
+        logger.error("Required files:")
+        logger.error("  - %s", layout.config_path)
+        logger.error("  - %s", resolve_frequency_words_path(config_root=layout.config_root))
+        logger.error("Please update your local config before running again.")
+    except Exception:
+        logger.exception("Runtime error")
         if debug_mode:
             raise

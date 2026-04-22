@@ -7,6 +7,7 @@ import copy
 from typing import Dict
 
 from newspulse.context import AppContext
+from newspulse.utils.logging import configure_logging, get_logger
 from newspulse.workflow.shared.contracts import (
     HotlistItem,
     ReportContent,
@@ -15,6 +16,9 @@ from newspulse.workflow.shared.contracts import (
     ReportPackageMeta,
     SelectionGroup,
 )
+
+
+logger = get_logger(__name__)
 
 
 def _build_test_package(ctx: AppContext) -> ReportPackage:
@@ -80,6 +84,11 @@ def _build_test_package(ctx: AppContext) -> ReportPackage:
 
 
 def run_test_notification(config: Dict) -> bool:
+    configure_logging(
+        config.get("LOG_LEVEL", "INFO"),
+        config.get("LOG_FILE", ""),
+        bool(config.get("LOG_JSON", False)),
+    )
     test_config = copy.deepcopy(config)
     display_regions = test_config.setdefault("DISPLAY", {}).setdefault("REGIONS", {})
     display_regions.update(
@@ -94,18 +103,18 @@ def run_test_notification(config: Dict) -> bool:
     test_ctx = AppContext(test_config)
     try:
         if not test_config.get("GENERIC_WEBHOOK_URL"):
-            print("未配置 Generic Webhook，无法执行通知测试")
+            logger.error("未配置 Generic Webhook，无法执行通知测试")
             return False
 
         proxy_url = test_config.get("DEFAULT_PROXY", "") if test_config.get("USE_PROXY") else None
         if proxy_url:
-            print("[代理] 已启用通知测试代理")
+            logger.info("[代理] 已启用通知测试代理")
 
         report_package = _build_test_package(test_ctx)
 
-        print("=" * 60)
-        print("通知发送测试")
-        print("=" * 60)
+        logger.info("=" * 60)
+        logger.info("通知发送测试")
+        logger.info("=" * 60)
 
         render_result = test_ctx.run_render_stage(
             report_package,
@@ -115,7 +124,7 @@ def run_test_notification(config: Dict) -> bool:
         )
         html_file_path = render_result.html.file_path or ""
         if html_file_path:
-            print(f"[输出] HTML 报告: {html_file_path}")
+            logger.info("[输出] HTML 报告: %s", html_file_path)
 
         delivery_result = test_ctx.run_delivery_stage(
             render_result.payloads,
@@ -123,21 +132,21 @@ def run_test_notification(config: Dict) -> bool:
         )
 
         if not getattr(delivery_result, "channel_results", None):
-            print("通知渠道没有返回任何发送结果")
+            logger.warning("通知渠道没有返回任何发送结果")
             return False
 
-        print("-" * 60)
+        logger.info("-" * 60)
         success_count = 0
         channel_results = delivery_result.channel_results
         for channel_result in channel_results:
             if channel_result.success:
                 success_count += 1
-                print(f"OK {channel_result.channel}: 成功")
+                logger.info("OK %s: 成功", channel_result.channel)
             else:
-                print(f"FAIL {channel_result.channel}: 失败")
+                logger.error("FAIL %s: 失败", channel_result.channel)
 
-        print("-" * 60)
-        print(f"结果: {success_count}/{len(channel_results)} 个渠道发送成功")
+        logger.info("-" * 60)
+        logger.info("结果: %s/%s 个渠道发送成功", success_count, len(channel_results))
         return success_count > 0
     finally:
         test_ctx.cleanup()

@@ -7,6 +7,11 @@
 
 from typing import Dict, List, Optional, Tuple
 
+from newspulse.utils.logging import get_logger
+
+
+logger = get_logger(__name__)
+
 
 def parse_multi_account_config(config_value: str, separator: str = ";") -> List[str]:
     """
@@ -86,9 +91,9 @@ def validate_paired_configs(
     unique_lengths = set(lengths.values())
 
     if len(unique_lengths) > 1:
-        print(f"❌ {channel_name} 配置错误：配对配置数量不一致，将跳过该渠道推送")
+        logger.error("%s 配置错误：配对配置数量不一致，将跳过该渠道推送", channel_name)
         for key, length in lengths.items():
-            print(f"   - {key}: {length} 个")
+            logger.error("  - %s: %s 个", key, length)
         return False, 0
 
     return True, list(unique_lengths)[0] if unique_lengths else 0
@@ -119,8 +124,14 @@ def limit_accounts(
         ['a1', 'a2']
     """
     if len(accounts) > max_count:
-        print(f"⚠️ {channel_name} 配置了 {len(accounts)} 个账号，超过最大限制 {max_count}，只使用前 {max_count} 个")
-        print(f"   ⚠️ 警告：过多账号可能导致单次任务运行时间过长，建议按需精简")
+        logger.warning(
+            "%s 配置了 %s 个账号，超过最大限制 %s，只使用前 %s 个",
+            channel_name,
+            len(accounts),
+            max_count,
+            max_count,
+        )
+        logger.warning("  警告：过多账号可能导致单次任务运行时间过长，建议按需精简")
         return accounts[:max_count]
     return accounts
 

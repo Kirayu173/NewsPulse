@@ -6,6 +6,10 @@ from __future__ import annotations
 from typing import Optional
 
 from newspulse.storage.base import NewsData
+from newspulse.utils.logging import get_logger
+
+
+logger = get_logger(__name__)
 
 
 def detect_latest_new_title_map(
@@ -53,7 +57,7 @@ def detect_latest_new_title_map_from_storage(
         latest_data = storage_manager.get_latest_crawl_data()
         all_data = storage_manager.get_today_all_data()
     except Exception as exc:
-        print(f"[snapshot] failed to load storage data for incremental titles: {exc}")
+        logger.exception("[snapshot] failed to load storage data for incremental titles")
         return {}
 
     return detect_latest_new_title_map(

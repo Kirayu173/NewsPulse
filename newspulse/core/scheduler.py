@@ -13,6 +13,11 @@ from typing import Any, Callable, Dict, List, Optional
 
 from datetime import datetime
 
+from newspulse.utils.logging import get_logger
+
+
+logger = get_logger(__name__)
+
 
 @dataclass
 class ResolvedSchedule:
@@ -150,8 +155,8 @@ class Scheduler:
             end = period_cfg.get("end", "?")
             period_display = f"{period_name} ({start}-{end})"
 
-        print(f"[调度] 星期{weekday_names.get(weekday, '?')}，日计划: {day_plan_key}")
-        print(f"[调度] 当前时间段: {period_display}")
+        logger.info(f"[调度] 星期{weekday_names.get(weekday, '?')}，日计划: {day_plan_key}")
+        logger.info(f"[调度] 当前时间段: {period_display}")
 
         resolved = ResolvedSchedule(
             period_key=period_key,
@@ -181,9 +186,9 @@ class Scheduler:
             actions.append(f"分析(AI:{resolved.ai_mode})")
         if resolved.push:
             actions.append(f"推送(模式:{resolved.report_mode})")
-        print(f"[调度] 行为: {', '.join(actions) if actions else '无'}")
+        logger.info(f"[调度] 行为: {', '.join(actions) if actions else '无'}")
         if resolved.frequency_file:
-            print(f"[调度] 频率词文件: {resolved.frequency_file}")
+            logger.info(f"[调度] 频率词文件: {resolved.frequency_file}")
 
         return resolved
 
@@ -223,11 +228,11 @@ class Scheduler:
                 )
 
             # last_wins：输出重叠警告，列表中后面的优先
-            print(
+            logger.info(
                 f"[调度] 检测到时间段重叠: {', '.join(conflicting)} 在 {now_hhmm} 重叠"
             )
             winner = candidates[-1]
-            print(f"[调度] 冲突策略: last_wins，生效时间段: {winner[1]}")
+            logger.info(f"[调度] 冲突策略: last_wins，生效时间段: {winner[1]}")
             return winner[1]
 
         return candidates[0][1]

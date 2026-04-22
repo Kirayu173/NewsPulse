@@ -7,6 +7,10 @@ import json
 from typing import Optional
 
 import requests
+from newspulse.utils.logging import get_logger
+
+
+logger = get_logger(__name__)
 
 
 def send_prepared_generic_webhook(
@@ -30,7 +34,7 @@ def send_prepared_generic_webhook(
             try:
                 payload = json.loads(payload_str)
             except json.JSONDecodeError as exc:
-                print(f"{log_prefix} JSON 模板错误: {exc}")
+                logger.error("%s JSON 模板错误: %s", log_prefix, exc)
                 payload = {"title": title, "content": content}
         else:
             payload = {"title": title, "content": content}
@@ -46,11 +50,17 @@ def send_prepared_generic_webhook(
         )
 
         if 200 <= response.status_code < 300:
-            print(f"{log_prefix}发送成功 [{title}]")
+            logger.info("%s发送成功 [%s]", log_prefix, title)
             return True
 
-        print(f"{log_prefix}发送失败 [{title}]，状态码：{response.status_code}, 响应: {response.text}")
+        logger.error(
+            "%s发送失败 [%s]，状态码：%s, 响应: %s",
+            log_prefix,
+            title,
+            response.status_code,
+            response.text,
+        )
         return False
     except Exception as exc:
-        print(f"{log_prefix}发送异常 [{title}]：{exc}")
+        logger.exception("%s发送异常 [%s]", log_prefix, title)
         return False

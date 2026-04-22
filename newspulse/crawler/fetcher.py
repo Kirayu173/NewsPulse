@@ -15,6 +15,10 @@ from newspulse.crawler.models import (
 )
 from newspulse.crawler.source_names import resolve_source_display_name
 from newspulse.crawler.sources import SourceClient, resolve_source_definition
+from newspulse.utils.logging import get_logger
+
+
+logger = get_logger(__name__)
 
 
 class DataFetcher:
@@ -50,7 +54,7 @@ class DataFetcher:
                     source_spec.source_name,
                 )
                 items = definition.handler(self.client)
-                print(f"获取 {source_spec.source_id} 成功（builtin，本地实现）")
+                logger.info("获取 %s 成功（builtin，本地实现）", source_spec.source_id)
                 return SourceFetchResult(
                     source_id=source_spec.source_id,
                     source_name=source_name,
@@ -64,11 +68,11 @@ class DataFetcher:
                     base_wait = random.uniform(min_retry_wait, max_retry_wait)
                     additional_wait = (attempts - 1) * random.uniform(1, 2)
                     wait_time = base_wait + additional_wait
-                    print(f"请求 {source_spec.source_id} 失败: {exc}. {wait_time:.2f}秒后重试...")
+                    logger.warning("请求 %s 失败: %s. %.2f秒后重试...", source_spec.source_id, exc, wait_time)
                     time.sleep(wait_time)
                     continue
 
-                print(f"请求 {source_spec.source_id} 失败: {exc}")
+                logger.error("请求 %s 失败: %s", source_spec.source_id, exc)
                 resolved_source_id = source_spec.source_id
                 category = ""
                 try:
@@ -132,7 +136,11 @@ class DataFetcher:
                 actual_interval = max(50, actual_interval)
                 time.sleep(actual_interval / 1000)
 
-        print(f"成功: {[source.source_id for source in sources]}, 失败: {[failure.source_id for failure in failures]}")
+        logger.info(
+            "抓取完成: 成功=%s 失败=%s",
+            [source.source_id for source in sources],
+            [failure.source_id for failure in failures],
+        )
         return CrawlBatchResult(
             sources=sources,
             failures=failures,

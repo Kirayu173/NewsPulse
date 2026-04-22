@@ -8,6 +8,7 @@ __pycache__/
 # Local outputs and scratch data
 output/
 outbox/
+logs/
 .tmp-test/
 .tmp-test-full/
 .tmp-test-local/

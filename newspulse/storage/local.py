@@ -17,7 +17,11 @@ from newspulse.storage.base import (
 )
 from newspulse.storage.repos import AIFilterRepository, ArticleContentRepository, NewsRepository, ScheduleRepository
 from newspulse.storage.sqlite_runtime import SQLiteRuntime
+from newspulse.utils.logging import get_logger
 from newspulse.utils.time import DEFAULT_TIMEZONE
+
+
+logger = get_logger(__name__)
 
 
 class LocalStorageBackend(StorageBackend):
@@ -107,7 +111,7 @@ class LocalStorageBackend(StorageBackend):
                 log_parts.append(f"标题变更 {title_changed_count} 条")
             if off_list_count > 0:
                 log_parts.append(f"脱榜 {off_list_count} 条")
-            print("；".join(log_parts))
+            logger.info("%s", "；".join(log_parts))
 
         return success
 
@@ -157,7 +161,7 @@ class LocalStorageBackend(StorageBackend):
         success = self.schedule_repo._record_period_execution_impl(date_str, period_key, action)
         if success:
             now_str = self._get_configured_time().strftime("%Y-%m-%d %H:%M:%S")
-            print(f"[本地存储] 时间段执行记录已保存: {period_key}/{action} at {now_str}")
+            logger.info("[本地存储] 时间段执行记录已保存: %s/%s at %s", period_key, action, now_str)
         return success
 
     def get_active_ai_filter_tags(self, date=None, interests_file="ai_interests.txt"):
@@ -254,10 +258,10 @@ class LocalStorageBackend(StorageBackend):
                     for failed_id in data.failed_ids:
                         f.write(f"{failed_id}\n")
 
-            print(f"[本地存储] TXT 快照已保存: {file_path}")
+            logger.info("[本地存储] TXT 快照已保存: %s", file_path)
             return str(file_path)
         except Exception as e:
-            print(f"[本地存储] 保存 TXT 快照失败: {e}")
+            logger.exception("[本地存储] 保存 TXT 快照失败")
             return None
 
     def save_html_report(self, html_content: str, filename: str) -> Optional[str]:
@@ -271,19 +275,19 @@ class LocalStorageBackend(StorageBackend):
             file_path = html_dir / filename
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(html_content)
-            print(f"[本地存储] HTML 报告已保存: {file_path}")
+            logger.info("[本地存储] HTML 报告已保存: %s", file_path)
             return str(file_path)
         except Exception as e:
-            print(f"[本地存储] 保存 HTML 报告失败: {e}")
+            logger.exception("[本地存储] 保存 HTML 报告失败")
             return None
 
     def cleanup(self) -> None:
         for db_path in list(self._db_connections):
             try:
                 self.runtime.close_connection(db_path)
-                print(f"[本地存储] 关闭数据库连接: {db_path}")
+                logger.debug("[本地存储] 关闭数据库连接: %s", db_path)
             except Exception as e:
-                print(f"[本地存储] 关闭连接失败 {db_path}: {e}")
+                logger.exception("[本地存储] 关闭连接失败 %s", db_path)
 
     def cleanup_old_data(self, retention_days: int) -> int:
         if retention_days <= 0:
@@ -326,9 +330,9 @@ class LocalStorageBackend(StorageBackend):
                         try:
                             db_file.unlink()
                             deleted_count += 1
-                            print(f"[本地存储] 清理过期数据: news/{db_file.name}")
+                            logger.debug("[本地存储] 清理过期数据: news/%s", db_file.name)
                         except Exception as e:
-                            print(f"[本地存储] 删除文件失败 {db_file}: {e}")
+                            logger.exception("[本地存储] 删除文件失败 %s", db_file)
 
             for snapshot_type in ["txt", "html"]:
                 snapshot_dir = self.data_dir / snapshot_type
@@ -344,15 +348,15 @@ class LocalStorageBackend(StorageBackend):
                         try:
                             shutil.rmtree(date_folder)
                             deleted_count += 1
-                            print(f"[本地存储] 清理过期数据: {snapshot_type}/{date_folder.name}")
+                            logger.debug("[本地存储] 清理过期数据: %s/%s", snapshot_type, date_folder.name)
                         except Exception as e:
-                            print(f"[本地存储] 删除目录失败 {date_folder}: {e}")
+                            logger.exception("[本地存储] 删除目录失败 %s", date_folder)
 
             if deleted_count > 0:
-                print(f"[本地存储] 共清理 {deleted_count} 个过期文件/目录")
+                logger.info("[本地存储] 共清理 %s 个过期文件/目录", deleted_count)
             return deleted_count
         except Exception as e:
-            print(f"[本地存储] 清理过期数据失败: {e}")
+            logger.exception("[本地存储] 清理过期数据失败")
             return deleted_count
 
     def __del__(self):

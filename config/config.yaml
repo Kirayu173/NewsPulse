@@ -168,6 +168,9 @@ storage:
 
 advanced:
   debug: false
+  log_level: INFO
+  log_file: ''
+  log_json: false
   # 版本检查地址；留空表示关闭远程版本检查。
   version_check_url: ''
   configs_version_check_url: ''

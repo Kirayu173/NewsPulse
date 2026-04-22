@@ -10,8 +10,11 @@ from typing import Optional
 
 import pytz
 
+from newspulse.utils.logging import get_logger
+
 # 默认时区常量 - 仅作为 fallback，正常运行时使用 config.yaml 中的 app.timezone
 DEFAULT_TIMEZONE = "Asia/Shanghai"
+logger = get_logger(__name__)
 
 
 def get_configured_time(timezone: str = DEFAULT_TIMEZONE) -> datetime:
@@ -27,7 +30,7 @@ def get_configured_time(timezone: str = DEFAULT_TIMEZONE) -> datetime:
     try:
         tz = pytz.timezone(timezone)
     except pytz.UnknownTimeZoneError:
-        print(f"[警告] 未知时区 '{timezone}'，使用默认时区 {DEFAULT_TIMEZONE}")
+        logger.warning("[警告] 未知时区 '%s'，使用默认时区 %s", timezone, DEFAULT_TIMEZONE)
         tz = pytz.timezone(DEFAULT_TIMEZONE)
     return datetime.now(tz)
 

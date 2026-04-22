@@ -9,7 +9,11 @@ from pathlib import Path
 from typing import Optional, Union
 
 from newspulse.core.config_paths import resolve_frequency_words_path
+from newspulse.utils.logging import get_logger
 from newspulse.workflow.selection.models import KeywordRuleGroup, KeywordRuleSet, KeywordToken
+
+
+logger = get_logger(__name__)
 
 
 def _parse_token(word: str) -> KeywordToken:
@@ -34,7 +38,7 @@ def _parse_token(word: str) -> KeywordToken:
                 display_name=display_name,
             )
         except re.error as exc:
-            print(f"Warning: Invalid regex pattern '/{pattern_str}/': {exc}")
+            logger.warning("Invalid regex pattern '/%s/': %s", pattern_str, exc)
 
     return KeywordToken(
         text=word_config,

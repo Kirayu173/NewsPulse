@@ -8,8 +8,12 @@ from typing import Any, Callable, Sequence
 from newspulse.core.config import limit_accounts, parse_multi_account_config
 from newspulse.notification.batch import add_batch_headers
 from newspulse.notification.senders import send_prepared_generic_webhook
+from newspulse.utils.logging import get_logger
 from newspulse.workflow.delivery.models import ChannelDeliveryResult
 from newspulse.workflow.shared.contracts import DeliveryPayload
+
+
+logger = get_logger(__name__)
 
 
 class GenericWebhookDeliveryAdapter:
@@ -71,7 +75,12 @@ class GenericWebhookDeliveryAdapter:
 
             account_label = f"账号{index + 1}" if len(urls) > 1 else ""
             if dry_run:
-                print(f"通用Webhook{account_label} dry-run：跳过发送 {len(contents)} 个批次 [{title}]")
+                logger.info(
+                    "通用Webhook%s dry-run：跳过发送 %s 个批次 [%s]",
+                    account_label,
+                    len(contents),
+                    title,
+                )
                 account_results.append(True)
                 continue
 

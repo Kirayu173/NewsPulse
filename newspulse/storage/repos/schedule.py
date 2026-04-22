@@ -6,7 +6,11 @@ from typing import Any, Dict, List, Optional
 
 from newspulse.storage.base import NewsItem, NewsData
 from newspulse.storage.repos.base import SQLiteRepositoryBase
+from newspulse.utils.logging import get_logger
 from newspulse.utils.url import normalize_url
+
+
+logger = get_logger(__name__)
 
 
 class ScheduleRepository(SQLiteRepositoryBase):
@@ -42,7 +46,7 @@ class ScheduleRepository(SQLiteRepositoryBase):
             return cursor.fetchone() is not None
 
         except Exception as e:
-            print(f"[存储] 检查时间段执行记录失败: {e}")
+            logger.exception(f"[存储] 检查时间段执行记录失败: {e}")
             return False
 
     def _record_period_execution_impl(self, date_str: str, period_key: str, action: str) -> bool:
@@ -84,6 +88,6 @@ class ScheduleRepository(SQLiteRepositoryBase):
             return True
 
         except Exception as e:
-            print(f"[存储] 记录时间段执行失败: {e}")
+            logger.exception(f"[存储] 记录时间段执行失败: {e}")
             return False
 

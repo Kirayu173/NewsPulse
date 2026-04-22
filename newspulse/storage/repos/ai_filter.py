@@ -6,7 +6,11 @@ from typing import Any, Dict, List, Optional
 
 from newspulse.storage.base import NewsItem, NewsData
 from newspulse.storage.repos.base import SQLiteRepositoryBase
+from newspulse.utils.logging import get_logger
 from newspulse.utils.url import normalize_url
+
+
+logger = get_logger(__name__)
 
 
 class AIFilterRepository(SQLiteRepositoryBase):
@@ -31,7 +35,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
                 for row in cursor.fetchall()
             ]
         except Exception as e:
-            print(f"[AI筛选] 获取标签失败: {e}")
+            logger.exception(f"[AI筛选] 获取标签失败: {e}")
             return []
 
     def _get_latest_prompt_hash_impl(self, date: Optional[str] = None, interests_file: str = "ai_interests.txt") -> Optional[str]:
@@ -49,7 +53,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
             row = cursor.fetchone()
             return row[0] if row else None
         except Exception as e:
-            print(f"[AI筛选] 获取 prompt_hash 失败: {e}")
+            logger.exception(f"[AI筛选] 获取 prompt_hash 失败: {e}")
             return None
 
     def _get_latest_tag_version_impl(self, date: Optional[str] = None) -> int:
@@ -64,7 +68,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
             row = cursor.fetchone()
             return row[0] if row and row[0] is not None else 0
         except Exception as e:
-            print(f"[AI筛选] 获取版本号失败: {e}")
+            logger.exception(f"[AI筛选] 获取版本号失败: {e}")
             return 0
 
     def _deprecate_all_tags_impl(self, date: Optional[str] = None, interests_file: str = "ai_interests.txt") -> int:
@@ -102,10 +106,10 @@ class AIFilterRepository(SQLiteRepositoryBase):
             """, [now_str] + tag_ids)
 
             conn.commit()
-            print(f"[AI筛选] 已废弃 {tag_count} 个标签及关联分类结果")
+            logger.exception(f"[AI筛选] 已废弃 {tag_count} 个标签及关联分类结果")
             return tag_count
         except Exception as e:
-            print(f"[AI筛选] 废弃标签失败: {e}")
+            logger.exception(f"[AI筛选] 废弃标签失败: {e}")
             return 0
 
     def _save_tags_impl(
@@ -143,7 +147,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
             conn.commit()
             return count
         except Exception as e:
-            print(f"[AI筛选] 保存标签失败: {e}")
+            logger.exception(f"[AI筛选] 保存标签失败: {e}")
             return 0
 
     def _deprecate_specific_tags_impl(
@@ -175,7 +179,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
             conn.commit()
             return tag_count
         except Exception as e:
-            print(f"[AI筛选] 废弃指定标签失败: {e}")
+            logger.exception(f"[AI筛选] 废弃指定标签失败: {e}")
             return 0
 
     def _update_tags_hash_impl(
@@ -196,7 +200,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
             conn.commit()
             return count
         except Exception as e:
-            print(f"[AI筛选] 更新标签 hash 失败: {e}")
+            logger.exception(f"[AI筛选] 更新标签 hash 失败: {e}")
             return 0
 
     def _update_tag_descriptions_impl(
@@ -224,7 +228,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
             conn.commit()
             return count
         except Exception as e:
-            print(f"[AI筛选] 更新标签描述失败: {e}")
+            logger.exception(f"[AI筛选] 更新标签描述失败: {e}")
             return 0
 
     def _update_tag_priorities_impl(
@@ -256,7 +260,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
             conn.commit()
             return count
         except Exception as e:
-            print(f"[AI筛选] 更新标签优先级失败: {e}")
+            logger.exception(f"[AI筛选] 更新标签优先级失败: {e}")
             return 0
 
     def _save_analyzed_news_impl(
@@ -288,7 +292,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
             conn.commit()
             return count
         except Exception as e:
-            print(f"[AI筛选] 保存已分析记录失败: {e}")
+            logger.exception(f"[AI筛选] 保存已分析记录失败: {e}")
             return 0
 
     def _get_analyzed_news_ids_impl(
@@ -307,7 +311,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
 
             return {row[0] for row in cursor.fetchall()}
         except Exception as e:
-            print(f"[AI筛选] 获取已分析ID失败: {e}")
+            logger.exception(f"[AI筛选] 获取已分析ID失败: {e}")
             return set()
 
     def _clear_analyzed_news_impl(
@@ -327,7 +331,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
             conn.commit()
             return count
         except Exception as e:
-            print(f"[AI筛选] 清除已分析记录失败: {e}")
+            logger.exception(f"[AI筛选] 清除已分析记录失败: {e}")
             return 0
 
     def _clear_unmatched_analyzed_news_impl(
@@ -347,7 +351,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
             conn.commit()
             return count
         except Exception as e:
-            print(f"[AI筛选] 清除不匹配记录失败: {e}")
+            logger.exception(f"[AI筛选] 清除不匹配记录失败: {e}")
             return 0
 
     def _save_filter_results_impl(
@@ -380,7 +384,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
             conn.commit()
             return count
         except Exception as e:
-            print(f"[AI筛选] 保存分类结果失败: {e}")
+            logger.exception(f"[AI筛选] 保存分类结果失败: {e}")
             return 0
 
     def _get_active_filter_results_impl(self, date: Optional[str] = None, interests_file: str = "ai_interests.txt") -> List[Dict[str, Any]]:
@@ -444,6 +448,6 @@ class AIFilterRepository(SQLiteRepositoryBase):
 
             return results
         except Exception as e:
-            print(f"[AI筛选] 获取分类结果失败: {e}")
+            logger.exception(f"[AI筛选] 获取分类结果失败: {e}")
             return []
 
