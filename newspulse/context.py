@@ -214,7 +214,34 @@ class AppContext:
                 "CACHE_ENABLED": bool(
                     self._mapping_get(content, "CACHE_ENABLED", "cache_enabled", default=True)
                 ),
-                "TIMEOUT": int(self._mapping_get(content, "TIMEOUT", "timeout", default=12) or 12),
+                "ASYNC_ENABLED": bool(
+                    self._mapping_get(content, "ASYNC_ENABLED", "async_enabled", default=False)
+                ),
+                "MAX_CONCURRENCY": int(
+                    self._mapping_get(content, "MAX_CONCURRENCY", "max_concurrency", default=8) or 8
+                ),
+                "REQUEST_TIMEOUT": int(
+                    self._mapping_get(
+                        content,
+                        "REQUEST_TIMEOUT",
+                        "request_timeout",
+                        "TIMEOUT",
+                        "timeout",
+                        default=12,
+                    )
+                    or 12
+                ),
+                "TIMEOUT": int(
+                    self._mapping_get(
+                        content,
+                        "REQUEST_TIMEOUT",
+                        "request_timeout",
+                        "TIMEOUT",
+                        "timeout",
+                        default=12,
+                    )
+                    or 12
+                ),
                 "REDUCED_CHARS": int(
                     self._mapping_get(content, "REDUCED_CHARS", "reduced_chars", default=1600) or 1600
                 ),
@@ -386,7 +413,34 @@ class AppContext:
                     "CACHE_ENABLED": bool(
                         self._mapping_get(workflow_content, "CACHE_ENABLED", "cache_enabled", default=True)
                     ),
-                    "TIMEOUT": int(self._mapping_get(workflow_content, "TIMEOUT", "timeout", default=12) or 12),
+                    "ASYNC_ENABLED": bool(
+                        self._mapping_get(workflow_content, "ASYNC_ENABLED", "async_enabled", default=False)
+                    ),
+                    "MAX_CONCURRENCY": int(
+                        self._mapping_get(workflow_content, "MAX_CONCURRENCY", "max_concurrency", default=8) or 8
+                    ),
+                    "REQUEST_TIMEOUT": int(
+                        self._mapping_get(
+                            workflow_content,
+                            "REQUEST_TIMEOUT",
+                            "request_timeout",
+                            "TIMEOUT",
+                            "timeout",
+                            default=12,
+                        )
+                        or 12
+                    ),
+                    "TIMEOUT": int(
+                        self._mapping_get(
+                            workflow_content,
+                            "REQUEST_TIMEOUT",
+                            "request_timeout",
+                            "TIMEOUT",
+                            "timeout",
+                            default=12,
+                        )
+                        or 12
+                    ),
                     "REDUCED_CHARS": int(
                         self._mapping_get(workflow_content, "REDUCED_CHARS", "reduced_chars", default=1600) or 1600
                     ),

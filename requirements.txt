@@ -1,3 +1,4 @@
+aiohttp==3.13.2
 requests==2.33.0
 pytz==2026.1
 PyYAML==6.0.3

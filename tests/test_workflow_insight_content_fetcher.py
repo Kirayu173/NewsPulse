@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 from newspulse.storage import get_storage_manager
 from newspulse.workflow.insight.content_fetcher import InsightContentFetcher
 from newspulse.workflow.insight.input_builder import InsightInputBuilder
-from newspulse.workflow.insight.models import ExtractedContent, InsightNewsContext, InsightRankSignals, InsightSelectionEvidence, InsightSourceContext
+from newspulse.workflow.insight.models import ExtractedContent, InsightContentPayload, InsightNewsContext, InsightRankSignals, InsightSelectionEvidence, InsightSourceContext
 
 
 class FakeExtractor:
@@ -45,6 +45,26 @@ class FakeSession:
         self.calls.append(url)
         response = self.responses[url]
         return response
+
+
+class AsyncStubFetcher(InsightContentFetcher):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.async_calls = []
+
+    def _fetch_many_async(self, contexts):
+        self.async_calls.append([context.news_item_id for context in contexts])
+        return [
+            InsightContentPayload(
+                news_item_id=context.news_item_id,
+                status='ok',
+                source_type=context.source_context.source_kind or 'article',
+                content_text='异步正文' * 40,
+                content_markdown='异步正文' * 40,
+                trace={'cache_hit': False, 'mode': 'async'},
+            )
+            for context in contexts
+        ]
 
 
 class InsightContentFetcherTest(unittest.TestCase):
@@ -191,6 +211,23 @@ class InsightContentFetcherTest(unittest.TestCase):
             self.assertIn('Repository: openai/codex', payload.content_text)
             self.assertIn('README:', payload.content_text)
             storage.cleanup()
+
+    def test_fetch_many_uses_async_runner_when_enabled(self):
+        fetcher = AsyncStubFetcher(
+            async_enabled=True,
+            max_concurrency=4,
+            request_timeout=9,
+        )
+        contexts = [
+            self._context(news_item_id='1', url='https://example.com/a'),
+            self._context(news_item_id='2', url='https://example.com/b'),
+        ]
+
+        payloads = fetcher.fetch_many(contexts)
+
+        self.assertEqual(fetcher.async_calls, [['1', '2']])
+        self.assertEqual([payload.news_item_id for payload in payloads], ['1', '2'])
+        self.assertEqual(payloads[0].trace['mode'], 'async')
 
 
 if __name__ == '__main__':

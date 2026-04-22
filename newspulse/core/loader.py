@@ -437,8 +437,28 @@ def _load_workflow_insight_config(config_data: Dict[str, Any]) -> Dict[str, Any]
                     default=True,
                 )
             ),
+            "ASYNC_ENABLED": bool(
+                _coalesce(
+                    _get_present_value(content, "async_enabled"),
+                    default=False,
+                )
+            ),
+            "MAX_CONCURRENCY": int(
+                _coalesce(
+                    _get_present_value(content, "max_concurrency"),
+                    default=8,
+                )
+            ),
+            "REQUEST_TIMEOUT": int(
+                _coalesce(
+                    _get_present_value(content, "request_timeout"),
+                    _get_present_value(content, "timeout"),
+                    default=12,
+                )
+            ),
             "TIMEOUT": int(
                 _coalesce(
+                    _get_present_value(content, "request_timeout"),
                     _get_present_value(content, "timeout"),
                     default=12,
                 )

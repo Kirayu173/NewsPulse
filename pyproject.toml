@@ -4,6 +4,7 @@ version = "1.0.0"
 description = "NewsPulse - local hot topics aggregation and analysis tool"
 requires-python = ">=3.12"
 dependencies = [
+    "aiohttp==3.13.2",
     "requests==2.33.0",
     "pytz==2026.1",
     "PyYAML==6.0.3",

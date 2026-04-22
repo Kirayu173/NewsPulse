@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
+import threading
 from dataclasses import replace
 from typing import Any, Mapping, Optional
 from urllib.parse import quote
@@ -32,12 +34,19 @@ class InsightContentFetcher:
         proxy_url: str | None = None,
         github_token: str | None = None,
         cache_enabled: bool = True,
+        async_enabled: bool = False,
+        max_concurrency: int = 1,
+        request_timeout: int | None = None,
         session: requests.Session | None = None,
     ):
         self.storage_manager = storage_manager
         self.extractors = list(extractors or build_default_extractors())
         self.timeout = max(3, int(timeout or 12))
+        self.request_timeout = max(3, int(request_timeout or self.timeout))
         self.cache_enabled = bool(cache_enabled)
+        self.async_enabled = bool(async_enabled)
+        self.max_concurrency = max(1, int(max_concurrency or 1))
+        self.proxy_url = proxy_url
         self.github_token = str(github_token or os.environ.get('GITHUB_API_TOKEN', '') or '').strip()
         self.session = session or requests.Session()
         self.session.headers.update(dict(DEFAULT_HEADERS))
@@ -45,6 +54,21 @@ class InsightContentFetcher:
             self.session.proxies.update({'http': proxy_url, 'https': proxy_url})
 
     def fetch_many(self, contexts: list[InsightNewsContext]) -> list[InsightContentPayload]:
+        if self.async_enabled and self.max_concurrency > 1 and len(contexts) > 1:
+            results: list[InsightContentPayload | None] = [None] * len(contexts)
+            uncached_pairs: list[tuple[int, InsightNewsContext]] = []
+            for index, context in enumerate(contexts):
+                cached = self._load_cached_for_context(context)
+                if cached is not None:
+                    results[index] = cached
+                else:
+                    uncached_pairs.append((index, context))
+
+            if uncached_pairs:
+                fetched = self._fetch_many_async([context for _, context in uncached_pairs])
+                for (index, _), payload in zip(uncached_pairs, fetched):
+                    results[index] = payload
+            return [payload for payload in results if payload is not None]
         return [self.fetch_one(context) for context in contexts]
 
     def fetch_one(self, context: InsightNewsContext) -> InsightContentPayload:
@@ -335,6 +359,29 @@ class InsightContentFetcher:
             trace={**dict(record.trace or {}), 'cache_hit': True},
         )
 
+    def _load_cached_for_context(self, context: InsightNewsContext) -> Optional[InsightContentPayload]:
+        source_kind = str(context.source_context.source_kind or '').strip()
+        target_url = str(context.url or context.mobile_url or '').strip()
+        normalized_url = ''
+        if source_kind == 'github_repository':
+            repo = dict(context.source_context.metadata or {})
+            full_name = str(repo.get('full_name') or context.title or '').strip()
+            repo_url = str(context.url or (f'https://github.com/{full_name}' if full_name else '')).strip()
+            normalized_url = normalize_url(repo_url, context.source_id) if repo_url else ''
+        elif target_url:
+            normalized_url = normalize_url(target_url, context.source_id)
+        return self._load_cached(normalized_url, context.news_item_id)
+
+    def _fetch_many_async(self, contexts: list[InsightNewsContext]) -> list[InsightContentPayload]:
+        from newspulse.workflow.insight.async_fetcher import AsyncInsightContentFetcher
+
+        runner = AsyncInsightContentFetcher(
+            self,
+            concurrency=self.max_concurrency,
+            request_timeout=self.request_timeout,
+        )
+        return _run_coroutine_sync(runner.fetch_many(contexts))
+
     def _save_payload(self, context: InsightNewsContext, payload: InsightContentPayload) -> None:
         if self.storage_manager is None or not payload.normalized_url:
             return
@@ -493,3 +540,26 @@ def _first_line(text: str) -> str:
         if cleaned:
             return cleaned
     return ''
+
+
+def _run_coroutine_sync(coro):
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    result_holder: dict[str, Any] = {}
+    error_holder: dict[str, BaseException] = {}
+
+    def runner() -> None:
+        try:
+            result_holder['value'] = asyncio.run(coro)
+        except BaseException as exc:  # pragma: no cover - mirrors runtime edge cases.
+            error_holder['error'] = exc
+
+    thread = threading.Thread(target=runner, daemon=True)
+    thread.start()
+    thread.join()
+    if 'error' in error_holder:
+        raise error_holder['error']
+    return result_holder.get('value', [])

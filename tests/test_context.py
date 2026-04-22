@@ -210,6 +210,11 @@ class AppContextTest(unittest.TestCase):
                         "mode": "current",
                         "max_items": 8,
                         "language": "Japanese",
+                        "content": {
+                            "async_enabled": True,
+                            "max_concurrency": 5,
+                            "request_timeout": 18,
+                        },
                     },
                 },
                 "ai": {
@@ -252,6 +257,9 @@ class AppContextTest(unittest.TestCase):
 
         self.assertEqual(ctx.ai_analysis_config["PROMPT_FILE"], "insight_prompt.txt")
         self.assertEqual(ctx.ai_analysis_config["MAX_ITEMS"], 8)
+        self.assertTrue(ctx.ai_analysis_config["CONTENT"]["ASYNC_ENABLED"])
+        self.assertEqual(ctx.ai_analysis_config["CONTENT"]["MAX_CONCURRENCY"], 5)
+        self.assertEqual(ctx.ai_analysis_config["CONTENT"]["REQUEST_TIMEOUT"], 18)
         self.assertEqual(ctx.ai_analysis_model_config["MODEL"], "openai/base")
         self.assertEqual(ctx.ai_analysis_model_config["API_KEY"], "insight-key")
         self.assertEqual(ctx.ai_analysis_model_config["TEMPERATURE"], 0.2)

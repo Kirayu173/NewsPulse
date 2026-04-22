@@ -54,9 +54,12 @@ class AIInsightStrategy:
         self.input_builder = input_builder or InsightInputBuilder()
         self.content_fetcher = content_fetcher or InsightContentFetcher(
             storage_manager=storage_manager,
-            timeout=int(content_config.get('TIMEOUT', 12) or 12),
+            timeout=int(content_config.get('REQUEST_TIMEOUT', content_config.get('TIMEOUT', 12)) or 12),
             proxy_url=proxy_url,
             cache_enabled=bool(content_config.get('CACHE_ENABLED', True)),
+            async_enabled=bool(content_config.get('ASYNC_ENABLED', False)),
+            max_concurrency=int(content_config.get('MAX_CONCURRENCY', 1) or 1),
+            request_timeout=int(content_config.get('REQUEST_TIMEOUT', content_config.get('TIMEOUT', 12)) or 12),
         )
         self.content_reducer = content_reducer or InsightContentReducer(
             reduced_chars=int(content_config.get('REDUCED_CHARS', 1600) or 1600),
@@ -85,6 +88,7 @@ class AIInsightStrategy:
         reduced_bundles = []
         item_analyses = []
         raw_response = ''
+        content_config = self._content_config()
         try:
             contexts = self.input_builder.build(snapshot, selection, max_items=options.max_items)
             if not contexts:
@@ -116,6 +120,11 @@ class AIInsightStrategy:
                 'section_count': len(sections),
                 'content_fetch_count': len(content_payloads),
                 'content_reduce_count': len(reduced_bundles),
+                'content_async_enabled': bool(content_config.get('ASYNC_ENABLED', False)),
+                'content_max_concurrency': int(content_config.get('MAX_CONCURRENCY', 1) or 1),
+                'content_request_timeout': int(content_config.get('REQUEST_TIMEOUT', content_config.get('TIMEOUT', 12)) or 12),
+                'content_cache_hits': sum(1 for payload in content_payloads if payload.trace.get('cache_hit')),
+                'content_fallbacks': sum(1 for payload in content_payloads if payload.status == 'fallback_summary_only'),
                 'error_count': sum(1 for analysis in item_analyses if analysis.diagnostics.get('status') != 'ok'),
                 'input_contexts': [asdict(context) for context in contexts],
                 'content_payloads': [asdict(payload) for payload in content_payloads],

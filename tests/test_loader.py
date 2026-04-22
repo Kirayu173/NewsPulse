@@ -254,6 +254,10 @@ class LoaderConfigRootTest(unittest.TestCase):
                     mode: daily
                     max_items: 9
                     language: Japanese
+                    content:
+                      async_enabled: true
+                      max_concurrency: 6
+                      request_timeout: 18
                 ai:
                   runtime:
                     model: openai/base-model
@@ -301,6 +305,9 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["WORKFLOW"]["INSIGHT"]["MODE"], "daily")
             self.assertEqual(config["WORKFLOW"]["INSIGHT"]["MAX_ITEMS"], 9)
             self.assertEqual(config["WORKFLOW"]["INSIGHT"]["LANGUAGE"], "Japanese")
+            self.assertTrue(config["WORKFLOW"]["INSIGHT"]["CONTENT"]["ASYNC_ENABLED"])
+            self.assertEqual(config["WORKFLOW"]["INSIGHT"]["CONTENT"]["MAX_CONCURRENCY"], 6)
+            self.assertEqual(config["WORKFLOW"]["INSIGHT"]["CONTENT"]["REQUEST_TIMEOUT"], 18)
 
             self.assertEqual(config["FILTER"]["METHOD"], "ai")
             self.assertEqual(config["FILTER"]["FREQUENCY_FILE"], "topics.txt")
