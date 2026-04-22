@@ -114,6 +114,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_news_url_platform
 CREATE INDEX IF NOT EXISTS idx_crawl_status_record ON crawl_source_status(crawl_record_id);
 CREATE INDEX IF NOT EXISTS idx_crawl_failures_record ON crawl_source_failures(crawl_record_id);
 CREATE INDEX IF NOT EXISTS idx_rank_history_news ON rank_history(news_item_id);
+CREATE INDEX IF NOT EXISTS idx_rank_history_news_crawl_time ON rank_history(news_item_id, crawl_time);
+CREATE INDEX IF NOT EXISTS idx_news_platform_crawl_time ON news_items(platform_id, last_crawl_time);
 CREATE INDEX IF NOT EXISTS idx_period_exec_lookup
     ON period_executions(execution_date, period_key, action);
 CREATE INDEX IF NOT EXISTS idx_article_content_source

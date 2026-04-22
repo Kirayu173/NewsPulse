@@ -1,6 +1,7 @@
 # coding=utf-8
 import json
 import sqlite3
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from newspulse.storage.base import (
@@ -12,6 +13,17 @@ from newspulse.storage.base import (
 )
 from newspulse.storage.repos.base import SQLiteRepositoryBase
 from newspulse.utils.url import normalize_url
+
+
+@dataclass
+class _PreparedNewsItem:
+    source_id: str
+    title: str
+    rank: int
+    url: str
+    mobile_url: str
+    summary: str
+    metadata: Dict[str, Any]
 
 
 class NewsRepository(SQLiteRepositoryBase):
@@ -195,14 +207,14 @@ class NewsRepository(SQLiteRepositoryBase):
     def _save_normalized_crawl_batch_impl(
         self,
         batch: NormalizedCrawlBatch,
-        log_prefix: str = "[存储]",
+        log_prefix: str = "[??]",
     ) -> tuple[bool, int, int, int, int]:
         """
-        保存第二阶段归一化批次到 SQLite（核心实现）
+        ???????????? SQLite??????
 
         Args:
-            batch: 归一化批次
-            log_prefix: 日志前缀
+            batch: ?????
+            log_prefix: ????
 
         Returns:
             (success, new_count, updated_count, title_changed_count, off_list_count)
@@ -222,149 +234,141 @@ class NewsRepository(SQLiteRepositoryBase):
             updated_count = 0
             title_changed_count = 0
             success_sources: list[str] = []
+            current_urls_by_source: dict[str, set[str]] = {}
+            prepared_url_items: dict[tuple[str, str], _PreparedNewsItem] = {}
+            prepared_no_url_items: list[_PreparedNewsItem] = []
 
             for source in batch.sources:
                 source_id = source.source_id
                 success_sources.append(source_id)
+                source_urls = current_urls_by_source.setdefault(source_id, set())
 
                 for item in source.items:
-                    try:
-                        normalized_url = normalize_url(item.url, source_id) if item.url else ""
+                    normalized_url = normalize_url(item.url, source_id) if item.url else ""
+                    prepared_item = _PreparedNewsItem(
+                        source_id=source_id,
+                        title=item.title,
+                        rank=item.rank,
+                        url=normalized_url,
+                        mobile_url=item.mobile_url,
+                        summary=item.summary,
+                        metadata=dict(item.metadata or {}),
+                    )
+                    if normalized_url:
+                        source_urls.add(normalized_url)
+                        prepared_url_items[(source_id, normalized_url)] = prepared_item
+                    else:
+                        prepared_no_url_items.append(prepared_item)
 
-                        if normalized_url:
-                            cursor.execute(
-                                """
-                                SELECT id, title, summary, source_metadata_json FROM news_items
-                                WHERE url = ? AND platform_id = ?
-                                """,
-                                (normalized_url, source_id),
-                            )
-                            existing = cursor.fetchone()
+            existing_by_key = self._load_existing_news_items(cursor, set(prepared_url_items))
 
-                            if existing:
-                                existing_id, existing_title, existing_summary, existing_metadata_raw = existing
-                                merged_summary = item.summary or str(existing_summary or "")
-                                merged_metadata = _merge_source_metadata(
-                                    _deserialize_source_metadata(existing_metadata_raw),
-                                    item.metadata,
-                                )
+            update_rows: list[tuple[Any, ...]] = []
+            insert_rows: list[tuple[Any, ...]] = []
+            title_change_rows: list[tuple[Any, ...]] = []
+            rank_history_rows: list[tuple[Any, ...]] = []
 
-                                if existing_title != item.title:
-                                    cursor.execute(
-                                        """
-                                        INSERT INTO title_changes
-                                        (news_item_id, old_title, new_title, changed_at)
-                                        VALUES (?, ?, ?, ?)
-                                        """,
-                                        (existing_id, existing_title, item.title, now_str),
-                                    )
-                                    title_changed_count += 1
+            for key, item in prepared_url_items.items():
+                existing = existing_by_key.get(key)
+                if existing is None:
+                    insert_rows.append(
+                        (
+                            item.title,
+                            item.source_id,
+                            item.rank,
+                            item.url,
+                            item.mobile_url,
+                            item.summary,
+                            _serialize_source_metadata(item.metadata),
+                            batch.crawl_time,
+                            batch.crawl_time,
+                            now_str,
+                            now_str,
+                        )
+                    )
+                    continue
 
-                                cursor.execute(
-                                    """
-                                    INSERT INTO rank_history
-                                    (news_item_id, rank, crawl_time, created_at)
-                                    VALUES (?, ?, ?, ?)
-                                    """,
-                                    (existing_id, item.rank, batch.crawl_time, now_str),
-                                )
+                existing_id = int(existing["id"])
+                existing_title = str(existing["title"] or "")
+                merged_summary = item.summary or str(existing["summary"] or "")
+                merged_metadata = _merge_source_metadata(
+                    _deserialize_source_metadata(existing["source_metadata_json"]),
+                    item.metadata,
+                )
+                if existing_title != item.title:
+                    title_change_rows.append((existing_id, existing_title, item.title, now_str))
 
-                                cursor.execute(
-                                    """
-                                UPDATE news_items SET
-                                    title = ?,
-                                    rank = ?,
-                                    mobile_url = ?,
-                                    summary = ?,
-                                    source_metadata_json = ?,
-                                    last_crawl_time = ?,
-                                    crawl_count = crawl_count + 1,
-                                    updated_at = ?
-                                    WHERE id = ?
-                                    """,
-                                    (
-                                        item.title,
-                                        item.rank,
-                                        item.mobile_url,
-                                        merged_summary,
-                                        _serialize_source_metadata(merged_metadata),
-                                        batch.crawl_time,
-                                        now_str,
-                                        existing_id,
-                                    ),
-                                )
-                                updated_count += 1
-                            else:
-                                cursor.execute(
-                                    """
-                                    INSERT INTO news_items
-                                    (title, platform_id, rank, url, mobile_url, summary,
-                                     source_metadata_json,
-                                     first_crawl_time, last_crawl_time, crawl_count,
-                                     created_at, updated_at)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-                                    """,
-                                    (
-                                        item.title,
-                                        source_id,
-                                        item.rank,
-                                        normalized_url,
-                                        item.mobile_url,
-                                        item.summary,
-                                        _serialize_source_metadata(item.metadata),
-                                        batch.crawl_time,
-                                        batch.crawl_time,
-                                        now_str,
-                                        now_str,
-                                    ),
-                                )
-                                new_id = cursor.lastrowid
-                                cursor.execute(
-                                    """
-                                    INSERT INTO rank_history
-                                    (news_item_id, rank, crawl_time, created_at)
-                                    VALUES (?, ?, ?, ?)
-                                    """,
-                                    (new_id, item.rank, batch.crawl_time, now_str),
-                                )
-                                new_count += 1
-                        else:
-                            cursor.execute(
-                                """
-                                INSERT INTO news_items
-                                (title, platform_id, rank, url, mobile_url, summary,
-                                 source_metadata_json,
-                                 first_crawl_time, last_crawl_time, crawl_count,
-                                 created_at, updated_at)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-                                """,
-                                (
-                                    item.title,
-                                    source_id,
-                                    item.rank,
-                                    "",
-                                    item.mobile_url,
-                                    item.summary,
-                                    _serialize_source_metadata(item.metadata),
-                                    batch.crawl_time,
-                                    batch.crawl_time,
-                                    now_str,
-                                    now_str,
-                                ),
-                            )
-                            new_id = cursor.lastrowid
-                            cursor.execute(
-                                """
-                                INSERT INTO rank_history
-                                (news_item_id, rank, crawl_time, created_at)
-                                VALUES (?, ?, ?, ?)
-                                """,
-                                (new_id, item.rank, batch.crawl_time, now_str),
-                            )
-                            new_count += 1
+                update_rows.append(
+                    (
+                        item.title,
+                        item.rank,
+                        item.mobile_url,
+                        merged_summary,
+                        _serialize_source_metadata(merged_metadata),
+                        batch.crawl_time,
+                        now_str,
+                        existing_id,
+                    )
+                )
+                rank_history_rows.append((existing_id, item.rank, batch.crawl_time, now_str))
 
-                    except sqlite3.Error as e:
-                        print(f"{log_prefix} 保存新闻条目失败 [{item.title[:30]}...]: {e}")
+            if update_rows:
+                cursor.executemany(
+                    """
+                    UPDATE news_items SET
+                        title = ?,
+                        rank = ?,
+                        mobile_url = ?,
+                        summary = ?,
+                        source_metadata_json = ?,
+                        last_crawl_time = ?,
+                        crawl_count = crawl_count + 1,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    update_rows,
+                )
+                updated_count = len(update_rows)
+
+            if title_change_rows:
+                cursor.executemany(
+                    """
+                    INSERT INTO title_changes
+                    (news_item_id, old_title, new_title, changed_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    title_change_rows,
+                )
+                title_changed_count = len(title_change_rows)
+
+            inserted_items = self._bulk_insert_news_items(cursor, insert_rows)
+            new_count += len(inserted_items)
+            rank_history_rows.extend(
+                (news_id, rank, batch.crawl_time, now_str)
+                for news_id, rank in inserted_items
+            )
+
+            no_url_insert_rows = [
+                (
+                    item.title,
+                    item.source_id,
+                    item.rank,
+                    "",
+                    item.mobile_url,
+                    item.summary,
+                    _serialize_source_metadata(item.metadata),
+                    batch.crawl_time,
+                    batch.crawl_time,
+                    now_str,
+                    now_str,
+                )
+                for item in prepared_no_url_items
+            ]
+            no_url_inserted_items = self._bulk_insert_news_items(cursor, no_url_insert_rows)
+            new_count += len(no_url_inserted_items)
+            rank_history_rows.extend(
+                (news_id, rank, batch.crawl_time, now_str)
+                for news_id, rank in no_url_inserted_items
+            )
 
             total_items = new_count + updated_count
 
@@ -383,37 +387,22 @@ class NewsRepository(SQLiteRepositoryBase):
 
             if prev_record:
                 prev_crawl_time = prev_record[0]
+                previous_rows = self._load_previous_source_rows(cursor, prev_crawl_time, success_sources)
+                for news_id, source_id, url in previous_rows:
+                    if not url or url in current_urls_by_source.get(source_id, set()):
+                        continue
+                    rank_history_rows.append((news_id, 0, batch.crawl_time, now_str))
+                    off_list_count += 1
 
-                for source_id in success_sources:
-                    current_urls = set()
-                    current_items = batch.items.get(source_id, [])
-                    for item in current_items:
-                        normalized_url = normalize_url(item.url, source_id) if item.url else ""
-                        if normalized_url:
-                            current_urls.add(normalized_url)
-
-                    cursor.execute(
-                        """
-                        SELECT id, url FROM news_items
-                        WHERE platform_id = ?
-                          AND last_crawl_time = ?
-                          AND url != ''
-                        """,
-                        (source_id, prev_crawl_time),
-                    )
-
-                    for row in cursor.fetchall():
-                        news_id, url = row[0], row[1]
-                        if url not in current_urls:
-                            cursor.execute(
-                                """
-                                INSERT INTO rank_history
-                                (news_item_id, rank, crawl_time, created_at)
-                                VALUES (?, 0, ?, ?)
-                                """,
-                                (news_id, batch.crawl_time, now_str),
-                            )
-                            off_list_count += 1
+            if rank_history_rows:
+                cursor.executemany(
+                    """
+                    INSERT INTO rank_history
+                    (news_item_id, rank, crawl_time, created_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    rank_history_rows,
+                )
 
             cursor.execute(
                 """
@@ -434,42 +423,40 @@ class NewsRepository(SQLiteRepositoryBase):
             if record_row:
                 crawl_record_id = record_row[0]
 
-                for source_id in success_sources:
-                    cursor.execute(
+                status_rows = [(crawl_record_id, source_id, "success") for source_id in success_sources]
+                status_rows.extend((crawl_record_id, failure.source_id, "failed") for failure in batch.failures)
+                if status_rows:
+                    cursor.executemany(
                         """
                         INSERT OR REPLACE INTO crawl_source_status
                         (crawl_record_id, platform_id, status)
-                        VALUES (?, ?, 'success')
+                        VALUES (?, ?, ?)
                         """,
-                        (crawl_record_id, source_id),
+                        status_rows,
                     )
 
-                for failure in batch.failures:
-                    cursor.execute(
-                        """
-                        INSERT OR REPLACE INTO crawl_source_status
-                        (crawl_record_id, platform_id, status)
-                        VALUES (?, ?, 'failed')
-                        """,
-                        (crawl_record_id, failure.source_id),
+                failure_rows = [
+                    (
+                        crawl_record_id,
+                        failure.source_id,
+                        failure.resolved_source_id or failure.source_id,
+                        failure.exception_type,
+                        failure.message,
+                        failure.attempts,
+                        1 if failure.retryable else 0,
+                        now_str,
                     )
-                    cursor.execute(
+                    for failure in batch.failures
+                ]
+                if failure_rows:
+                    cursor.executemany(
                         """
                         INSERT OR REPLACE INTO crawl_source_failures
                         (crawl_record_id, platform_id, resolved_source_id, exception_type,
                          message, attempts, retryable, created_at)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
-                        (
-                            crawl_record_id,
-                            failure.source_id,
-                            failure.resolved_source_id or failure.source_id,
-                            failure.exception_type,
-                            failure.message,
-                            failure.attempts,
-                            1 if failure.retryable else 0,
-                            now_str,
-                        ),
+                        failure_rows,
                     )
 
             conn.commit()
@@ -477,8 +464,91 @@ class NewsRepository(SQLiteRepositoryBase):
             return True, new_count, updated_count, title_changed_count, off_list_count
 
         except Exception as e:
-            print(f"{log_prefix} 保存失败: {e}")
+            print(f"{log_prefix} ????: {e}")
             return False, 0, 0, 0, 0
+    def _load_existing_news_items(
+        self,
+        cursor: sqlite3.Cursor,
+        source_url_pairs: set[tuple[str, str]],
+    ) -> dict[tuple[str, str], sqlite3.Row]:
+        if not source_url_pairs:
+            return {}
+
+        grouped_urls: dict[str, list[str]] = {}
+        for source_id, normalized_url in sorted(source_url_pairs):
+            grouped_urls.setdefault(source_id, []).append(normalized_url)
+
+        rows: dict[tuple[str, str], sqlite3.Row] = {}
+        for source_id, urls in grouped_urls.items():
+            for chunk in _chunked(urls, 200):
+                placeholders = ",".join("?" for _ in chunk)
+                cursor.execute(
+                    f"""
+                    SELECT id, title, summary, source_metadata_json, url, platform_id
+                    FROM news_items
+                    WHERE platform_id = ? AND url IN ({placeholders})
+                    """,
+                    [source_id, *chunk],
+                )
+                for row in cursor.fetchall():
+                    rows[(str(row["platform_id"]), str(row["url"]))] = row
+        return rows
+
+    def _load_previous_source_rows(
+        self,
+        cursor: sqlite3.Cursor,
+        crawl_time: str,
+        source_ids: list[str],
+    ) -> list[tuple[int, str, str]]:
+        if not source_ids:
+            return []
+
+        rows: list[tuple[int, str, str]] = []
+        for chunk in _chunked(source_ids, 200):
+            placeholders = ",".join("?" for _ in chunk)
+            cursor.execute(
+                f"""
+                SELECT id, platform_id, url
+                FROM news_items
+                WHERE last_crawl_time = ?
+                  AND url != ''
+                  AND platform_id IN ({placeholders})
+                """,
+                [crawl_time, *chunk],
+            )
+            rows.extend((int(row["id"]), str(row["platform_id"]), str(row["url"])) for row in cursor.fetchall())
+        return rows
+
+    def _bulk_insert_news_items(
+        self,
+        cursor: sqlite3.Cursor,
+        rows: list[tuple[Any, ...]],
+        *,
+        batch_size: int = 80,
+    ) -> list[tuple[int, int]]:
+        if not rows:
+            return []
+
+        inserted: list[tuple[int, int]] = []
+        for chunk in _chunked(rows, batch_size):
+            placeholders = ",".join("(?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)" for _ in chunk)
+            params: list[Any] = []
+            for row in chunk:
+                params.extend(row)
+            cursor.execute(
+                f"""
+                INSERT INTO news_items
+                (title, platform_id, rank, url, mobile_url, summary,
+                 source_metadata_json,
+                 first_crawl_time, last_crawl_time, crawl_count,
+                 created_at, updated_at)
+                VALUES {placeholders}
+                RETURNING id, rank
+                """,
+                params,
+            )
+            inserted.extend((int(row["id"]), int(row["rank"])) for row in cursor.fetchall())
+        return inserted
 
     def _get_today_all_data_impl(self, date: Optional[str] = None) -> Optional[NewsData]:
         """
@@ -774,3 +844,6 @@ def _merge_source_metadata(
         merged[key] = value
     return merged
 
+
+def _chunked(values: List[Any], size: int) -> List[List[Any]]:
+    return [values[index:index + size] for index in range(0, len(values), size)]

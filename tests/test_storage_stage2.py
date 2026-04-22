@@ -7,6 +7,7 @@ from pathlib import Path
 from newspulse.crawler import CrawlBatchResult, SourceFetchFailure, SourceFetchResult
 from newspulse.crawler.sources.base import SourceItem
 from newspulse.storage import StorageManager, normalize_crawl_batch
+from newspulse.storage.sqlite_runtime import SQLiteRuntime
 
 
 class StorageStage2Test(unittest.TestCase):
@@ -154,6 +155,81 @@ class StorageStage2Test(unittest.TestCase):
         self.assertEqual(latest.items['s1'][0].summary, 'Official OpenAI Agents SDK for Python')
         self.assertEqual(latest.items['s1'][0].metadata['github']['topics'], ['openai', 'agent', 'sdk'])
 
+    def test_storage_tracks_title_changes_and_off_list_entries(self):
+        tmp = self._create_workspace_tmpdir()
+        storage = self._create_storage(tmp)
+        try:
+            first_batch = normalize_crawl_batch(
+                crawl_batch=CrawlBatchResult(
+                    sources=[
+                        SourceFetchResult(
+                            source_id='s1',
+                            source_name='平台1',
+                            resolved_source_id='s1',
+                            items=[
+                                SourceItem(title='Alpha', url='https://example.com/a', summary='alpha'),
+                                SourceItem(title='Beta', url='https://example.com/b'),
+                            ],
+                        )
+                    ],
+                    failures=[],
+                ),
+                crawl_time='2026-04-18 09:00:00',
+                crawl_date='2026-04-18',
+            )
+            second_batch = normalize_crawl_batch(
+                crawl_batch=CrawlBatchResult(
+                    sources=[
+                        SourceFetchResult(
+                            source_id='s1',
+                            source_name='平台1',
+                            resolved_source_id='s1',
+                            items=[
+                                SourceItem(title='Alpha v2', url='https://example.com/a?utm_source=test'),
+                            ],
+                        )
+                    ],
+                    failures=[],
+                ),
+                crawl_time='2026-04-18 10:00:00',
+                crawl_date='2026-04-18',
+            )
+
+            self.assertTrue(storage.save_normalized_crawl_batch(first_batch))
+            self.assertTrue(storage.save_normalized_crawl_batch(second_batch))
+
+            backend = storage.get_backend()
+            db_path = backend.runtime.get_db_path('2026-04-18')
+            conn = sqlite3.connect(db_path)
+            try:
+                title_changes = conn.execute(
+                    'SELECT old_title, new_title FROM title_changes ORDER BY id'
+                ).fetchall()
+                rank_history = conn.execute(
+                    '''
+                    SELECT ni.title, rh.rank, rh.crawl_time
+                    FROM rank_history rh
+                    JOIN news_items ni ON ni.id = rh.news_item_id
+                    ORDER BY rh.id
+                    '''
+                ).fetchall()
+            finally:
+                conn.close()
+        finally:
+            storage.cleanup()
+            shutil.rmtree(tmp, ignore_errors=True)
+
+        self.assertEqual(title_changes, [('Alpha', 'Alpha v2')])
+        self.assertEqual(
+            rank_history,
+            [
+                ('Alpha v2', 1, '2026-04-18 09:00:00'),
+                ('Beta', 2, '2026-04-18 09:00:00'),
+                ('Alpha v2', 1, '2026-04-18 10:00:00'),
+                ('Beta', 0, '2026-04-18 10:00:00'),
+            ],
+        )
+
     def test_latest_data_still_restores_failures_when_all_sources_fail(self):
         tmp = self._create_workspace_tmpdir()
         storage = self._create_storage(tmp)
@@ -287,6 +363,28 @@ class StorageStage2Test(unittest.TestCase):
         assert latest is not None
         self.assertEqual(latest.items['s1'][0].summary, '')
         self.assertEqual(latest.items['s1'][0].metadata, {})
+
+    def test_sqlite_runtime_enables_wal_and_new_indexes(self):
+        tmp = self._create_workspace_tmpdir()
+        runtime = SQLiteRuntime(data_dir=str(tmp / 'output'))
+        conn = runtime.get_connection('2026-04-18')
+        try:
+            journal_mode = conn.execute('PRAGMA journal_mode').fetchone()[0]
+            indexes = {
+                row[1]
+                for row in conn.execute("PRAGMA index_list('news_items')").fetchall()
+            }
+            rank_indexes = {
+                row[1]
+                for row in conn.execute("PRAGMA index_list('rank_history')").fetchall()
+            }
+        finally:
+            runtime.close_all()
+            shutil.rmtree(tmp, ignore_errors=True)
+
+        self.assertEqual(str(journal_mode).lower(), 'wal')
+        self.assertIn('idx_news_platform_crawl_time', indexes)
+        self.assertIn('idx_rank_history_news_crawl_time', rank_indexes)
 
 
 if __name__ == '__main__':

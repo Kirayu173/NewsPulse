@@ -37,6 +37,7 @@ class SQLiteRuntime:
         if db_path not in self.db_connections:
             conn = sqlite3.connect(db_path)
             conn.row_factory = sqlite3.Row
+            self.configure_connection(conn)
             self.init_tables(conn, db_type)
             self.db_connections[db_path] = conn
         return self.db_connections[db_path]
@@ -46,6 +47,11 @@ class SQLiteRuntime:
 
     def get_ai_filter_schema_path(self) -> Path:
         return Path(__file__).parent / "ai_filter_schema.sql"
+
+    def configure_connection(self, conn: sqlite3.Connection) -> None:
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
 
     def init_tables(self, conn: sqlite3.Connection, db_type: str = "news") -> None:
         schema_path = self.get_schema_path(db_type)
