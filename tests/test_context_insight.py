@@ -67,7 +67,6 @@ class AppContextInsightStageTest(unittest.TestCase):
             enable_txt=False,
             enable_html=False,
             timezone=ctx.timezone,
-            force_new=True,
         )
         return ctx
 

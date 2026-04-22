@@ -63,7 +63,6 @@ class LiveAppContextSelectionStageTest(unittest.TestCase):
                 enable_txt=False,
                 enable_html=False,
                 timezone=ctx.timezone,
-                force_new=True,
             )
             try:
                 ctx.get_storage_manager().save_news_data(

@@ -303,7 +303,6 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
             enable_txt=False,
             enable_html=True,
             timezone=ctx.timezone,
-            force_new=True,
         )
         return ctx
 

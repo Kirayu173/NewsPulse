@@ -94,7 +94,6 @@ class InsightContentFetcherTest(unittest.TestCase):
                 enable_txt=False,
                 enable_html=False,
                 timezone='Asia/Shanghai',
-                force_new=True,
             )
             empty = FakeExtractor('empty', ExtractedContent(success=False, extractor_name='empty', error_type='empty', error_message='no text'))
             success = FakeExtractor(
@@ -137,7 +136,6 @@ class InsightContentFetcherTest(unittest.TestCase):
                 enable_txt=False,
                 enable_html=False,
                 timezone='Asia/Shanghai',
-                force_new=True,
             )
             extractor = FakeExtractor(
                 'success',
@@ -178,7 +176,6 @@ class InsightContentFetcherTest(unittest.TestCase):
                 enable_txt=False,
                 enable_html=False,
                 timezone='Asia/Shanghai',
-                force_new=True,
             )
             session = FakeSession(
                 {

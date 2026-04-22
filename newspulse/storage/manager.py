@@ -1,6 +1,7 @@
 ﻿# coding=utf-8
 """Storage manager facade for the local hotlist-only backend."""
 
+from dataclasses import dataclass
 from typing import Optional
 
 from newspulse.storage.base import ArticleContentRecord, NewsData, NormalizedCrawlBatch, StorageBackend
@@ -9,8 +10,29 @@ from newspulse.utils.logging import get_logger
 from newspulse.utils.time import DEFAULT_TIMEZONE
 
 
-_storage_manager: Optional["StorageManager"] = None
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class StorageManagerSettings:
+    """Normalized settings used to build a storage manager instance."""
+
+    backend_type: str = "local"
+    data_dir: str = "output"
+    enable_txt: bool = True
+    enable_html: bool = True
+    local_retention_days: int = 0
+    timezone: str = DEFAULT_TIMEZONE
+
+    def build(self) -> "StorageManager":
+        return StorageManager(
+            backend_type=self.backend_type,
+            data_dir=self.data_dir,
+            enable_txt=self.enable_txt,
+            enable_html=self.enable_html,
+            local_retention_days=self.local_retention_days,
+            timezone=self.timezone,
+        )
 
 
 class StorageManager:
@@ -286,16 +308,14 @@ def get_storage_manager(
     timezone: str = DEFAULT_TIMEZONE,
     force_new: bool = False,
 ) -> StorageManager:
-    global _storage_manager
-
-    if _storage_manager is None or force_new:
-        _storage_manager = StorageManager(
-            backend_type=backend_type,
-            data_dir=data_dir,
-            enable_txt=enable_txt,
-            enable_html=enable_html,
-            local_retention_days=local_retention_days,
-            timezone=timezone,
-        )
-
-    return _storage_manager
+    # ``force_new`` is kept for backward compatibility, but storage lifetimes are
+    # now owned by the caller instead of a process-global singleton.
+    _ = force_new
+    return StorageManagerSettings(
+        backend_type=backend_type,
+        data_dir=data_dir,
+        enable_txt=enable_txt,
+        enable_html=enable_html,
+        local_retention_days=local_retention_days,
+        timezone=timezone,
+    ).build()
