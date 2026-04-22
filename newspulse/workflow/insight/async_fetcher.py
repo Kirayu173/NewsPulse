@@ -12,14 +12,14 @@ import aiohttp
 
 from newspulse.crawler.sources.base import DEFAULT_HEADERS, strip_html
 from newspulse.utils.url import normalize_url
-from newspulse.workflow.insight.content_fetcher import (
-    _extract_hn_external_url,
-    _extract_hn_item_text,
-    _first_line,
-    _format_repo_stats,
-    _hash_text,
-    _is_meaningful_text,
-    _trim_text,
+from newspulse.workflow.insight.content_fetch_common import (
+    extract_hn_external_url,
+    extract_hn_item_text,
+    first_line,
+    format_repo_stats,
+    hash_text,
+    is_meaningful_text,
+    trim_text,
 )
 from newspulse.workflow.insight.models import InsightContentPayload, InsightNewsContext
 
@@ -86,7 +86,7 @@ class AsyncInsightContentFetcher:
     ) -> InsightContentPayload:
         target_url = str(override_url or context.url or context.mobile_url or "").strip()
         if not target_url:
-            return self.fetcher._fallback_summary_payload(
+            return self.fetcher.build_fallback_payload(
                 context,
                 source_type=source_type,
                 error_type="missing_url",
@@ -94,14 +94,14 @@ class AsyncInsightContentFetcher:
             )
 
         normalized_url = normalize_url(target_url, context.source_id)
-        cached = self.fetcher._load_cached(normalized_url, context.news_item_id)
+        cached = self.fetcher.load_cached_payload(normalized_url, context.news_item_id)
         if cached is not None:
             return cached
 
         try:
             html, final_url, status_code = await self._request_text(session, target_url)
         except Exception as exc:
-            return self.fetcher._fallback_summary_payload(
+            return self.fetcher.build_fallback_payload(
                 context,
                 source_type=source_type,
                 normalized_url=normalized_url,
@@ -122,7 +122,7 @@ class AsyncInsightContentFetcher:
                     "text_length": len(extracted.text or ""),
                 }
             )
-            if extracted.success and _is_meaningful_text(extracted.text):
+            if extracted.success and is_meaningful_text(extracted.text):
                 payload = InsightContentPayload(
                     news_item_id=context.news_item_id,
                     status="ok",
@@ -136,18 +136,18 @@ class AsyncInsightContentFetcher:
                     published_at=extracted.published_at,
                     author=extracted.author,
                     extractor_name=extracted.extractor_name,
-                    content_hash=_hash_text(extracted.text),
+                    content_hash=hash_text(extracted.text),
                     trace={
                         "cache_hit": False,
                         "http_status": status_code,
                         "attempts": attempts,
                     },
                 )
-                self.fetcher._save_payload(context, payload)
+                self.fetcher.save_content_payload(context, payload)
                 return payload
 
         last_attempt = attempts[-1] if attempts else {}
-        return self.fetcher._fallback_summary_payload(
+        return self.fetcher.build_fallback_payload(
             context,
             source_type=source_type,
             normalized_url=normalized_url,
@@ -166,7 +166,7 @@ class AsyncInsightContentFetcher:
         full_name = str(repo.get("full_name") or context.title or "").strip()
         repo_url = str(context.url or (f"https://github.com/{full_name}" if full_name else "")).strip()
         normalized_url = normalize_url(repo_url, context.source_id)
-        cached = self.fetcher._load_cached(normalized_url, context.news_item_id)
+        cached = self.fetcher.load_cached_payload(normalized_url, context.news_item_id)
         if cached is not None:
             return cached
 
@@ -181,7 +181,7 @@ class AsyncInsightContentFetcher:
         description = str(repo.get("description") or context.source_context.summary or "").strip()
         if description:
             blocks.append(f"Description: {description}")
-        stats = _format_repo_stats(repo)
+        stats = format_repo_stats(repo)
         if stats:
             blocks.append(stats)
         topics = repo.get("topics")
@@ -192,8 +192,8 @@ class AsyncInsightContentFetcher:
         if release_text:
             blocks.append("Latest release:\n" + release_text)
         content_text = "\n\n".join(block for block in blocks if block).strip()
-        if not _is_meaningful_text(content_text):
-            return self.fetcher._fallback_summary_payload(
+        if not is_meaningful_text(content_text):
+            return self.fetcher.build_fallback_payload(
                 context,
                 source_type="github_repository",
                 normalized_url=normalized_url,
@@ -210,18 +210,18 @@ class AsyncInsightContentFetcher:
             normalized_url=normalized_url,
             final_url=repo_url,
             title=context.title,
-            excerpt=description or _first_line(content_text),
+            excerpt=description or first_line(content_text),
             content_text=content_text,
             content_markdown=content_text,
             extractor_name="github_api" if readme_text or release_text else "github_metadata",
-            content_hash=_hash_text(content_text),
+            content_hash=hash_text(content_text),
             trace={
                 "cache_hit": False,
                 "readme": readme_trace,
                 "release": release_trace,
             },
         )
-        self.fetcher._save_payload(context, payload)
+        self.fetcher.save_content_payload(context, payload)
         return payload
 
     async def _fetch_hackernews_context(
@@ -231,7 +231,7 @@ class AsyncInsightContentFetcher:
     ) -> InsightContentPayload:
         target_url = str(context.url or context.mobile_url or "").strip()
         if not target_url:
-            return self.fetcher._fallback_summary_payload(
+            return self.fetcher.build_fallback_payload(
                 context,
                 source_type="hackernews_item",
                 error_type="missing_url",
@@ -243,7 +243,7 @@ class AsyncInsightContentFetcher:
         try:
             html, _, _ = await self._request_text(session, target_url)
         except Exception as exc:
-            return self.fetcher._fallback_summary_payload(
+            return self.fetcher.build_fallback_payload(
                 context,
                 source_type="hackernews_item",
                 normalized_url=normalize_url(target_url, context.source_id),
@@ -252,7 +252,7 @@ class AsyncInsightContentFetcher:
                 error_message=f"{type(exc).__name__}: {exc}",
             )
 
-        external_url = _extract_hn_external_url(html)
+        external_url = extract_hn_external_url(html)
         if external_url:
             external_payload = await self._fetch_article_context(
                 session,
@@ -266,9 +266,9 @@ class AsyncInsightContentFetcher:
                     trace={**dict(external_payload.trace), "hn_thread_url": target_url, "route": "external_link"},
                 )
 
-        hn_text = _extract_hn_item_text(html)
+        hn_text = extract_hn_item_text(html)
         normalized_url = normalize_url(target_url, context.source_id)
-        if _is_meaningful_text(hn_text):
+        if is_meaningful_text(hn_text):
             payload = InsightContentPayload(
                 news_item_id=context.news_item_id,
                 status="hn_item_text",
@@ -276,17 +276,17 @@ class AsyncInsightContentFetcher:
                 normalized_url=normalized_url,
                 final_url=target_url,
                 title=context.title,
-                excerpt=_first_line(hn_text),
+                excerpt=first_line(hn_text),
                 content_text=hn_text,
                 content_markdown=hn_text,
                 extractor_name="hn_page_parser",
-                content_hash=_hash_text(hn_text),
+                content_hash=hash_text(hn_text),
                 trace={"cache_hit": False, "route": "hn_thread_text"},
             )
-            self.fetcher._save_payload(context, payload)
+            self.fetcher.save_content_payload(context, payload)
             return payload
 
-        return self.fetcher._fallback_summary_payload(
+        return self.fetcher.build_fallback_payload(
             context,
             source_type="hackernews_item",
             normalized_url=normalized_url,
@@ -311,7 +311,7 @@ class AsyncInsightContentFetcher:
                 f"https://api.github.com/repos/{quote(full_name, safe='/')}/readme",
                 headers=headers,
             )
-            return _trim_text(text, limit=4000), {"status": "ok", "status_code": status_code, "length": len(text)}
+            return trim_text(text, limit=4000), {"status": "ok", "status_code": status_code, "length": len(text)}
         except aiohttp.ClientResponseError as exc:
             return "", {"status": "http_error", "status_code": exc.status}
         except Exception as exc:
@@ -333,7 +333,7 @@ class AsyncInsightContentFetcher:
                 f"https://api.github.com/repos/{quote(full_name, safe='/')}/releases/latest",
                 headers=headers,
             )
-            body = _trim_text(strip_html(str(payload.get("body") or "")), limit=2000)
+            body = trim_text(strip_html(str(payload.get("body") or "")), limit=2000)
             if not body:
                 return "", {"status": "empty", "status_code": status_code}
             name = str(payload.get("name") or payload.get("tag_name") or "").strip()

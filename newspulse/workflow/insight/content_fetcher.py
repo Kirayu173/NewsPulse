@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import os
 import threading
 from dataclasses import replace
@@ -12,11 +11,19 @@ from typing import Any, Mapping, Optional
 from urllib.parse import quote
 
 import requests
-from bs4 import BeautifulSoup
 
 from newspulse.crawler.sources.base import DEFAULT_HEADERS, strip_html
 from newspulse.storage import ArticleContentRecord
 from newspulse.utils.url import normalize_url
+from newspulse.workflow.insight.content_fetch_common import (
+    extract_hn_external_url,
+    extract_hn_item_text,
+    first_line,
+    format_repo_stats,
+    hash_text,
+    is_meaningful_text,
+    trim_text,
+)
 from newspulse.workflow.insight.content_extractors import ContentExtractor, build_default_extractors
 from newspulse.workflow.insight.models import InsightContentPayload, InsightNewsContext
 
@@ -126,7 +133,7 @@ class InsightContentFetcher:
                     'text_length': len(extracted.text or ''),
                 }
             )
-            if extracted.success and _is_meaningful_text(extracted.text):
+            if extracted.success and is_meaningful_text(extracted.text):
                 payload = InsightContentPayload(
                     news_item_id=context.news_item_id,
                     status='ok',
@@ -140,7 +147,7 @@ class InsightContentFetcher:
                     published_at=extracted.published_at,
                     author=extracted.author,
                     extractor_name=extracted.extractor_name,
-                    content_hash=_hash_text(extracted.text),
+                    content_hash=hash_text(extracted.text),
                     trace={
                         'cache_hit': False,
                         'http_status': int(getattr(response, 'status_code', 200) or 200),
@@ -178,7 +185,7 @@ class InsightContentFetcher:
         description = str(repo.get('description') or context.source_context.summary or '').strip()
         if description:
             blocks.append(f'Description: {description}')
-        stats = _format_repo_stats(repo)
+        stats = format_repo_stats(repo)
         if stats:
             blocks.append(stats)
         topics = repo.get('topics')
@@ -189,7 +196,7 @@ class InsightContentFetcher:
         if release_text:
             blocks.append('Latest release:\n' + release_text)
         content_text = '\n\n'.join(block for block in blocks if block).strip()
-        if not _is_meaningful_text(content_text):
+        if not is_meaningful_text(content_text):
             return self._fallback_summary_payload(
                 context,
                 source_type='github_repository',
@@ -207,11 +214,11 @@ class InsightContentFetcher:
             normalized_url=normalized_url,
             final_url=repo_url,
             title=context.title,
-            excerpt=description or _first_line(content_text),
+            excerpt=description or first_line(content_text),
             content_text=content_text,
             content_markdown=content_text,
             extractor_name='github_api' if readme_text or release_text else 'github_metadata',
-            content_hash=_hash_text(content_text),
+            content_hash=hash_text(content_text),
             trace={
                 'cache_hit': False,
                 'readme': readme_trace,
@@ -247,7 +254,7 @@ class InsightContentFetcher:
                 error_message=f'{type(exc).__name__}: {exc}',
             )
 
-        external_url = _extract_hn_external_url(html)
+        external_url = extract_hn_external_url(html)
         if external_url:
             external_payload = self._fetch_article_context(
                 context,
@@ -260,9 +267,9 @@ class InsightContentFetcher:
                     trace={**dict(external_payload.trace), 'hn_thread_url': target_url, 'route': 'external_link'},
                 )
 
-        hn_text = _extract_hn_item_text(html)
+        hn_text = extract_hn_item_text(html)
         normalized_url = normalize_url(target_url, context.source_id)
-        if _is_meaningful_text(hn_text):
+        if is_meaningful_text(hn_text):
             payload = InsightContentPayload(
                 news_item_id=context.news_item_id,
                 status='hn_item_text',
@@ -270,11 +277,11 @@ class InsightContentFetcher:
                 normalized_url=normalized_url,
                 final_url=target_url,
                 title=context.title,
-                excerpt=_first_line(hn_text),
+                excerpt=first_line(hn_text),
                 content_text=hn_text,
                 content_markdown=hn_text,
                 extractor_name='hn_page_parser',
-                content_hash=_hash_text(hn_text),
+                content_hash=hash_text(hn_text),
                 trace={'cache_hit': False, 'route': 'hn_thread_text'},
             )
             self._save_payload(context, payload)
@@ -303,7 +310,7 @@ class InsightContentFetcher:
             )
             if response.status_code >= 400:
                 return '', {'status': 'http_error', 'status_code': response.status_code}
-            text = _trim_text(response.text, limit=4000)
+            text = trim_text(response.text, limit=4000)
             return text, {'status': 'ok', 'length': len(text)}
         except Exception as exc:
             return '', {'status': 'error', 'error': f'{type(exc).__name__}: {exc}'}
@@ -323,7 +330,7 @@ class InsightContentFetcher:
             if response.status_code >= 400:
                 return '', {'status': 'http_error', 'status_code': response.status_code}
             payload = response.json()
-            body = _trim_text(strip_html(str(payload.get('body') or '')), limit=2000)
+            body = trim_text(strip_html(str(payload.get('body') or '')), limit=2000)
             if not body:
                 return '', {'status': 'empty'}
             name = str(payload.get('name') or payload.get('tag_name') or '').strip()
@@ -371,6 +378,9 @@ class InsightContentFetcher:
             normalized_url = normalize_url(target_url, context.source_id)
         return self._load_cached(normalized_url, context.news_item_id)
 
+    def load_cached_payload(self, normalized_url: str, news_item_id: str) -> Optional[InsightContentPayload]:
+        return self._load_cached(normalized_url, news_item_id)
+
     def _fetch_many_async(self, contexts: list[InsightNewsContext]) -> list[InsightContentPayload]:
         from newspulse.workflow.insight.async_fetcher import AsyncInsightContentFetcher
 
@@ -380,6 +390,9 @@ class InsightContentFetcher:
             request_timeout=self.request_timeout,
         )
         return _run_coroutine_sync(runner.fetch_many(contexts))
+
+    def save_content_payload(self, context: InsightNewsContext, payload: InsightContentPayload) -> None:
+        self._save_payload(context, payload)
 
     def _save_payload(self, context: InsightNewsContext, payload: InsightContentPayload) -> None:
         if self.storage_manager is None or not payload.normalized_url:
@@ -407,6 +420,27 @@ class InsightContentFetcher:
         )
         self.storage_manager.save_article_content(record)
 
+    def build_fallback_payload(
+        self,
+        context: InsightNewsContext,
+        *,
+        source_type: str,
+        normalized_url: str = '',
+        final_url: str = '',
+        error_type: str = '',
+        error_message: str = '',
+        trace: Mapping[str, Any] | None = None,
+    ) -> InsightContentPayload:
+        return self._fallback_summary_payload(
+            context,
+            source_type=source_type,
+            normalized_url=normalized_url,
+            final_url=final_url,
+            error_type=error_type,
+            error_message=error_message,
+            trace=trace,
+        )
+
     def _fallback_summary_payload(
         self,
         context: InsightNewsContext,
@@ -430,7 +464,7 @@ class InsightContentFetcher:
             content_text=content_text,
             content_markdown=content_text,
             extractor_name='summary_fallback',
-            content_hash=_hash_text(content_text),
+            content_hash=hash_text(content_text),
             error_type=error_type,
             error_message=error_message,
             trace=dict(trace or {}),
@@ -459,86 +493,6 @@ def _build_summary_fallback_text(context: InsightNewsContext) -> str:
     if evidence:
         lines.append('Selection evidence: ' + ' | '.join(evidence))
     return '\n'.join(line for line in lines if line).strip()
-
-
-def _extract_hn_external_url(html: str) -> str:
-    soup = BeautifulSoup(html, 'lxml')
-    selectors = [
-        '.titleline a[href]',
-        'a.titlelink[href]',
-        'main a[href^="http"]',
-    ]
-    for selector in selectors:
-        node = soup.select_one(selector)
-        href = str(node.get('href') or '').strip() if node else ''
-        if href and 'news.ycombinator.com' not in href:
-            return href
-    return ''
-
-
-def _extract_hn_item_text(html: str) -> str:
-    soup = BeautifulSoup(html, 'lxml')
-    blocks: list[str] = []
-    for selector in ('.toptext', '.comment .commtext', '.comment-tree .commtext'):
-        for node in soup.select(selector):
-            text = strip_html(str(node))
-            cleaned = _trim_text(text, limit=500)
-            if cleaned and cleaned not in blocks:
-                blocks.append(cleaned)
-            if len(blocks) >= 6:
-                break
-        if blocks:
-            break
-    return '\n\n'.join(blocks).strip()
-
-
-def _format_repo_stats(repo: Mapping[str, Any]) -> str:
-    parts: list[str] = []
-    language = str(repo.get('language') or '').strip()
-    if language:
-        parts.append(f'language={language}')
-    for label, key in (('stars_today', 'stars_today'), ('stars_total', 'stars_total'), ('forks_total', 'forks_total')):
-        value = repo.get(key)
-        if value not in (None, ''):
-            parts.append(f'{label}={value}')
-    pushed_at = str(repo.get('pushed_at') or '').strip()
-    if pushed_at:
-        parts.append(f'updated={pushed_at[:10]}')
-    created_at = str(repo.get('created_at') or '').strip()
-    if created_at:
-        parts.append(f'created={created_at[:10]}')
-    flags = []
-    if bool(repo.get('archived')):
-        flags.append('archived')
-    if bool(repo.get('fork')):
-        flags.append('fork')
-    if flags:
-        parts.append('flags=' + ','.join(flags))
-    return 'Repo stats: ' + '; '.join(parts) if parts else ''
-
-
-def _hash_text(text: str) -> str:
-    return hashlib.sha1((text or '').encode('utf-8')).hexdigest() if text else ''
-
-
-def _is_meaningful_text(text: str, min_length: int = 120) -> bool:
-    normalized = ' '.join((text or '').split())
-    return len(normalized) >= min_length
-
-
-def _trim_text(text: str, *, limit: int) -> str:
-    normalized = ' '.join((text or '').split())
-    if len(normalized) <= limit:
-        return normalized
-    return normalized[: max(0, limit - 3)].rstrip() + '...'
-
-
-def _first_line(text: str) -> str:
-    for line in str(text or '').splitlines():
-        cleaned = line.strip()
-        if cleaned:
-            return cleaned
-    return ''
 
 
 def _run_coroutine_sync(coro):
