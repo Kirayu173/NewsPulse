@@ -45,7 +45,6 @@ class PyTextRankReducer:
     def rank(self, sentences: Sequence[str], anchor_text: str) -> tuple[list[RankedSentence], dict[str, Any]]:
         try:
             import pytextrank  # noqa: F401  # type: ignore
-            import spacy  # type: ignore
         except Exception as exc:
             ranked = _lexical_rank(sentences, anchor_text)
             return ranked, {'backend': 'builtin_lexical', 'error': f'{type(exc).__name__}: {exc}'}

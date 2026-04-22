@@ -1,13 +1,7 @@
 # coding=utf-8
-import sqlite3
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional
 
-from newspulse.storage.base import NewsItem, NewsData
 from newspulse.storage.repos.base import SQLiteRepositoryBase
 from newspulse.utils.logging import get_logger
-from newspulse.utils.url import normalize_url
 
 
 logger = get_logger(__name__)

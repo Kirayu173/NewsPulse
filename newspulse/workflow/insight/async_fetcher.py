@@ -13,7 +13,6 @@ import aiohttp
 from newspulse.crawler.sources.base import DEFAULT_HEADERS, strip_html
 from newspulse.utils.url import normalize_url
 from newspulse.workflow.insight.content_fetcher import (
-    _build_summary_fallback_text,
     _extract_hn_external_url,
     _extract_hn_item_text,
     _first_line,

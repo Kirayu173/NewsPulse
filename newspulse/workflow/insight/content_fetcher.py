@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import os
 import threading
 from dataclasses import replace
@@ -19,7 +18,7 @@ from newspulse.crawler.sources.base import DEFAULT_HEADERS, strip_html
 from newspulse.storage import ArticleContentRecord
 from newspulse.utils.url import normalize_url
 from newspulse.workflow.insight.content_extractors import ContentExtractor, build_default_extractors
-from newspulse.workflow.insight.models import ExtractedContent, InsightContentPayload, InsightNewsContext
+from newspulse.workflow.insight.models import InsightContentPayload, InsightNewsContext
 
 
 class InsightContentFetcher:

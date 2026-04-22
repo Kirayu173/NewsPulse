@@ -235,7 +235,9 @@ class WorkflowRenderServiceTest(unittest.TestCase):
 
     def test_render_service_generates_html_and_delivery_payloads_from_report_package(self):
         report = _build_report_package()
-        fixed_now = lambda: datetime(2026, 4, 17, 10, 30, 0)
+
+        def fixed_now():
+            return datetime(2026, 4, 17, 10, 30, 0)
 
         with TemporaryDirectory() as temp_dir:
             service = RenderService(
@@ -342,7 +344,9 @@ class WorkflowRenderServiceTest(unittest.TestCase):
                 "report_mode": "current",
             },
         }
-        fixed_now = lambda: datetime(2026, 4, 17, 10, 30, 0)
+
+        def fixed_now():
+            return datetime(2026, 4, 17, 10, 30, 0)
 
         view_model = build_render_view_model(
             report,

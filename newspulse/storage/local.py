@@ -355,7 +355,7 @@ class LocalStorageBackend(StorageBackend):
 
             logger.info("[本地存储] TXT 快照已保存: %s", file_path)
             return str(file_path)
-        except Exception as e:
+        except Exception:
             logger.exception("[本地存储] 保存 TXT 快照失败")
             return None
 
@@ -372,7 +372,7 @@ class LocalStorageBackend(StorageBackend):
                 f.write(html_content)
             logger.info("[本地存储] HTML 报告已保存: %s", file_path)
             return str(file_path)
-        except Exception as e:
+        except Exception:
             logger.exception("[本地存储] 保存 HTML 报告失败")
             return None
 
@@ -381,7 +381,7 @@ class LocalStorageBackend(StorageBackend):
             try:
                 self.runtime.close_connection(db_path)
                 logger.debug("[本地存储] 关闭数据库连接: %s", db_path)
-            except Exception as e:
+            except Exception:
                 logger.exception("[本地存储] 关闭连接失败 %s", db_path)
 
     def cleanup_old_data(self, retention_days: int) -> int:
@@ -426,7 +426,7 @@ class LocalStorageBackend(StorageBackend):
                             db_file.unlink()
                             deleted_count += 1
                             logger.debug("[本地存储] 清理过期数据: news/%s", db_file.name)
-                        except Exception as e:
+                        except Exception:
                             logger.exception("[本地存储] 删除文件失败 %s", db_file)
 
             for snapshot_type in ["txt", "html"]:
@@ -444,13 +444,13 @@ class LocalStorageBackend(StorageBackend):
                             shutil.rmtree(date_folder)
                             deleted_count += 1
                             logger.debug("[本地存储] 清理过期数据: %s/%s", snapshot_type, date_folder.name)
-                        except Exception as e:
+                        except Exception:
                             logger.exception("[本地存储] 删除目录失败 %s", date_folder)
 
             if deleted_count > 0:
                 logger.info("[本地存储] 共清理 %s 个过期文件/目录", deleted_count)
             return deleted_count
-        except Exception as e:
+        except Exception:
             logger.exception("[本地存储] 清理过期数据失败")
             return deleted_count
 

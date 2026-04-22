@@ -18,12 +18,10 @@ from zoneinfo import ZoneInfo
 from newspulse.context import AppContext
 from newspulse.core import load_config
 from newspulse.crawler.fetcher import DataFetcher
-from newspulse.crawler.models import CrawlSourceSpec
 from newspulse.storage import normalize_crawl_batch
 from newspulse.utils.time import DEFAULT_TIMEZONE
 from newspulse.workflow.shared.options import SnapshotOptions
 from newspulse.workflow.shared.review_helpers import (
-    REVIEW_FILE_ENCODING,
     build_source_specs as _build_source_specs,
     write_review_text as _write_review_text,
 )

@@ -17,7 +17,6 @@ from newspulse.core import load_config
 from newspulse.crawler.fetcher import DataFetcher
 from newspulse.crawler.models import CrawlBatchResult, CrawlSourceSpec
 from newspulse.workflow.shared.review_helpers import (
-    REVIEW_FILE_ENCODING,
     build_source_specs as _build_source_specs,
     write_review_text as _write_review_text,
 )

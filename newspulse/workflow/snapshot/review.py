@@ -22,7 +22,6 @@ from newspulse.storage import NewsData, NormalizedCrawlBatch, StorageManager, no
 from newspulse.utils.time import DEFAULT_TIMEZONE
 from newspulse.workflow.shared.options import SnapshotOptions
 from newspulse.workflow.shared.review_helpers import (
-    REVIEW_FILE_ENCODING,
     build_source_specs as _build_source_specs,
     write_review_text as _write_review_text,
 )

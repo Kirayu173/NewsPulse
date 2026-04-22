@@ -2,7 +2,6 @@
 """Version check helpers for the CLI."""
 
 import re
-from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 import requests

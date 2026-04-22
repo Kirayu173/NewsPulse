@@ -4,7 +4,6 @@ from tempfile import TemporaryDirectory
 
 from newspulse.storage import get_storage_manager
 from newspulse.workflow.insight.content_fetcher import InsightContentFetcher
-from newspulse.workflow.insight.input_builder import InsightInputBuilder
 from newspulse.workflow.insight.models import ExtractedContent, InsightContentPayload, InsightNewsContext, InsightRankSignals, InsightSelectionEvidence, InsightSourceContext
 
 

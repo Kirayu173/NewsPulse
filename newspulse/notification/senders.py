@@ -61,6 +61,6 @@ def send_prepared_generic_webhook(
             response.text,
         )
         return False
-    except Exception as exc:
+    except Exception:
         logger.exception("%s发送异常 [%s]", log_prefix, title)
         return False

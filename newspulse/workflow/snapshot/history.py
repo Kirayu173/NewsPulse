@@ -56,7 +56,7 @@ def detect_latest_new_title_map_from_storage(
     try:
         latest_data = storage_manager.get_latest_crawl_data()
         all_data = storage_manager.get_today_all_data()
-    except Exception as exc:
+    except Exception:
         logger.exception("[snapshot] failed to load storage data for incremental titles")
         return {}
 

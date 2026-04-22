@@ -467,7 +467,7 @@ class NewsRepository(SQLiteRepositoryBase):
 
             return True, new_count, updated_count, title_changed_count, off_list_count
 
-        except Exception as e:
+        except Exception:
             logger.exception("%s ????", log_prefix)
             return False, 0, 0, 0, 0
     def _load_existing_news_items(
