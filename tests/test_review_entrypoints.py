@@ -1,3 +1,4 @@
+import os
 import shutil
 import unittest
 import uuid
@@ -166,7 +167,10 @@ class ReviewEntrypointSmokeTest(unittest.TestCase):
         workspace, config_path = self._create_config_workspace()
         outbox = self._create_outbox("review-selection-entry")
         try:
-            with patch("newspulse.workflow.selection.review.DataFetcher", _FakeDataFetcher):
+            with (
+                patch("newspulse.workflow.selection.review.DataFetcher", _FakeDataFetcher),
+                patch.dict(os.environ, {"API_KEY": "", "AI_API_KEY": ""}, clear=False),
+            ):
                 summary = run_selection_review(config_path=config_path, outbox_dir=outbox)
 
             self.assertEqual(summary["keyword"]["qualified_count"], 1)
