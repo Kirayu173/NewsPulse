@@ -14,6 +14,10 @@ logger = get_logger(__name__)
 
 
 class AIFilterRepository(SQLiteRepositoryBase):
+    @staticmethod
+    def _normalize_model_key(model_key: Optional[str]) -> str:
+        return str(model_key or "").strip()
+
     def _get_active_tags_impl(self, date: Optional[str] = None, interests_file: str = "ai_interests.txt") -> List[Dict[str, Any]]:
         """获取指定兴趣文件的 active 标签列表"""
         try:
@@ -264,27 +268,53 @@ class AIFilterRepository(SQLiteRepositoryBase):
             return 0
 
     def _save_analyzed_news_impl(
-        self, date: Optional[str], news_ids: List[int], source_type: str,
-        interests_file: str, prompt_hash: str, matched_ids: set
+        self,
+        date: Optional[str],
+        news_ids: List[int],
+        source_type: str,
+        interests_file: str,
+        prompt_hash: str,
+        matched_ids: set,
+        tag_version: int = 0,
+        model_key: str = "",
     ) -> int:
-        """批量记录已分析的新闻（匹配与不匹配都记录）"""
+        """Persist analyzed-news cache entries for the current classification scope."""
         try:
             conn = self._get_connection(date)
             cursor = conn.cursor()
             now_str = self._get_configured_time().strftime("%Y-%m-%d %H:%M:%S")
+            normalized_prompt_hash = str(prompt_hash or "").strip()
+            normalized_tag_version = int(tag_version or 0)
+            normalized_model_key = self._normalize_model_key(model_key)
 
             count = 0
             for nid in news_ids:
                 try:
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO ai_filter_analyzed_news
-                        (news_item_id, source_type, interests_file, prompt_hash, matched, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    """, (
-                        nid, source_type, interests_file, prompt_hash,
-                        1 if nid in matched_ids else 0,
-                        now_str,
-                    ))
+                    cursor.execute(
+                        """
+                        INSERT OR REPLACE INTO ai_filter_analyzed_news (
+                            news_item_id,
+                            source_type,
+                            interests_file,
+                            prompt_hash,
+                            tag_version,
+                            model_key,
+                            matched,
+                            created_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            nid,
+                            source_type,
+                            interests_file,
+                            normalized_prompt_hash,
+                            normalized_tag_version,
+                            normalized_model_key,
+                            1 if nid in matched_ids else 0,
+                            now_str,
+                        ),
+                    )
                     count += 1
                 except Exception:
                     pass
@@ -292,66 +322,216 @@ class AIFilterRepository(SQLiteRepositoryBase):
             conn.commit()
             return count
         except Exception as e:
-            logger.exception(f"[AI筛选] 保存已分析记录失败: {e}")
+            logger.exception("[AI filter] Failed to save analyzed-news cache: %s", e)
             return 0
 
     def _get_analyzed_news_ids_impl(
-        self, date: Optional[str] = None, source_type: str = "hotlist",
-        interests_file: str = "ai_interests.txt"
+        self,
+        date: Optional[str] = None,
+        source_type: str = "hotlist",
+        interests_file: str = "ai_interests.txt",
+        prompt_hash: Optional[str] = None,
+        tag_version: Optional[int] = None,
+        model_key: Optional[str] = None,
     ) -> set:
-        """获取已分析过的新闻 ID 集合（用于去重）"""
+        """Return analyzed news ids for the requested cache scope."""
         try:
             conn = self._get_connection(date)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT news_item_id FROM ai_filter_analyzed_news
-                WHERE source_type = ? AND interests_file = ?
-            """, (source_type, interests_file))
+            clauses = ["source_type = ?", "interests_file = ?"]
+            params: List[Any] = [source_type, interests_file]
+            if prompt_hash is not None:
+                clauses.append("prompt_hash = ?")
+                params.append(str(prompt_hash or "").strip())
+            if tag_version is not None:
+                clauses.append("tag_version = ?")
+                params.append(int(tag_version or 0))
+            if model_key is not None:
+                clauses.append("model_key = ?")
+                params.append(self._normalize_model_key(model_key))
 
+            cursor.execute(
+                f"""
+                SELECT DISTINCT news_item_id FROM ai_filter_analyzed_news
+                WHERE {' AND '.join(clauses)}
+                """,
+                params,
+            )
             return {row[0] for row in cursor.fetchall()}
         except Exception as e:
-            logger.exception(f"[AI筛选] 获取已分析ID失败: {e}")
+            logger.exception("[AI filter] Failed to load analyzed-news ids: %s", e)
             return set()
 
+    def _get_cached_classification_impl(
+        self,
+        news_item_id: int,
+        date: Optional[str] = None,
+        *,
+        source_type: str = "hotlist",
+        interests_file: str = "ai_interests.txt",
+        prompt_hash: str = "",
+        tag_version: int = 0,
+        model_key: str = "",
+    ) -> Optional[Dict[str, Any]]:
+        """Return cached classification metadata for one news item."""
+        results = self._get_cached_classifications_impl(
+            [news_item_id],
+            date=date,
+            source_type=source_type,
+            interests_file=interests_file,
+            prompt_hash=prompt_hash,
+            tag_version=tag_version,
+            model_key=model_key,
+        )
+        return results.get(int(news_item_id))
+
+    def _get_cached_classifications_impl(
+        self,
+        news_item_ids: List[int],
+        date: Optional[str] = None,
+        *,
+        source_type: str = "hotlist",
+        interests_file: str = "ai_interests.txt",
+        prompt_hash: str = "",
+        tag_version: int = 0,
+        model_key: str = "",
+    ) -> Dict[int, Dict[str, Any]]:
+        """Return cached classification metadata for multiple news items."""
+        normalized_ids: List[int] = []
+        for news_item_id in news_item_ids:
+            try:
+                normalized_ids.append(int(news_item_id))
+            except (TypeError, ValueError):
+                continue
+        if not normalized_ids:
+            return {}
+
+        try:
+            conn = self._get_connection(date)
+            cursor = conn.cursor()
+            placeholders = ",".join("?" * len(normalized_ids))
+            cursor.execute(
+                f"""
+                SELECT
+                    news_item_id,
+                    source_type,
+                    interests_file,
+                    prompt_hash,
+                    tag_version,
+                    model_key,
+                    matched,
+                    created_at
+                FROM ai_filter_analyzed_news
+                WHERE news_item_id IN ({placeholders})
+                    AND source_type = ?
+                    AND interests_file = ?
+                    AND prompt_hash = ?
+                    AND tag_version = ?
+                    AND model_key = ?
+                """,
+                [
+                    *normalized_ids,
+                    source_type,
+                    interests_file,
+                    str(prompt_hash or "").strip(),
+                    int(tag_version or 0),
+                    self._normalize_model_key(model_key),
+                ],
+            )
+            return {
+                int(row[0]): {
+                    "news_item_id": int(row[0]),
+                    "source_type": row[1],
+                    "interests_file": row[2],
+                    "prompt_hash": row[3],
+                    "tag_version": int(row[4] or 0),
+                    "model_key": row[5] or "",
+                    "matched": bool(row[6]),
+                    "created_at": row[7],
+                }
+                for row in cursor.fetchall()
+            }
+        except Exception as e:
+            logger.exception("[AI filter] Failed to load cached classifications: %s", e)
+            return {}
+
     def _clear_analyzed_news_impl(
-        self, date: Optional[str] = None, interests_file: str = "ai_interests.txt"
+        self,
+        date: Optional[str] = None,
+        interests_file: str = "ai_interests.txt",
+        prompt_hash: Optional[str] = None,
+        tag_version: Optional[int] = None,
+        model_key: Optional[str] = None,
     ) -> int:
-        """清除指定兴趣文件的所有已分析记录（全量重分类时使用）"""
+        """Clear analyzed-news cache rows for the requested scope."""
         try:
             conn = self._get_connection(date)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                DELETE FROM ai_filter_analyzed_news
-                WHERE interests_file = ?
-            """, (interests_file,))
+            clauses = ["interests_file = ?"]
+            params: List[Any] = [interests_file]
+            if prompt_hash is not None:
+                clauses.append("prompt_hash = ?")
+                params.append(str(prompt_hash or "").strip())
+            if tag_version is not None:
+                clauses.append("tag_version = ?")
+                params.append(int(tag_version or 0))
+            if model_key is not None:
+                clauses.append("model_key = ?")
+                params.append(self._normalize_model_key(model_key))
 
+            cursor.execute(
+                f"""
+                DELETE FROM ai_filter_analyzed_news
+                WHERE {' AND '.join(clauses)}
+                """,
+                params,
+            )
             count = cursor.rowcount
             conn.commit()
             return count
         except Exception as e:
-            logger.exception(f"[AI筛选] 清除已分析记录失败: {e}")
+            logger.exception("[AI filter] Failed to clear analyzed-news cache: %s", e)
             return 0
 
     def _clear_unmatched_analyzed_news_impl(
-        self, date: Optional[str] = None, interests_file: str = "ai_interests.txt"
+        self,
+        date: Optional[str] = None,
+        interests_file: str = "ai_interests.txt",
+        prompt_hash: Optional[str] = None,
+        tag_version: Optional[int] = None,
+        model_key: Optional[str] = None,
     ) -> int:
-        """清除不匹配的已分析记录，让这些新闻有机会被新标签重新分析"""
+        """Clear unmatched analyzed-news cache rows for the requested scope."""
         try:
             conn = self._get_connection(date)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                DELETE FROM ai_filter_analyzed_news
-                WHERE interests_file = ? AND matched = 0
-            """, (interests_file,))
+            clauses = ["interests_file = ?", "matched = 0"]
+            params: List[Any] = [interests_file]
+            if prompt_hash is not None:
+                clauses.append("prompt_hash = ?")
+                params.append(str(prompt_hash or "").strip())
+            if tag_version is not None:
+                clauses.append("tag_version = ?")
+                params.append(int(tag_version or 0))
+            if model_key is not None:
+                clauses.append("model_key = ?")
+                params.append(self._normalize_model_key(model_key))
 
+            cursor.execute(
+                f"""
+                DELETE FROM ai_filter_analyzed_news
+                WHERE {' AND '.join(clauses)}
+                """,
+                params,
+            )
             count = cursor.rowcount
             conn.commit()
             return count
         except Exception as e:
-            logger.exception(f"[AI筛选] 清除不匹配记录失败: {e}")
+            logger.exception("[AI filter] Failed to clear unmatched analyzed-news cache: %s", e)
             return 0
 
     def _save_filter_results_impl(

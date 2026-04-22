@@ -1,7 +1,7 @@
 # coding=utf-8
 """Reusable AI runtime primitives for workflow stages."""
 
-from newspulse.workflow.shared.ai_runtime.client import AIRuntimeClient, AIRuntimeConfig
+from newspulse.workflow.shared.ai_runtime.client import AIRuntimeClient, AIRuntimeConfig, CachedAIRuntimeClient
 from newspulse.workflow.shared.ai_runtime.codec import (
     coerce_text_content,
     decode_json_response,
@@ -28,6 +28,7 @@ __all__ = [
     "AIResponseDecodeError",
     "AIRuntimeClient",
     "AIRuntimeConfig",
+    "CachedAIRuntimeClient",
     "AIRuntimeError",
     "PromptTemplate",
     "PromptTemplateNotFoundError",

@@ -197,7 +197,17 @@ class LocalStorageBackend(StorageBackend):
     def update_ai_filter_tag_priorities(self, tag_priorities, date=None, interests_file="ai_interests.txt"):
         return self.ai_filter_repo._update_tag_priorities_impl(date, tag_priorities, interests_file)
 
-    def save_analyzed_news(self, news_ids, source_type, interests_file, prompt_hash, matched_ids, date=None):
+    def save_analyzed_news(
+        self,
+        news_ids,
+        source_type,
+        interests_file,
+        prompt_hash,
+        matched_ids,
+        date=None,
+        tag_version=0,
+        model_key="",
+    ):
         return self.ai_filter_repo._save_analyzed_news_impl(
             date,
             news_ids,
@@ -205,16 +215,101 @@ class LocalStorageBackend(StorageBackend):
             interests_file,
             prompt_hash,
             matched_ids,
+            tag_version=tag_version,
+            model_key=model_key,
         )
 
-    def get_analyzed_news_ids(self, source_type="hotlist", date=None, interests_file="ai_interests.txt"):
-        return self.ai_filter_repo._get_analyzed_news_ids_impl(date, source_type, interests_file)
+    def get_analyzed_news_ids(
+        self,
+        source_type="hotlist",
+        date=None,
+        interests_file="ai_interests.txt",
+        prompt_hash=None,
+        tag_version=None,
+        model_key=None,
+    ):
+        return self.ai_filter_repo._get_analyzed_news_ids_impl(
+            date,
+            source_type,
+            interests_file,
+            prompt_hash,
+            tag_version,
+            model_key,
+        )
 
-    def clear_analyzed_news(self, date=None, interests_file="ai_interests.txt"):
-        return self.ai_filter_repo._clear_analyzed_news_impl(date, interests_file)
+    def get_cached_classification(
+        self,
+        news_item_id,
+        date=None,
+        *,
+        source_type="hotlist",
+        interests_file="ai_interests.txt",
+        prompt_hash="",
+        tag_version=0,
+        model_key="",
+    ):
+        return self.ai_filter_repo._get_cached_classification_impl(
+            news_item_id,
+            date,
+            source_type=source_type,
+            interests_file=interests_file,
+            prompt_hash=prompt_hash,
+            tag_version=tag_version,
+            model_key=model_key,
+        )
 
-    def clear_unmatched_analyzed_news(self, date=None, interests_file="ai_interests.txt"):
-        return self.ai_filter_repo._clear_unmatched_analyzed_news_impl(date, interests_file)
+    def get_cached_classifications(
+        self,
+        news_item_ids,
+        date=None,
+        *,
+        source_type="hotlist",
+        interests_file="ai_interests.txt",
+        prompt_hash="",
+        tag_version=0,
+        model_key="",
+    ):
+        return self.ai_filter_repo._get_cached_classifications_impl(
+            news_item_ids,
+            date,
+            source_type=source_type,
+            interests_file=interests_file,
+            prompt_hash=prompt_hash,
+            tag_version=tag_version,
+            model_key=model_key,
+        )
+
+    def clear_analyzed_news(
+        self,
+        date=None,
+        interests_file="ai_interests.txt",
+        prompt_hash=None,
+        tag_version=None,
+        model_key=None,
+    ):
+        return self.ai_filter_repo._clear_analyzed_news_impl(
+            date,
+            interests_file,
+            prompt_hash,
+            tag_version,
+            model_key,
+        )
+
+    def clear_unmatched_analyzed_news(
+        self,
+        date=None,
+        interests_file="ai_interests.txt",
+        prompt_hash=None,
+        tag_version=None,
+        model_key=None,
+    ):
+        return self.ai_filter_repo._clear_unmatched_analyzed_news_impl(
+            date,
+            interests_file,
+            prompt_hash,
+            tag_version,
+            model_key,
+        )
 
     def get_all_news_ids(self, date=None):
         exists, resolved_date = self._resolve_read_date(date)

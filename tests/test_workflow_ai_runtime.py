@@ -8,6 +8,7 @@ from newspulse.workflow.shared.ai_runtime import (
     AIInvocationError,
     AIRuntimeClient,
     AIRuntimeConfig,
+    CachedAIRuntimeClient,
     AIResponseDecodeError,
     PromptTemplateNotFoundError,
     decode_json_response,
@@ -136,6 +137,62 @@ class AIRuntimeClientTest(unittest.TestCase):
         )
         with self.assertRaises(AIInvocationError):
             client.chat([{"role": "user", "content": "hello"}])
+
+    def test_cached_runtime_client_reuses_identical_requests(self):
+        calls = []
+
+        def fake_completion(**kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=f"response-{len(calls)}"))]
+            )
+
+        client = CachedAIRuntimeClient(
+            AIRuntimeClient(
+                {"MODEL": "openai/test-model", "API_KEY": "test-key"},
+                completion_func=fake_completion,
+            ),
+            ttl_seconds=600,
+        )
+
+        first = client.chat([{"role": "user", "content": "hello"}], temperature=0)
+        second = client.chat([{"role": "user", "content": "hello"}], temperature=0)
+
+        self.assertEqual(first, "response-1")
+        self.assertEqual(second, "response-1")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(client.cache_stats()["hits"], 1)
+        self.assertEqual(client.cache_stats()["misses"], 1)
+
+    def test_cached_runtime_client_keeps_prompt_context_in_cache_key(self):
+        calls = []
+
+        def fake_completion(**kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=f"response-{len(calls)}"))]
+            )
+
+        client = CachedAIRuntimeClient(
+            AIRuntimeClient(
+                {"MODEL": "openai/test-model", "API_KEY": "test-key"},
+                completion_func=fake_completion,
+            ),
+            ttl_seconds=600,
+        )
+
+        first = client.chat(
+            [{"role": "user", "content": "hello"}],
+            cache_context={"prompt_name": "item", "prompt_hash": "hash-a"},
+        )
+        second = client.chat(
+            [{"role": "user", "content": "hello"}],
+            cache_context={"prompt_name": "item", "prompt_hash": "hash-b"},
+        )
+
+        self.assertEqual(first, "response-1")
+        self.assertEqual(second, "response-2")
+        self.assertEqual(len(calls), 2)
 
 
 if __name__ == "__main__":

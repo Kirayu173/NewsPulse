@@ -510,16 +510,74 @@ class StorageBackend(ABC):
     def update_ai_filter_tag_priorities(self, tag_priorities: List[Dict], date: Optional[str] = None, interests_file: str = "ai_interests.txt") -> int:
         return 0
 
-    def save_analyzed_news(self, news_ids: List[str], source_type: str, interests_file: str, prompt_hash: str, matched_ids: Set[str], date: Optional[str] = None) -> int:
+    def save_analyzed_news(
+        self,
+        news_ids: List[str],
+        source_type: str,
+        interests_file: str,
+        prompt_hash: str,
+        matched_ids: Set[str],
+        date: Optional[str] = None,
+        tag_version: int = 0,
+        model_key: str = "",
+    ) -> int:
         return 0
 
-    def get_analyzed_news_ids(self, source_type: str = "hotlist", date: Optional[str] = None, interests_file: str = "ai_interests.txt") -> Set[str]:
+    def get_analyzed_news_ids(
+        self,
+        source_type: str = "hotlist",
+        date: Optional[str] = None,
+        interests_file: str = "ai_interests.txt",
+        prompt_hash: Optional[str] = None,
+        tag_version: Optional[int] = None,
+        model_key: Optional[str] = None,
+    ) -> Set[str]:
         return set()
 
-    def clear_analyzed_news(self, date: Optional[str] = None, interests_file: str = "ai_interests.txt") -> int:
+    def get_cached_classification(
+        self,
+        news_item_id: int,
+        date: Optional[str] = None,
+        *,
+        source_type: str = "hotlist",
+        interests_file: str = "ai_interests.txt",
+        prompt_hash: str = "",
+        tag_version: int = 0,
+        model_key: str = "",
+    ) -> Optional[Dict[str, Any]]:
+        return None
+
+    def get_cached_classifications(
+        self,
+        news_item_ids: List[int],
+        date: Optional[str] = None,
+        *,
+        source_type: str = "hotlist",
+        interests_file: str = "ai_interests.txt",
+        prompt_hash: str = "",
+        tag_version: int = 0,
+        model_key: str = "",
+    ) -> Dict[int, Dict[str, Any]]:
+        return {}
+
+    def clear_analyzed_news(
+        self,
+        date: Optional[str] = None,
+        interests_file: str = "ai_interests.txt",
+        prompt_hash: Optional[str] = None,
+        tag_version: Optional[int] = None,
+        model_key: Optional[str] = None,
+    ) -> int:
         return 0
 
-    def clear_unmatched_analyzed_news(self, date: Optional[str] = None, interests_file: str = "ai_interests.txt") -> int:
+    def clear_unmatched_analyzed_news(
+        self,
+        date: Optional[str] = None,
+        interests_file: str = "ai_interests.txt",
+        prompt_hash: Optional[str] = None,
+        tag_version: Optional[int] = None,
+        model_key: Optional[str] = None,
+    ) -> int:
         return 0
 
     def get_all_news_ids(self, date: Optional[str] = None) -> List[Dict]:

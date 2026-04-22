@@ -364,6 +364,131 @@ class StorageStage2Test(unittest.TestCase):
         self.assertEqual(latest.items['s1'][0].summary, '')
         self.assertEqual(latest.items['s1'][0].metadata, {})
 
+    def test_ai_filter_analyzed_news_cache_respects_prompt_scope(self):
+        tmp = self._create_workspace_tmpdir()
+        storage = self._create_storage(tmp)
+        try:
+            storage.save_analyzed_news(
+                news_ids=[1, 2],
+                source_type='hotlist',
+                interests_file='scope.txt',
+                prompt_hash='hash-a',
+                matched_ids={1},
+                tag_version=1,
+                model_key='openai/filter-v1',
+            )
+            storage.save_analyzed_news(
+                news_ids=[1, 3],
+                source_type='hotlist',
+                interests_file='scope.txt',
+                prompt_hash='hash-b',
+                matched_ids={3},
+                tag_version=2,
+                model_key='openai/filter-v1',
+            )
+
+            all_ids = storage.get_analyzed_news_ids(interests_file='scope.txt')
+            scoped_ids = storage.get_analyzed_news_ids(
+                interests_file='scope.txt',
+                prompt_hash='hash-a',
+                tag_version=1,
+                model_key='openai/filter-v1',
+            )
+            scoped_cache = storage.get_cached_classifications(
+                [1, 2, 3],
+                interests_file='scope.txt',
+                prompt_hash='hash-b',
+                tag_version=2,
+                model_key='openai/filter-v1',
+            )
+            single_cache = storage.get_cached_classification(
+                1,
+                interests_file='scope.txt',
+                prompt_hash='hash-a',
+                tag_version=1,
+                model_key='openai/filter-v1',
+            )
+        finally:
+            storage.cleanup()
+            shutil.rmtree(tmp, ignore_errors=True)
+
+        self.assertEqual(all_ids, {1, 2, 3})
+        self.assertEqual(scoped_ids, {1, 2})
+        self.assertIsNotNone(single_cache)
+        assert single_cache is not None
+        self.assertTrue(single_cache['matched'])
+        self.assertEqual(set(scoped_cache), {1, 3})
+        self.assertFalse(scoped_cache[1]['matched'])
+        self.assertTrue(scoped_cache[3]['matched'])
+
+    def test_storage_migrates_ai_filter_analyzed_news_cache_scope_schema(self):
+        tmp = self._create_workspace_tmpdir()
+        output_dir = tmp / 'output'
+        news_dir = output_dir / 'news'
+        news_dir.mkdir(parents=True, exist_ok=True)
+        db_path = news_dir / '2026-04-18.db'
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.executescript(
+                """
+                CREATE TABLE ai_filter_analyzed_news (
+                    news_item_id INTEGER NOT NULL,
+                    source_type TEXT NOT NULL DEFAULT 'hotlist',
+                    interests_file TEXT NOT NULL DEFAULT 'ai_interests.txt',
+                    prompt_hash TEXT NOT NULL,
+                    matched INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (news_item_id, source_type, interests_file)
+                );
+                INSERT INTO ai_filter_analyzed_news (
+                    news_item_id,
+                    source_type,
+                    interests_file,
+                    prompt_hash,
+                    matched,
+                    created_at
+                ) VALUES (7, 'hotlist', 'legacy.txt', 'legacy-hash', 1, '2026-04-18 09:00:00');
+                """
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        storage = StorageManager(
+            backend_type='local',
+            data_dir=str(output_dir),
+            enable_txt=False,
+            enable_html=False,
+        )
+        try:
+            backend = storage.get_backend()
+            migrated_conn = backend.runtime.get_connection('2026-04-18')
+            pk_columns = [
+                row[1]
+                for row in migrated_conn.execute("PRAGMA table_info(ai_filter_analyzed_news)").fetchall()
+                if row[5] > 0
+            ]
+            cached = storage.get_cached_classification(
+                7,
+                date='2026-04-18',
+                interests_file='legacy.txt',
+                prompt_hash='legacy-hash',
+                tag_version=0,
+                model_key='',
+            )
+        finally:
+            storage.cleanup()
+            shutil.rmtree(tmp, ignore_errors=True)
+
+        self.assertEqual(
+            pk_columns,
+            ['news_item_id', 'source_type', 'interests_file', 'prompt_hash', 'tag_version', 'model_key'],
+        )
+        self.assertIsNotNone(cached)
+        assert cached is not None
+        self.assertTrue(cached['matched'])
+        self.assertEqual(cached['prompt_hash'], 'legacy-hash')
+
     def test_sqlite_runtime_enables_wal_and_new_indexes(self):
         tmp = self._create_workspace_tmpdir()
         runtime = SQLiteRuntime(data_dir=str(tmp / 'output'))

@@ -62,7 +62,9 @@ class SQLiteRuntime:
             self._ensure_news_schema_columns(conn)
             ai_filter_schema = self.get_ai_filter_schema_path()
             if ai_filter_schema.exists():
+                self._ensure_ai_filter_schema(conn)
                 conn.executescript(ai_filter_schema.read_text(encoding="utf-8"))
+            self._ensure_ai_filter_schema(conn)
 
         conn.commit()
 
@@ -79,6 +81,101 @@ class SQLiteRuntime:
             if column_name in existing_columns:
                 continue
             conn.execute(statement)
+
+    def _ensure_ai_filter_schema(self, conn: sqlite3.Connection) -> None:
+        cursor = conn.execute("PRAGMA table_info(ai_filter_analyzed_news)")
+        table_info = cursor.fetchall()
+        if not table_info:
+            return
+
+        existing_columns = {str(row[1]) for row in table_info}
+        existing_pk = tuple(
+            str(row[1])
+            for row in sorted(
+                (row for row in table_info if int(row[5]) > 0),
+                key=lambda row: int(row[5]),
+            )
+        )
+        required_pk = (
+            "news_item_id",
+            "source_type",
+            "interests_file",
+            "prompt_hash",
+            "tag_version",
+            "model_key",
+        )
+        if {"tag_version", "model_key"}.issubset(existing_columns) and existing_pk == required_pk:
+            self._create_ai_filter_indexes(conn)
+            return
+
+        tag_version_expr = "CAST(tag_version AS INTEGER)" if "tag_version" in existing_columns else "CAST(0 AS INTEGER)"
+        model_key_expr = "CAST(model_key AS TEXT)" if "model_key" in existing_columns else "CAST('' AS TEXT)"
+        conn.executescript(
+            """
+            DROP TABLE IF EXISTS ai_filter_analyzed_news__migrated;
+            CREATE TABLE ai_filter_analyzed_news__migrated (
+                news_item_id INTEGER NOT NULL,
+                source_type TEXT NOT NULL DEFAULT 'hotlist',
+                interests_file TEXT NOT NULL DEFAULT 'ai_interests.txt',
+                prompt_hash TEXT NOT NULL,
+                tag_version INTEGER NOT NULL DEFAULT 0,
+                model_key TEXT NOT NULL DEFAULT '',
+                matched INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (news_item_id, source_type, interests_file, prompt_hash, tag_version, model_key)
+            );
+            """
+        )
+        conn.execute(
+            f"""
+            INSERT OR REPLACE INTO ai_filter_analyzed_news__migrated (
+                news_item_id,
+                source_type,
+                interests_file,
+                prompt_hash,
+                tag_version,
+                model_key,
+                matched,
+                created_at
+            )
+            SELECT
+                news_item_id,
+                source_type,
+                interests_file,
+                prompt_hash,
+                {tag_version_expr},
+                {model_key_expr},
+                MAX(matched),
+                MAX(created_at)
+            FROM ai_filter_analyzed_news
+            GROUP BY
+                news_item_id,
+                source_type,
+                interests_file,
+                prompt_hash,
+                {tag_version_expr},
+                {model_key_expr}
+            """
+        )
+        conn.executescript(
+            """
+            DROP TABLE ai_filter_analyzed_news;
+            ALTER TABLE ai_filter_analyzed_news__migrated RENAME TO ai_filter_analyzed_news;
+            """
+        )
+        self._create_ai_filter_indexes(conn)
+
+    def _create_ai_filter_indexes(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            CREATE INDEX IF NOT EXISTS idx_analyzed_news_lookup
+                ON ai_filter_analyzed_news(source_type, interests_file, prompt_hash, tag_version, model_key);
+            CREATE INDEX IF NOT EXISTS idx_analyzed_news_hash
+                ON ai_filter_analyzed_news(interests_file, prompt_hash, tag_version);
+            CREATE INDEX IF NOT EXISTS idx_analyzed_news_news_id
+                ON ai_filter_analyzed_news(news_item_id, interests_file, prompt_hash, tag_version, model_key);
+            """
+        )
 
     def close_connection(self, db_path: str) -> None:
         conn = self.db_connections.pop(db_path, None)

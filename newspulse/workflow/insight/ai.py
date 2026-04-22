@@ -12,7 +12,7 @@ from newspulse.workflow.insight.content_fetcher import InsightContentFetcher
 from newspulse.workflow.insight.content_reducer import InsightContentReducer
 from newspulse.workflow.insight.input_builder import InsightInputBuilder
 from newspulse.workflow.insight.item_analyzer import InsightItemAnalyzer
-from newspulse.workflow.shared.ai_runtime.client import AIRuntimeClient
+from newspulse.workflow.shared.ai_runtime.client import AIRuntimeClient, CachedAIRuntimeClient
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate
 from newspulse.workflow.shared.contracts import InsightResult
 from newspulse.workflow.shared.options import InsightOptions
@@ -46,6 +46,8 @@ class AIInsightStrategy:
             if ai_runtime_config is None:
                 raise ValueError('AI runtime config is required when no client is provided')
             shared_client = AIRuntimeClient(ai_runtime_config, completion_func=completion_func)
+        shared_client = self._wrap_runtime_cache(shared_client)
+        self.shared_client = shared_client
 
         content_config = self._content_config()
         item_config = self._item_config()
@@ -89,9 +91,11 @@ class AIInsightStrategy:
         item_analyses = []
         raw_response = ''
         content_config = self._content_config()
+        cache_stats_before = self._cache_stats()
         try:
             contexts = self.input_builder.build(snapshot, selection, max_items=options.max_items)
             if not contexts:
+                cache_stats = self._cache_delta(cache_stats_before)
                 return InsightResult(
                     enabled=True,
                     strategy='ai',
@@ -103,6 +107,10 @@ class AIInsightStrategy:
                         'max_items': options.max_items,
                         'skipped': True,
                         'reason': 'no selected items available for insight generation',
+                        'llm_cache_enabled': bool(cache_stats.get('enabled', False)),
+                        'llm_cache_hits': int(cache_stats.get('hits', 0)),
+                        'llm_cache_misses': int(cache_stats.get('misses', 0)),
+                        'llm_cache_entries': int(cache_stats.get('entries', 0)),
                     },
                 )
 
@@ -110,6 +118,7 @@ class AIInsightStrategy:
             reduced_bundles = self.content_reducer.reduce_many(contexts, content_payloads)
             item_analyses = self.item_analyzer.analyze_many(contexts, reduced_bundles)
             sections, raw_response, aggregate_diag = self.aggregate_generator.generate(item_analyses, contexts)
+            cache_stats = self._cache_delta(cache_stats_before)
 
             diagnostics = {
                 'mode': snapshot.mode,
@@ -125,6 +134,10 @@ class AIInsightStrategy:
                 'content_request_timeout': int(content_config.get('REQUEST_TIMEOUT', content_config.get('TIMEOUT', 12)) or 12),
                 'content_cache_hits': sum(1 for payload in content_payloads if payload.trace.get('cache_hit')),
                 'content_fallbacks': sum(1 for payload in content_payloads if payload.status == 'fallback_summary_only'),
+                'llm_cache_enabled': bool(cache_stats.get('enabled', False)),
+                'llm_cache_hits': int(cache_stats.get('hits', 0)),
+                'llm_cache_misses': int(cache_stats.get('misses', 0)),
+                'llm_cache_entries': int(cache_stats.get('entries', 0)),
                 'error_count': sum(1 for analysis in item_analyses if analysis.diagnostics.get('status') != 'ok'),
                 'input_contexts': [asdict(context) for context in contexts],
                 'content_payloads': [asdict(payload) for payload in content_payloads],
@@ -141,6 +154,7 @@ class AIInsightStrategy:
                 diagnostics=diagnostics,
             )
         except Exception as exc:
+            cache_stats = self._cache_delta(cache_stats_before)
             return InsightResult(
                 enabled=True,
                 strategy='ai',
@@ -152,6 +166,10 @@ class AIInsightStrategy:
                     'selected_items': getattr(selection, 'total_selected', len(contexts)),
                     'analyzed_items': len(item_analyses),
                     'max_items': options.max_items,
+                    'llm_cache_enabled': bool(cache_stats.get('enabled', False)),
+                    'llm_cache_hits': int(cache_stats.get('hits', 0)),
+                    'llm_cache_misses': int(cache_stats.get('misses', 0)),
+                    'llm_cache_entries': int(cache_stats.get('entries', 0)),
                     'error': f'{type(exc).__name__}: {exc}',
                     'input_contexts': [asdict(context) for context in contexts],
                     'content_payloads': [asdict(payload) for payload in content_payloads],
@@ -171,3 +189,38 @@ class AIInsightStrategy:
     def _aggregate_config(self) -> dict[str, Any]:
         config = self.analysis_config.get('AGGREGATE', {})
         return dict(config) if isinstance(config, Mapping) else {}
+
+    def _runtime_cache_config(self) -> dict[str, Any]:
+        for key in ('RUNTIME_CACHE', 'LLM_CACHE'):
+            config = self.analysis_config.get(key, {})
+            if isinstance(config, Mapping) and config:
+                return dict(config)
+        return {}
+
+    def _wrap_runtime_cache(self, client: AIRuntimeClient | Any) -> AIRuntimeClient | Any:
+        if isinstance(client, CachedAIRuntimeClient):
+            return client
+        if not isinstance(client, AIRuntimeClient):
+            return client
+        cache_config = self._runtime_cache_config()
+        return CachedAIRuntimeClient(
+            client,
+            enabled=bool(cache_config.get('ENABLED', True)),
+            ttl_seconds=int(cache_config.get('TTL_SECONDS', 3600) or 3600),
+            max_entries=int(cache_config.get('MAX_ENTRIES', 512) or 512),
+        )
+
+    def _cache_stats(self) -> dict[str, Any]:
+        cache_stats = getattr(self.shared_client, 'cache_stats', None)
+        if callable(cache_stats):
+            return dict(cache_stats())
+        return {'enabled': False, 'entries': 0, 'hits': 0, 'misses': 0}
+
+    def _cache_delta(self, before: Mapping[str, Any]) -> dict[str, Any]:
+        after = self._cache_stats()
+        return {
+            'enabled': after.get('enabled', False),
+            'entries': int(after.get('entries', 0) or 0),
+            'hits': max(0, int(after.get('hits', 0) or 0) - int(before.get('hits', 0) or 0)),
+            'misses': max(0, int(after.get('misses', 0) or 0) - int(before.get('misses', 0) or 0)),
+        }

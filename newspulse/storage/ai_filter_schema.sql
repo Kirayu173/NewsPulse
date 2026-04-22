@@ -47,9 +47,11 @@ CREATE TABLE IF NOT EXISTS ai_filter_analyzed_news (
     source_type TEXT NOT NULL DEFAULT 'hotlist',  -- 当前仅支持 hotlist
     interests_file TEXT NOT NULL DEFAULT 'ai_interests.txt',  -- 关联的兴趣文件
     prompt_hash TEXT NOT NULL,           -- 分析时使用的标签集 hash
+    tag_version INTEGER NOT NULL DEFAULT 0, -- 标签版本号，避免 prompt hash 一致但标签定义已切换
+    model_key TEXT NOT NULL DEFAULT '',  -- 区分不同模型/运行时实现的缓存命中范围
     matched INTEGER NOT NULL DEFAULT 0,  -- 是否匹配: 0=不匹配, 1=匹配
     created_at TEXT NOT NULL,
-    PRIMARY KEY (news_item_id, source_type, interests_file)
+    PRIMARY KEY (news_item_id, source_type, interests_file, prompt_hash, tag_version, model_key)
 );
 
 -- ============================================
@@ -62,5 +64,9 @@ CREATE INDEX IF NOT EXISTS idx_ai_filter_tags_priority ON ai_filter_tags(interes
 CREATE INDEX IF NOT EXISTS idx_ai_filter_results_status ON ai_filter_results(status);
 CREATE INDEX IF NOT EXISTS idx_ai_filter_results_news ON ai_filter_results(news_item_id, source_type);
 CREATE INDEX IF NOT EXISTS idx_ai_filter_results_tag ON ai_filter_results(tag_id);
-CREATE INDEX IF NOT EXISTS idx_analyzed_news_lookup ON ai_filter_analyzed_news(source_type, interests_file);
-CREATE INDEX IF NOT EXISTS idx_analyzed_news_hash ON ai_filter_analyzed_news(interests_file, prompt_hash);
+CREATE INDEX IF NOT EXISTS idx_analyzed_news_lookup
+    ON ai_filter_analyzed_news(source_type, interests_file, prompt_hash, tag_version, model_key);
+CREATE INDEX IF NOT EXISTS idx_analyzed_news_hash
+    ON ai_filter_analyzed_news(interests_file, prompt_hash, tag_version);
+CREATE INDEX IF NOT EXISTS idx_analyzed_news_news_id
+    ON ai_filter_analyzed_news(news_item_id, interests_file, prompt_hash, tag_version, model_key);
