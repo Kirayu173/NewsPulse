@@ -20,6 +20,7 @@ from newspulse.workflow.shared.ai_runtime.client import AIRuntimeClient
 from newspulse.workflow.shared.ai_runtime.codec import decode_json_response, extract_json_block
 from newspulse.workflow.shared.ai_runtime.errors import AIResponseDecodeError
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate, load_prompt_template
+from newspulse.workflow.shared.ai_runtime.request_config import build_request_overrides
 from newspulse.workflow.shared.contracts import InsightSection
 
 
@@ -51,7 +52,13 @@ class InsightAggregateGenerator:
             config_root=self.config_root,
             required=True,
         )
-        self.request_overrides = self._build_request_overrides(request_overrides)
+        self.request_overrides = build_request_overrides(
+            self.analysis_config,
+            prompt_template=self.prompt_template,
+            operation="insight",
+            prompt_name="aggregate",
+            overrides=request_overrides,
+        )
 
     def generate(
         self,
@@ -114,21 +121,6 @@ class InsightAggregateGenerator:
         for key, value in replacements.items():
             user_prompt = user_prompt.replace('{' + key + '}', str(value))
         return user_prompt
-
-    def _build_request_overrides(self, overrides: Mapping[str, Any] | None) -> dict[str, Any]:
-        request_overrides = dict(overrides or {})
-        timeout = self.analysis_config.get('TIMEOUT')
-        if timeout is not None and 'timeout' not in request_overrides:
-            request_overrides['timeout'] = int(timeout)
-        num_retries = self.analysis_config.get('NUM_RETRIES')
-        if num_retries is not None and 'num_retries' not in request_overrides:
-            request_overrides['num_retries'] = int(num_retries)
-        extra_params = self.analysis_config.get('EXTRA_PARAMS', {})
-        if isinstance(extra_params, Mapping):
-            for key, value in extra_params.items():
-                request_overrides.setdefault(key, value)
-        return request_overrides
-
 
 def _build_item_payload(
     analyses: Sequence[InsightItemAnalysis],

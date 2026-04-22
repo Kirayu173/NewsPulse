@@ -20,6 +20,10 @@ from newspulse.workflow.shared.ai_runtime.errors import (
     PromptTemplateNotFoundError,
 )
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate, load_prompt_template
+from newspulse.workflow.shared.ai_runtime.request_config import (
+    build_request_overrides,
+    resolve_runtime_cache_config,
+)
 
 __all__ = [
     "AIConfigError",
@@ -37,5 +41,7 @@ __all__ = [
     "EmbeddingRuntimeClient",
     "EmbeddingRuntimeConfig",
     "extract_json_block",
+    "build_request_overrides",
     "load_prompt_template",
+    "resolve_runtime_cache_config",
 ]

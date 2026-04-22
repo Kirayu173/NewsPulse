@@ -15,9 +15,10 @@ from newspulse.workflow.selection.keyword import KeywordSelectionStrategy
 from newspulse.workflow.selection.models import AIBatchNewsItem, AIQualityDecision, SelectionTopic
 from newspulse.workflow.selection.pipeline import SelectionPipelineProjector
 from newspulse.workflow.selection.semantic import SemanticSelectionLayer
-from newspulse.workflow.shared.ai_runtime.client import AIRuntimeClient, AIRuntimeConfig
+from newspulse.workflow.shared.ai_runtime.client import AIRuntimeClient, AIRuntimeConfig, CachedAIRuntimeClient
 from newspulse.workflow.shared.ai_runtime.embedding import EmbeddingRuntimeClient
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate, load_prompt_template
+from newspulse.workflow.shared.ai_runtime.request_config import build_request_overrides, resolve_runtime_cache_config
 from newspulse.workflow.shared.contracts import SelectionResult
 from newspulse.workflow.shared.options import SelectionOptions
 
@@ -53,7 +54,7 @@ class AISelectionStrategy:
             if ai_runtime_config is None:
                 raise ValueError("AI runtime config is required when no client is provided")
             client = AIRuntimeClient(ai_runtime_config, completion_func=completion_func)
-        self.client = client
+        self.client = self._wrap_runtime_cache(client)
 
         self.classify_prompt = classify_prompt or load_prompt_template(
             self.filter_config.get("PROMPT_FILE", "prompt.txt"),
@@ -263,17 +264,27 @@ class AISelectionStrategy:
         return SemanticSelectionLayer(embedding_client=client)
 
     def _build_request_overrides(self) -> dict[str, Any]:
-        overrides: dict[str, Any] = {}
-        timeout = self.filter_config.get("TIMEOUT")
-        if timeout is not None:
-            overrides["timeout"] = int(timeout)
-        num_retries = self.filter_config.get("NUM_RETRIES")
-        if num_retries is not None:
-            overrides["num_retries"] = int(num_retries)
-        extra_params = self.filter_config.get("EXTRA_PARAMS", {})
-        if isinstance(extra_params, Mapping):
-            overrides.update(extra_params)
-        return overrides
+        return build_request_overrides(
+            self.filter_config,
+            prompt_template=self.classify_prompt,
+            operation="selection",
+            prompt_name="classify",
+        )
+
+    def _wrap_runtime_cache(self, client: AIRuntimeClient | Any) -> AIRuntimeClient | Any:
+        if isinstance(client, CachedAIRuntimeClient):
+            return client
+        if not isinstance(client, AIRuntimeClient):
+            return client
+        cache_config = resolve_runtime_cache_config(self.filter_config)
+        if not cache_config:
+            return client
+        return CachedAIRuntimeClient(
+            client,
+            enabled=bool(cache_config.get("ENABLED", True)),
+            ttl_seconds=int(cache_config.get("TTL_SECONDS", 3600) or 3600),
+            max_entries=int(cache_config.get("MAX_ENTRIES", 512) or 512),
+        )
 
 
 def build_embedding_runtime_config(

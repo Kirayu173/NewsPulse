@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, Mapping, Optional, Union
 
 from newspulse.core.config_paths import resolve_prompt_path
 from newspulse.workflow.shared.ai_runtime.errors import PromptTemplateNotFoundError
@@ -35,6 +37,42 @@ class PromptTemplate:
         if final_user_prompt:
             messages.append({"role": "user", "content": final_user_prompt})
         return messages
+
+    @property
+    def prompt_hash(self) -> str:
+        """Return a stable content hash for cache scoping."""
+
+        raw_value = json.dumps(
+            {
+                "system_prompt": self.system_prompt,
+                "user_prompt": self.user_prompt,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(raw_value.encode("utf-8")).hexdigest()
+
+    def build_cache_context(
+        self,
+        *,
+        operation: str = "",
+        prompt_name: str = "",
+        extra: Optional[Mapping[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Build default cache-scoping metadata for this prompt template."""
+
+        context: dict[str, Any] = {
+            "prompt_name": str(prompt_name or self.path.name or self.path),
+            "prompt_path": str(self.path),
+            "prompt_hash": self.prompt_hash,
+        }
+        if operation:
+            context["operation"] = str(operation)
+        if extra:
+            for key, value in extra.items():
+                context[str(key)] = value
+        return context
 
 
 def split_prompt_sections(content: str) -> tuple[str, str]:

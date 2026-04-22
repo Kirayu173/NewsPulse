@@ -293,12 +293,20 @@ class LoaderConfigRootTest(unittest.TestCase):
                       update_tags_prompt_file: ai_filter/update_tags_prompt.txt
                       model: openai/selection-model
                       timeout: 222
+                      runtime_cache:
+                        enabled: true
+                        ttl_seconds: 900
+                        max_entries: 128
                       extra_params:
                         top_p: 0.9
                     insight:
                       prompt_file: ai_analysis_prompt.txt
                       api_key: insight-key
                       temperature: 0.8
+                      runtime_cache:
+                        enabled: false
+                        ttl_seconds: 60
+                        max_entries: 16
                 """,
             )
 
@@ -333,8 +341,11 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["AI_ANALYSIS"]["STRATEGY"], "ai")
             self.assertEqual(config["AI_ANALYSIS"]["MAX_ITEMS"], 9)
             self.assertEqual(config["AI_ANALYSIS"]["PROMPT_FILE"], str(config_dir / "ai_analysis_prompt.txt"))
+            self.assertEqual(config["AI_ANALYSIS"]["RUNTIME_CACHE"]["TTL_SECONDS"], 60)
+            self.assertFalse(config["AI_ANALYSIS"]["RUNTIME_CACHE"]["ENABLED"])
             self.assertEqual(config["AI_FILTER"]["PROMPT_FILE"], str(config_dir / "ai_filter" / "prompt.txt"))
             self.assertEqual(config["AI_FILTER"]["EXTRA_PARAMS"], {"top_p": 0.9})
+            self.assertEqual(config["AI_FILTER"]["RUNTIME_CACHE"]["MAX_ENTRIES"], 128)
             self.assertFalse(config["AI_FILTER"]["FALLBACK_TO_KEYWORD"])
             self.assertEqual(config["DISPLAY"]["REGION_ORDER"], ["hotlist", "new_items", "standalone", "insight"])
             self.assertTrue(config["DISPLAY"]["REGIONS"]["INSIGHT"])

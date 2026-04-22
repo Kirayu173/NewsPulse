@@ -531,6 +531,7 @@ def _load_ai_selection_operation_config(config_data: Dict[str, Any], config_root
         "TIMEOUT": _coalesce(_get_present_value(operation, "timeout"), default=None),
         "NUM_RETRIES": _coalesce(_get_present_value(operation, "num_retries"), default=None),
         "EXTRA_PARAMS": _coalesce(_get_present_value(operation, "extra_params"), default={}),
+        "RUNTIME_CACHE": _load_ai_runtime_cache_config(operation),
     }
 
 
@@ -565,6 +566,7 @@ def _load_ai_insight_operation_config(config_data: Dict[str, Any], config_root: 
         "TIMEOUT": _coalesce(_get_present_value(operation, "timeout"), default=None),
         "NUM_RETRIES": _coalesce(_get_present_value(operation, "num_retries"), default=None),
         "EXTRA_PARAMS": dict(_coalesce(_get_present_value(operation, "extra_params"), default={}) or {}),
+        "RUNTIME_CACHE": _load_ai_runtime_cache_config(operation),
     }
 
 def _load_ai_analysis_config(workflow_config: Dict[str, Any], operation_config: Dict[str, Any]) -> Dict[str, Any]:
@@ -578,6 +580,7 @@ def _load_ai_analysis_config(workflow_config: Dict[str, Any], operation_config: 
         "TIMEOUT": operation_config.get("TIMEOUT"),
         "NUM_RETRIES": operation_config.get("NUM_RETRIES"),
         "EXTRA_PARAMS": operation_config.get("EXTRA_PARAMS", {}),
+        "RUNTIME_CACHE": dict(operation_config.get("RUNTIME_CACHE", {}) or {}),
         "MODE": insight["MODE"],
         "MAX_ITEMS": insight["MAX_ITEMS"],
         "CONTENT": dict(insight.get("CONTENT", {}) or {}),
@@ -593,6 +596,7 @@ def _load_ai_filter_config(workflow_config: Dict[str, Any], operation_config: Di
         "TIMEOUT": operation_config.get("TIMEOUT"),
         "NUM_RETRIES": operation_config.get("NUM_RETRIES"),
         "EXTRA_PARAMS": operation_config.get("EXTRA_PARAMS", {}),
+        "RUNTIME_CACHE": dict(operation_config.get("RUNTIME_CACHE", {}) or {}),
         "INTERESTS_FILE": selection_ai["INTERESTS_FILE"],
         "PROMPT_FILE": operation_config["PROMPT_FILE"],
         "EXTRACT_PROMPT_FILE": operation_config["EXTRACT_PROMPT_FILE"],
@@ -600,6 +604,35 @@ def _load_ai_filter_config(workflow_config: Dict[str, Any], operation_config: Di
         "RECLASSIFY_THRESHOLD": selection_ai["RECLASSIFY_THRESHOLD"],
         "MIN_SCORE": selection_ai["MIN_SCORE"],
         "FALLBACK_TO_KEYWORD": selection_ai["FALLBACK_TO_KEYWORD"],
+    }
+
+
+def _load_ai_runtime_cache_config(operation_config: Dict[str, Any]) -> Dict[str, Any]:
+    runtime_cache = _get_section(operation_config, "runtime_cache")
+    if not runtime_cache:
+        runtime_cache = _get_section(operation_config, "llm_cache")
+    if not runtime_cache:
+        return {}
+
+    return {
+        "ENABLED": bool(
+            _coalesce(
+                _get_present_value(runtime_cache, "enabled"),
+                default=True,
+            )
+        ),
+        "TTL_SECONDS": int(
+            _coalesce(
+                _get_present_value(runtime_cache, "ttl_seconds"),
+                default=3600,
+            )
+        ),
+        "MAX_ENTRIES": int(
+            _coalesce(
+                _get_present_value(runtime_cache, "max_entries"),
+                default=512,
+            )
+        ),
     }
 
 

@@ -10,7 +10,9 @@ from newspulse.workflow.shared.ai_runtime import (
     AIRuntimeConfig,
     CachedAIRuntimeClient,
     AIResponseDecodeError,
+    PromptTemplate,
     PromptTemplateNotFoundError,
+    build_request_overrides,
     decode_json_response,
     load_prompt_template,
 )
@@ -44,6 +46,20 @@ class AIRuntimePromptTest(unittest.TestCase):
                 ],
             )
 
+    def test_prompt_template_builds_cache_context(self):
+        prompt = PromptTemplate(
+            path=Path("ai/prompt.txt"),
+            system_prompt="system",
+            user_prompt="user",
+        )
+
+        context = prompt.build_cache_context(operation="selection", prompt_name="classify")
+
+        self.assertEqual(context["operation"], "selection")
+        self.assertEqual(context["prompt_name"], "classify")
+        self.assertEqual(context["prompt_path"], str(Path("ai/prompt.txt")))
+        self.assertTrue(context["prompt_hash"])
+
     def test_load_prompt_template_raises_for_missing_required_file(self):
         with TemporaryDirectory() as tmp:
             config_root = Path(tmp)
@@ -57,6 +73,28 @@ class AIRuntimePromptTest(unittest.TestCase):
                 )
 
             self.assertIn("missing.txt", str(ctx.exception))
+
+    def test_build_request_overrides_merges_prompt_cache_scope(self):
+        prompt = PromptTemplate(path=Path("prompt.txt"), user_prompt="hello")
+
+        overrides = build_request_overrides(
+            {
+                "TIMEOUT": 45,
+                "NUM_RETRIES": 3,
+                "EXTRA_PARAMS": {"top_p": 0.9},
+            },
+            prompt_template=prompt,
+            operation="insight",
+            prompt_name="aggregate",
+            overrides={"cache_context": {"attempt": 2}},
+        )
+
+        self.assertEqual(overrides["timeout"], 45)
+        self.assertEqual(overrides["num_retries"], 3)
+        self.assertEqual(overrides["top_p"], 0.9)
+        self.assertEqual(overrides["cache_context"]["operation"], "insight")
+        self.assertEqual(overrides["cache_context"]["prompt_name"], "aggregate")
+        self.assertEqual(overrides["cache_context"]["attempt"], 2)
 
 
 class AIRuntimeCodecTest(unittest.TestCase):

@@ -14,6 +14,7 @@ from newspulse.workflow.insight.input_builder import InsightInputBuilder
 from newspulse.workflow.insight.item_analyzer import InsightItemAnalyzer
 from newspulse.workflow.shared.ai_runtime.client import AIRuntimeClient, CachedAIRuntimeClient
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate
+from newspulse.workflow.shared.ai_runtime.request_config import resolve_runtime_cache_config
 from newspulse.workflow.shared.contracts import InsightResult
 from newspulse.workflow.shared.options import InsightOptions
 
@@ -191,11 +192,7 @@ class AIInsightStrategy:
         return dict(config) if isinstance(config, Mapping) else {}
 
     def _runtime_cache_config(self) -> dict[str, Any]:
-        for key in ('RUNTIME_CACHE', 'LLM_CACHE'):
-            config = self.analysis_config.get(key, {})
-            if isinstance(config, Mapping) and config:
-                return dict(config)
-        return {}
+        return resolve_runtime_cache_config(self.analysis_config)
 
     def _wrap_runtime_cache(self, client: AIRuntimeClient | Any) -> AIRuntimeClient | Any:
         if isinstance(client, CachedAIRuntimeClient):

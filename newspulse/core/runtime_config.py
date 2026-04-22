@@ -88,6 +88,12 @@ def normalize_ai_operation_mapping(mapping: Dict[str, Any]) -> Dict[str, Any]:
         value = mapping_get(mapping, *source_keys)
         if value not in (None, ""):
             normalized[target_key] = value
+    runtime_cache = normalize_runtime_cache_mapping(
+        get_nested_mapping(mapping, "RUNTIME_CACHE", "runtime_cache")
+        or get_nested_mapping(mapping, "LLM_CACHE", "llm_cache")
+    )
+    if runtime_cache:
+        normalized["RUNTIME_CACHE"] = runtime_cache
     return normalized
 
 
@@ -95,6 +101,16 @@ def merge_ai_runtime_config(base_config: Dict[str, Any], override_config: Dict[s
     merged = dict(base_config or {})
     merged.update(normalize_ai_runtime_mapping(override_config))
     return merged
+
+
+def normalize_runtime_cache_mapping(mapping: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(mapping, dict) or not mapping:
+        return {}
+    return {
+        "ENABLED": bool(mapping_get(mapping, "ENABLED", "enabled", default=True)),
+        "TTL_SECONDS": int(mapping_get(mapping, "TTL_SECONDS", "ttl_seconds", default=3600) or 3600),
+        "MAX_ENTRIES": int(mapping_get(mapping, "MAX_ENTRIES", "max_entries", default=512) or 512),
+    }
 
 
 def workflow_config(config: Dict[str, Any], raw_config: Dict[str, Any]) -> Dict[str, Any]:
@@ -373,6 +389,10 @@ def resolve_ai_filter_config(config: Dict[str, Any], raw_config: Dict[str, Any])
         "TIMEOUT": mapping_get(operation, "TIMEOUT", "timeout"),
         "NUM_RETRIES": mapping_get(operation, "NUM_RETRIES", "num_retries"),
         "EXTRA_PARAMS": coerce_mapping(mapping_get(operation, "EXTRA_PARAMS", "extra_params", default={})),
+        "RUNTIME_CACHE": normalize_runtime_cache_mapping(
+            get_nested_mapping(operation, "RUNTIME_CACHE", "runtime_cache")
+            or get_nested_mapping(operation, "LLM_CACHE", "llm_cache")
+        ),
         "INTERESTS_FILE": selection_ai.get("INTERESTS_FILE"),
         "PROMPT_FILE": str(mapping_get(operation, "PROMPT_FILE", "prompt_file", default="prompt.txt") or "prompt.txt"),
         "EXTRACT_PROMPT_FILE": str(
@@ -410,6 +430,10 @@ def resolve_ai_analysis_config(config: Dict[str, Any], raw_config: Dict[str, Any
         "TIMEOUT": mapping_get(operation, "TIMEOUT", "timeout"),
         "NUM_RETRIES": mapping_get(operation, "NUM_RETRIES", "num_retries"),
         "EXTRA_PARAMS": coerce_mapping(mapping_get(operation, "EXTRA_PARAMS", "extra_params", default={})),
+        "RUNTIME_CACHE": normalize_runtime_cache_mapping(
+            get_nested_mapping(operation, "RUNTIME_CACHE", "runtime_cache")
+            or get_nested_mapping(operation, "LLM_CACHE", "llm_cache")
+        ),
         "ITEM_PROMPT_FILE": str(
             mapping_get(
                 operation,
