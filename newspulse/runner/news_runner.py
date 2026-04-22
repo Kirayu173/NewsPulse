@@ -13,6 +13,12 @@ from newspulse.context import AppContext
 from newspulse.core import load_config
 from newspulse.core.scheduler import ResolvedSchedule
 from newspulse.crawler import CrawlBatchResult, DataFetcher
+from newspulse.runner.runtime import (
+    ModeStrategy,
+    WorkflowExecutionPlan,
+    detect_runner_environment,
+    resolve_mode_strategy,
+)
 from newspulse.storage import normalize_crawl_batch
 from newspulse.utils.logging import configure_logging, get_logger
 from newspulse.utils.time import DEFAULT_TIMEZONE
@@ -25,31 +31,10 @@ logger = get_logger(__name__)
 class NewsRunner:
     """Coordinate crawling and native workflow stage orchestration."""
 
-    MODE_STRATEGIES = {
-        "incremental": {
-            "mode_name": "增量",
-            "description": "仅分析本次抓取新增的热榜变化",
-            "report_type": "增量报告",
-            "should_send_notification": True,
-        },
-        "current": {
-            "mode_name": "实时",
-            "description": "基于今日已抓取数据生成当前快照",
-            "report_type": "实时报告",
-            "should_send_notification": True,
-        },
-        "daily": {
-            "mode_name": "日报",
-            "description": "汇总今日全部抓取数据生成日报",
-            "report_type": "每日报告",
-            "should_send_notification": True,
-        },
-    }
-
     def __init__(self, config: Optional[Dict] = None):
         configure_logging()
         if config is None:
-            logger.info("正在加载配置...")
+            logger.info("??????...")
             config = load_config()
         configure_logging(
             config.get("LOG_LEVEL", "INFO"),
@@ -57,9 +42,9 @@ class NewsRunner:
             bool(config.get("LOG_JSON", False)),
         )
 
-        logger.info(f"NewsPulse v{__version__} 启动中")
-        logger.info(f"已启用平台: {len(config['PLATFORMS'])}")
-        logger.info(f"时区: {config.get('TIMEZONE', DEFAULT_TIMEZONE)}")
+        logger.info("NewsPulse v%s ???", __version__)
+        logger.info("?????: %s", len(config["PLATFORMS"]))
+        logger.info("??: %s", config.get("TIMEZONE", DEFAULT_TIMEZONE))
 
         self.ctx = AppContext(config)
         self.request_interval = self.ctx.request_interval_ms
@@ -68,8 +53,7 @@ class NewsRunner:
         self.filter_method: Optional[str] = None
         self.interests_file: Optional[str] = None
         self.rank_threshold = self.ctx.rank_threshold
-        self.is_github_actions = os.environ.get("GITHUB_ACTIONS") == "true"
-        self.is_docker_container = self._detect_docker_environment()
+        self._initialize_environment()
         self.update_info = None
         self.proxy_url = None
 
@@ -77,21 +61,19 @@ class NewsRunner:
         self.data_fetcher = DataFetcher(self.proxy_url)
         self._init_storage_manager()
 
+    def _initialize_environment(self) -> None:
+        environment = detect_runner_environment(os.environ)
+        self.environment = environment
+        self.is_github_actions = environment.is_github_actions
+        self.is_docker_container = environment.is_docker_container
+
     def _init_storage_manager(self) -> None:
         self.storage_manager = self.ctx.get_storage_manager()
-        logger.info(f"存储: {self.storage_manager.backend_name}")
+        logger.info("??: %s", self.storage_manager.backend_name)
 
         retention_days = self.ctx.storage_retention_days
         if retention_days > 0:
-            logger.info(f"数据保留: {retention_days} 天")
-
-    def _detect_docker_environment(self) -> bool:
-        try:
-            if os.environ.get("DOCKER_CONTAINER") == "true":
-                return True
-            return os.path.exists("/.dockerenv")
-        except Exception:
-            return False
+            logger.info("????: %s ?", retention_days)
 
     def _should_open_browser(self) -> bool:
         return not self.is_github_actions and not self.is_docker_container
@@ -99,11 +81,11 @@ class NewsRunner:
     def _setup_proxy(self) -> None:
         if not self.is_github_actions and self.ctx.proxy_enabled:
             self.proxy_url = self.ctx.default_proxy_url
-            logger.info("已启用代理")
+            logger.info("?????")
         elif not self.is_github_actions:
-            logger.info("未启用代理")
+            logger.info("?????")
         else:
-            logger.info("GitHub Actions 环境，跳过代理设置")
+            logger.info("GitHub Actions ?????????")
 
     def _set_update_info_from_config(self) -> None:
         try:
@@ -119,10 +101,10 @@ class NewsRunner:
                     "remote_version": remote_version,
                 }
         except Exception as exc:
-            logger.warning("版本检查失败: %s", exc)
+            logger.warning("??????: %s", exc)
 
-    def _get_mode_strategy(self) -> Dict:
-        return self.MODE_STRATEGIES.get(self.report_mode, self.MODE_STRATEGIES["daily"])
+    def _get_mode_strategy(self) -> ModeStrategy:
+        return resolve_mode_strategy(self.report_mode)
 
     def _has_notification_configured(self) -> bool:
         return bool(self.ctx.generic_webhook_url)
@@ -138,20 +120,16 @@ class NewsRunner:
 
     def _log_selection_result(self, selection: SelectionResult) -> None:
         rejected_count = len(getattr(selection, "rejected_items", []) or [])
-        if selection.strategy == "ai":
-            logger.info(
-                f"[筛选] 使用 AI selection stage: 保留 {selection.total_selected} 条新闻, "
-                f"淘汰 {rejected_count} 条"
-            )
-        else:
-            logger.info(
-                f"[筛选] 使用 keyword selection stage: 保留 {selection.total_selected} 条新闻, "
-                f"淘汰 {rejected_count} 条"
-            )
+        logger.info(
+            "[selection] strategy=%s selected=%s rejected=%s",
+            selection.strategy,
+            selection.total_selected,
+            rejected_count,
+        )
         if selection.diagnostics.get("fallback_strategy") == "keyword":
             logger.warning(
-                f"[筛选] AI selection 失败，已回退到 keyword: "
-                f"{selection.diagnostics.get('fallback_reason', 'unknown error')}"
+                "[selection] AI selection fallback to keyword: %s",
+                selection.diagnostics.get("fallback_reason", "unknown error"),
             )
 
     def _should_emit_notification(
@@ -161,37 +139,37 @@ class NewsRunner:
         schedule: ResolvedSchedule,
     ) -> bool:
         if not self.ctx.notification_enabled:
-            logger.info(f"已关闭 {report_type} 通知发送")
+            logger.info("??? %s ????", report_type)
             return False
 
         if not self._has_notification_configured():
-            logger.warning("已启用通知，但未配置任何可用通知渠道")
+            logger.warning("??????????????????")
             return False
 
         if not self._has_valid_content(report_package):
             if not report_package.integrity.valid:
                 logger.warning(
-                    "[推送] Stage 6 ReportPackage 校验未通过，跳过通知: "
-                    + "; ".join(report_package.integrity.errors or ["unknown validation error"])
+                    "[delivery] Stage 6 ReportPackage ??????????: %s",
+                    "; ".join(report_package.integrity.errors or ["unknown validation error"]),
                 )
                 return False
             if report_package.meta.mode == "incremental":
-                logger.info("增量模式下没有新增内容，跳过通知")
+                logger.info("????????????????")
             else:
-                logger.info(f"当前{self._get_mode_strategy()['mode_name']}没有可发送内容")
+                logger.info("?? %s ???????", self._get_mode_strategy().mode_name)
             return False
 
         if not schedule.push:
-            logger.info("[推送] 当前时段未配置消息推送")
+            logger.info("[delivery] ???????????")
             return False
 
         if schedule.once_push and schedule.period_key:
             scheduler = self.ctx.create_scheduler()
             date_str = self.ctx.format_date()
             if scheduler.already_executed(schedule.period_key, "push", date_str):
-                logger.info(f"[推送] 推送计划 {schedule.period_name or schedule.period_key} 今日已执行")
+                logger.info("[delivery] ???? %s ?????", schedule.period_name or schedule.period_key)
                 return False
-            logger.info(f"[推送] 推送计划 {schedule.period_name or schedule.period_key} 准备执行")
+            logger.info("[delivery] ???? %s ????", schedule.period_name or schedule.period_key)
 
         return True
 
@@ -202,12 +180,12 @@ class NewsRunner:
         schedule: ResolvedSchedule,
     ) -> bool:
         if not payloads:
-            logger.info("[推送] render stage 未生成任何可发送 payload")
+            logger.info("[delivery] render stage ???????? payload")
             return False
 
         result = self.ctx.run_delivery_stage(payloads, proxy_url=self.proxy_url)
         if not getattr(result, "channel_results", None):
-            logger.warning("通知渠道没有返回任何结果")
+            logger.warning("????????????")
             return False
 
         if result.success and schedule.once_push and schedule.period_key:
@@ -218,28 +196,28 @@ class NewsRunner:
 
     def _initialize_and_check_config(self) -> None:
         now = self.ctx.get_time()
-        logger.info(f"当前时间: {now.strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info("????: %s", now.strftime("%Y-%m-%d %H:%M:%S"))
 
         if not self.ctx.crawler_enabled:
-            logger.info("爬虫已禁用（ENABLE_CRAWLER=False），程序结束")
+            logger.info("??????ENABLE_CRAWLER=False??????")
             return
 
         if not self.ctx.notification_enabled:
-            logger.info("通知已禁用（ENABLE_NOTIFICATION=False），仅生成本地结果")
+            logger.info("??????ENABLE_NOTIFICATION=False?????????")
         elif not self._has_notification_configured():
-            logger.warning("通知功能已开启，但未检测到可用渠道")
+            logger.warning("?????????????????")
         else:
-            logger.info("通知渠道检查通过")
+            logger.info("????????")
 
         mode_strategy = self._get_mode_strategy()
-        logger.info(f"模式: {self.report_mode}")
-        logger.info(f"说明: {mode_strategy['description']}")
+        logger.info("??: %s", self.report_mode)
+        logger.info("??: %s", mode_strategy.description)
 
     def _crawl_data(self) -> CrawlBatchResult:
         source_specs = self.ctx.crawl_source_specs
 
-        logger.info(f"本次抓取平台: {[spec.source_name for spec in source_specs]}")
-        logger.info(f"请求间隔: 每个平台等待 {self.request_interval} 秒")
+        logger.info("??????: %s", [spec.source_name for spec in source_specs])
+        logger.info("????: ?????? %s ??", self.request_interval)
         self.ctx.get_data_dir().mkdir(parents=True, exist_ok=True)
 
         crawl_batch = self.data_fetcher.crawl(source_specs, self.request_interval)
@@ -249,55 +227,66 @@ class NewsRunner:
         normalized_batch = normalize_crawl_batch(crawl_batch, crawl_time, crawl_date)
 
         if self.storage_manager.save_normalized_crawl_batch(normalized_batch):
-            logger.info(f"抓取结果已写入存储: {self.storage_manager.backend_name}")
+            logger.info("?????????: %s", self.storage_manager.backend_name)
 
         txt_file = self.storage_manager.save_txt_snapshot(normalized_batch)
         if txt_file:
-            logger.info(f"TXT 快照已保存: {txt_file}")
+            logger.info("TXT ?????: %s", txt_file)
 
         return crawl_batch
 
-    def _execute_mode_strategy(
+    def _resolve_execution_plan(
         self,
-        mode_strategy: Dict,
-        schedule: Optional[ResolvedSchedule] = None,
-    ) -> Optional[str]:
-        schedule = schedule or self.ctx.create_scheduler().resolve()
-
+        schedule: ResolvedSchedule,
+        *,
+        mode_strategy: ModeStrategy | None = None,
+    ) -> WorkflowExecutionPlan:
         effective_mode = schedule.report_mode
         if effective_mode != self.report_mode:
-            logger.info(f"[计划] 模式调整: {self.report_mode} -> {effective_mode}")
-        self.report_mode = effective_mode
-        mode_strategy = self._get_mode_strategy()
+            logger.info("[schedule] ????: %s -> %s", self.report_mode, effective_mode)
 
-        self.frequency_file = schedule.frequency_file
-        self.filter_method = schedule.filter_method or self.ctx.filter_method
-        self.interests_file = schedule.interests_file
+        active_mode_strategy = mode_strategy if mode_strategy and mode_strategy.mode == effective_mode else resolve_mode_strategy(effective_mode)
+        return WorkflowExecutionPlan(
+            schedule=schedule,
+            report_mode=effective_mode,
+            mode_strategy=active_mode_strategy,
+            frequency_file=schedule.frequency_file,
+            filter_method=schedule.filter_method or self.ctx.filter_method,
+            interests_file=schedule.interests_file,
+        )
 
+    def _apply_execution_plan(self, plan: WorkflowExecutionPlan) -> None:
+        self.report_mode = plan.report_mode
+        self.frequency_file = plan.frequency_file
+        self.filter_method = plan.filter_method
+        self.interests_file = plan.interests_file
+
+    def _run_workflow_stages(self, plan: WorkflowExecutionPlan) -> ReportPackage:
         snapshot, selection = self.ctx.run_selection_stage(
-            mode=self.report_mode,
-            strategy=self.filter_method,
-            frequency_file=self.frequency_file,
-            interests_file=self.interests_file,
+            mode=plan.report_mode,
+            strategy=plan.filter_method,
+            frequency_file=plan.frequency_file,
+            interests_file=plan.interests_file,
         )
         self._log_selection_result(selection)
 
         insight = self.ctx.run_insight_stage(
-            report_mode=self.report_mode,
+            report_mode=plan.report_mode,
             snapshot=snapshot,
             selection=selection,
-            strategy=self.filter_method,
-            frequency_file=self.frequency_file,
-            interests_file=self.interests_file,
-            schedule=schedule,
+            strategy=plan.filter_method,
+            frequency_file=plan.frequency_file,
+            interests_file=plan.interests_file,
+            schedule=plan.schedule,
         )
-        report_package = self.ctx.assemble_report_package(snapshot, selection, insight)
+        return self.ctx.assemble_report_package(snapshot, selection, insight)
 
+    def _render_report(self, plan: WorkflowExecutionPlan, report_package: ReportPackage):
         emit_html = bool(self.ctx.storage_formats.get("HTML", True))
-        emit_notification = mode_strategy["should_send_notification"] and self._should_emit_notification(
+        emit_notification = plan.mode_strategy.should_send_notification and self._should_emit_notification(
             report_package,
-            mode_strategy["report_type"],
-            schedule,
+            plan.mode_strategy.report_type,
+            plan.schedule,
         )
         render_result = self.ctx.run_render_stage(
             report_package,
@@ -305,23 +294,40 @@ class NewsRunner:
             emit_notification=emit_notification,
             update_info=self.update_info if self.ctx.show_version_update else None,
         )
+        return emit_notification, render_result
+
+    def _handle_html_output(self, html_file: str | None) -> None:
+        if not html_file:
+            return
+
+        logger.info("HTML ?????: %s", html_file)
+        latest_file = self.ctx.get_data_dir() / "html" / "latest" / f"{self.report_mode}.html"
+        logger.info("??????: %s", latest_file)
+
+        if self._should_open_browser():
+            file_url = "file://" + str(Path(html_file).resolve())
+            logger.info("???? HTML ??: %s", file_url)
+            webbrowser.open(file_url)
+        elif self.is_docker_container:
+            logger.info("HTML ???????????????: %s", html_file)
+
+    def _execute_mode_strategy(
+        self,
+        mode_strategy: ModeStrategy | None = None,
+        schedule: Optional[ResolvedSchedule] = None,
+    ) -> Optional[str]:
+        resolved_schedule = schedule or self.ctx.create_scheduler().resolve()
+        plan = self._resolve_execution_plan(resolved_schedule, mode_strategy=mode_strategy)
+        self._apply_execution_plan(plan)
+
+        report_package = self._run_workflow_stages(plan)
+        emit_notification, render_result = self._render_report(plan, report_package)
         html_file = render_result.html.file_path or None
 
-        if html_file:
-            logger.info(f"HTML 报告已生成: {html_file}")
-            latest_file = self.ctx.get_data_dir() / "html" / "latest" / f"{self.report_mode}.html"
-            logger.info(f"最新快照链接: {latest_file}")
-
         if emit_notification:
-            self._run_delivery_if_needed(render_result.payloads, schedule=schedule)
+            self._run_delivery_if_needed(render_result.payloads, schedule=plan.schedule)
 
-        if self._should_open_browser() and html_file:
-            file_url = "file://" + str(Path(html_file).resolve())
-            logger.info(f"正在打开 HTML 报告: {file_url}")
-            webbrowser.open(file_url)
-        elif self.is_docker_container and html_file:
-            logger.info(f"HTML 报告已生成，请在容器内手动查看: {html_file}")
-
+        self._handle_html_output(html_file)
         return html_file
 
     def run(self) -> None:
@@ -332,14 +338,14 @@ class NewsRunner:
 
             schedule = self.ctx.create_scheduler().resolve()
             if not schedule.collect:
-                logger.info("[计划] 当前时段不执行抓取任务")
+                logger.info("[schedule] ???????????")
                 return
 
             mode_strategy = self._get_mode_strategy()
             self._crawl_data()
             self._execute_mode_strategy(mode_strategy, schedule=schedule)
         except Exception:
-            logger.exception("运行异常")
+            logger.exception("????")
             if self.ctx.debug_enabled:
                 raise
         finally:
