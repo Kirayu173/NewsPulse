@@ -209,6 +209,30 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["LOG_FILE"], "logs/newspulse.log")
             self.assertTrue(config["LOG_JSON"])
 
+    def test_load_config_accepts_storage_retention_days_env_alias(self):
+        with TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            config_dir = workspace / "config"
+            config_file = config_dir / "config.yaml"
+            write_text(
+                config_file,
+                """
+                app:
+                  timezone: Asia/Shanghai
+                schedule:
+                  enabled: false
+                  preset: always_on
+                storage:
+                  local:
+                    retention_days: 3
+                """,
+            )
+
+            with patch.dict(os.environ, {"STORAGE_RETENTION_DAYS": "14"}, clear=True):
+                config = load_config(str(config_file))
+
+            self.assertEqual(config["STORAGE"]["LOCAL"]["RETENTION_DAYS"], 14)
+
     def test_load_config_supports_workflow_stage_sections_and_ai_operations(self):
         with TemporaryDirectory() as tmp:
             workspace = Path(tmp)

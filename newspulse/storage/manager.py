@@ -46,6 +46,26 @@ class StorageManager:
 
         return self._backend
 
+    @property
+    def backend(self) -> StorageBackend:
+        return self.get_backend()
+
+    @property
+    def news_repo(self):
+        return getattr(self.backend, "news_repo", None)
+
+    @property
+    def schedule_repo(self):
+        return getattr(self.backend, "schedule_repo", None)
+
+    @property
+    def ai_filter_repo(self):
+        return getattr(self.backend, "ai_filter_repo", None)
+
+    @property
+    def article_content_repo(self):
+        return getattr(self.backend, "article_content_repo", None)
+
     def save_news_data(self, data: NewsData) -> bool:
         return self.get_backend().save_news_data(data)
 

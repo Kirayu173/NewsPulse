@@ -1,7 +1,8 @@
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from newspulse.context import AppContext
+from newspulse.context import AppContext, ServiceFactory
 
 
 class AppContextTest(unittest.TestCase):
@@ -277,6 +278,39 @@ class AppContextTest(unittest.TestCase):
         self.assertFalse(hasattr(AppContext, "split_content"))
         self.assertFalse(hasattr(AppContext, "create_notification_dispatcher"))
         self.assertFalse(hasattr(AppContext, "convert_selection_to_report_data"))
+
+    def test_context_normalizes_legacy_storage_and_platform_sections(self):
+        ctx = AppContext(
+            {
+                "storage": {
+                    "formats": {"html": False, "txt": True},
+                    "local": {"data_dir": "custom-output", "retention_days": 9},
+                },
+                "platforms": {
+                    "sources": [
+                        {"id": "hackernews", "name": "Hacker News"},
+                        {"id": "github-trending-today", "name": ""},
+                    ]
+                },
+            }
+        )
+
+        self.assertEqual(ctx.storage_backend_type, "local")
+        self.assertEqual(ctx.storage_retention_days, 9)
+        self.assertEqual(ctx.get_data_dir(), Path("custom-output"))
+        self.assertFalse(ctx.storage_formats["HTML"])
+        self.assertEqual([spec.source_id for spec in ctx.crawl_source_specs], ["hackernews", "github-trending-today"])
+        self.assertEqual(ctx.platform_name_map["hackernews"], "Hacker News")
+
+    def test_create_service_methods_delegate_to_service_factory(self):
+        with patch.object(ServiceFactory, "create_snapshot_service", return_value="snapshot-service") as mocked:
+            ctx = AppContext({"PLATFORMS": [], "DISPLAY": {"STANDALONE": {}}, "STORAGE": {"LOCAL": {"DATA_DIR": "output"}}})
+
+            self.assertIsInstance(ctx.service_factory, ServiceFactory)
+            self.assertIs(ctx.service_factory, ctx.service_factory)
+            self.assertEqual(ctx.create_snapshot_service(), "snapshot-service")
+
+        mocked.assert_called_once()
 
 
 if __name__ == "__main__":

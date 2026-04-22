@@ -12,8 +12,7 @@ from newspulse import __version__
 from newspulse.context import AppContext
 from newspulse.core import load_config
 from newspulse.core.scheduler import ResolvedSchedule
-from newspulse.crawler import CrawlBatchResult, CrawlSourceSpec, DataFetcher
-from newspulse.crawler.source_names import resolve_source_display_name
+from newspulse.crawler import CrawlBatchResult, DataFetcher
 from newspulse.storage import normalize_crawl_batch
 from newspulse.utils.logging import configure_logging, get_logger
 from newspulse.utils.time import DEFAULT_TIMEZONE
@@ -63,8 +62,8 @@ class NewsRunner:
         logger.info(f"时区: {config.get('TIMEZONE', DEFAULT_TIMEZONE)}")
 
         self.ctx = AppContext(config)
-        self.request_interval = self.ctx.config["REQUEST_INTERVAL"]
-        self.report_mode = self.ctx.config["REPORT_MODE"]
+        self.request_interval = self.ctx.request_interval_ms
+        self.report_mode = self.ctx.default_report_mode
         self.frequency_file: Optional[str] = None
         self.filter_method: Optional[str] = None
         self.interests_file: Optional[str] = None
@@ -79,14 +78,10 @@ class NewsRunner:
         self._init_storage_manager()
 
     def _init_storage_manager(self) -> None:
-        env_retention = os.environ.get("STORAGE_RETENTION_DAYS", "").strip()
-        if env_retention:
-            self.ctx.config.setdefault("STORAGE", {}).setdefault("LOCAL", {})["RETENTION_DAYS"] = int(env_retention)
-
         self.storage_manager = self.ctx.get_storage_manager()
         logger.info(f"存储: {self.storage_manager.backend_name}")
 
-        retention_days = self.ctx.config.get("STORAGE", {}).get("LOCAL", {}).get("RETENTION_DAYS", 0)
+        retention_days = self.ctx.storage_retention_days
         if retention_days > 0:
             logger.info(f"数据保留: {retention_days} 天")
 
@@ -102,8 +97,8 @@ class NewsRunner:
         return not self.is_github_actions and not self.is_docker_container
 
     def _setup_proxy(self) -> None:
-        if not self.is_github_actions and self.ctx.config["USE_PROXY"]:
-            self.proxy_url = self.ctx.config["DEFAULT_PROXY"]
+        if not self.is_github_actions and self.ctx.proxy_enabled:
+            self.proxy_url = self.ctx.default_proxy_url
             logger.info("已启用代理")
         elif not self.is_github_actions:
             logger.info("未启用代理")
@@ -130,7 +125,7 @@ class NewsRunner:
         return self.MODE_STRATEGIES.get(self.report_mode, self.MODE_STRATEGIES["daily"])
 
     def _has_notification_configured(self) -> bool:
-        return bool(self.ctx.config.get("GENERIC_WEBHOOK_URL"))
+        return bool(self.ctx.generic_webhook_url)
 
     def _has_valid_content(self, report_package: ReportPackage) -> bool:
         if not report_package.integrity.valid:
@@ -165,8 +160,7 @@ class NewsRunner:
         report_type: str,
         schedule: ResolvedSchedule,
     ) -> bool:
-        cfg = self.ctx.config
-        if not cfg["ENABLE_NOTIFICATION"]:
+        if not self.ctx.notification_enabled:
             logger.info(f"已关闭 {report_type} 通知发送")
             return False
 
@@ -226,11 +220,11 @@ class NewsRunner:
         now = self.ctx.get_time()
         logger.info(f"当前时间: {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
-        if not self.ctx.config["ENABLE_CRAWLER"]:
+        if not self.ctx.crawler_enabled:
             logger.info("爬虫已禁用（ENABLE_CRAWLER=False），程序结束")
             return
 
-        if not self.ctx.config["ENABLE_NOTIFICATION"]:
+        if not self.ctx.notification_enabled:
             logger.info("通知已禁用（ENABLE_NOTIFICATION=False），仅生成本地结果")
         elif not self._has_notification_configured():
             logger.warning("通知功能已开启，但未检测到可用渠道")
@@ -242,17 +236,7 @@ class NewsRunner:
         logger.info(f"说明: {mode_strategy['description']}")
 
     def _crawl_data(self) -> CrawlBatchResult:
-        source_specs = [
-            CrawlSourceSpec(
-                source_id=str(platform["id"]),
-                source_name=resolve_source_display_name(
-                    str(platform["id"]),
-                    str(platform.get("name", "") or ""),
-                ),
-            )
-            for platform in self.ctx.platforms
-            if platform.get("id")
-        ]
+        source_specs = self.ctx.crawl_source_specs
 
         logger.info(f"本次抓取平台: {[spec.source_name for spec in source_specs]}")
         logger.info(f"请求间隔: 每个平台等待 {self.request_interval} 秒")
@@ -309,7 +293,7 @@ class NewsRunner:
         )
         report_package = self.ctx.assemble_report_package(snapshot, selection, insight)
 
-        emit_html = bool(self.ctx.config["STORAGE"]["FORMATS"].get("HTML", True))
+        emit_html = bool(self.ctx.storage_formats.get("HTML", True))
         emit_notification = mode_strategy["should_send_notification"] and self._should_emit_notification(
             report_package,
             mode_strategy["report_type"],
@@ -319,7 +303,7 @@ class NewsRunner:
             report_package,
             emit_html=emit_html,
             emit_notification=emit_notification,
-            update_info=self.update_info if self.ctx.config.get("SHOW_VERSION_UPDATE", False) else None,
+            update_info=self.update_info if self.ctx.show_version_update else None,
         )
         html_file = render_result.html.file_path or None
 
@@ -343,7 +327,7 @@ class NewsRunner:
     def run(self) -> None:
         try:
             self._initialize_and_check_config()
-            if not self.ctx.config["ENABLE_CRAWLER"]:
+            if not self.ctx.crawler_enabled:
                 return
 
             schedule = self.ctx.create_scheduler().resolve()
@@ -356,7 +340,7 @@ class NewsRunner:
             self._execute_mode_strategy(mode_strategy, schedule=schedule)
         except Exception:
             logger.exception("运行异常")
-            if self.ctx.config.get("DEBUG", False):
+            if self.ctx.debug_enabled:
                 raise
         finally:
             self.ctx.cleanup()

@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
+from newspulse.crawler import CrawlSourceSpec
 from newspulse.core.scheduler import ResolvedSchedule
 from newspulse.core import (
     Scheduler,
@@ -61,13 +63,102 @@ REGION_FLAG_DEFAULTS = {
 }
 
 
+class ServiceFactory:
+    """Centralize workflow service construction for AppContext."""
+
+    def __init__(self, context: "AppContext"):
+        self.context = context
+
+    def create_snapshot_service(self) -> SnapshotService:
+        ctx = self.context
+        standalone_config = ctx.display_config.get("STANDALONE", {})
+        return SnapshotService(
+            ctx.get_storage_manager(),
+            platform_ids=ctx.platform_ids,
+            platform_names=ctx.platform_name_map,
+            standalone_platform_ids=standalone_config.get("PLATFORMS", []),
+            standalone_max_items=standalone_config.get("MAX_ITEMS", 20),
+        )
+
+    def create_selection_service(self) -> SelectionService:
+        ctx = self.context
+        return SelectionService(
+            config_root=str(ctx.config_root),
+            rank_threshold=ctx.rank_threshold,
+            weight_config=ctx.weight_config,
+            max_news_per_keyword=ctx.max_news_per_keyword,
+            sort_by_position_first=ctx.sort_by_position_first,
+            storage_manager=ctx.get_storage_manager(),
+            ai_runtime_config=ctx.ai_filter_model_config,
+            embedding_runtime_config=ctx.ai_filter_embedding_model_config,
+            ai_filter_config=ctx.ai_filter_config,
+            debug=ctx.debug_enabled,
+        )
+
+    def create_insight_service(self) -> InsightService:
+        ctx = self.context
+        return InsightService(
+            ai_runtime_config=ctx.ai_analysis_model_config,
+            ai_analysis_config=ctx.ai_analysis_config,
+            config_root=str(ctx.config_root),
+            storage_manager=ctx.get_storage_manager(),
+            proxy_url=ctx.default_proxy_url if ctx.proxy_enabled else None,
+        )
+
+    def create_report_assembler(self) -> ReportPackageAssembler:
+        ctx = self.context
+        return ReportPackageAssembler(
+            timezone=ctx.timezone,
+            display_mode=ctx.display_mode,
+        )
+
+    def create_render_service(self) -> "RenderService":
+        from newspulse.workflow.render.html import HTMLRenderAdapter
+        from newspulse.workflow.render.notification import NotificationRenderAdapter
+        from newspulse.workflow.render.service import RenderService
+
+        ctx = self.context
+        html_adapter = HTMLRenderAdapter(
+            output_dir=str(ctx.get_data_dir()),
+            get_time_func=ctx.get_time,
+            date_folder_func=ctx.format_date,
+            time_filename_func=ctx.format_time,
+            region_order=ctx.region_order,
+            display_mode=ctx.display_mode,
+            show_new_section=ctx.show_new_section,
+        )
+        notification_adapter = NotificationRenderAdapter(
+            notification_channels=ctx._get_render_notification_channels(),
+            get_time_func=ctx.get_time,
+            region_order=ctx.region_order,
+            display_mode=ctx.display_mode,
+            rank_threshold=ctx.rank_threshold,
+            batch_size=ctx.message_batch_size,
+            show_new_section=ctx.show_new_section,
+        )
+        return RenderService(
+            html_adapter=html_adapter,
+            notification_adapter=notification_adapter,
+            display_mode=ctx.display_mode,
+            rank_threshold=ctx.rank_threshold,
+            weight_config=ctx.weight_config,
+        )
+
+    def create_delivery_service(self) -> DeliveryService:
+        generic_webhook_adapter = GenericWebhookDeliveryAdapter(self.context.config)
+        return DeliveryService(generic_webhook_adapter=generic_webhook_adapter)
+
+
 class AppContext:
     """Thin runtime facade around config, storage and report helpers."""
 
     def __init__(self, config: Dict[str, Any]):
-        self.config = config
+        self._raw_config = deepcopy(config) if isinstance(config, dict) else {}
+        self.config = deepcopy(config) if isinstance(config, dict) else {}
         self._storage_manager = None
         self._scheduler = None
+        self._service_factory: ServiceFactory | None = None
+        self._normalize_config()
 
     @property
     def timezone(self) -> str:
@@ -78,12 +169,12 @@ class AppContext:
         workflow = self.config.get("WORKFLOW", {})
         if isinstance(workflow, dict) and workflow:
             return workflow
-        workflow = self.config.get("workflow", {})
+        workflow = self._raw_config.get("workflow", {})
         return workflow if isinstance(workflow, dict) else {}
 
     @property
     def raw_ai_config(self) -> Dict[str, Any]:
-        ai = self.config.get("ai", {})
+        ai = self._raw_config.get("ai", {})
         return ai if isinstance(ai, dict) else {}
 
     @property
@@ -103,16 +194,39 @@ class AppContext:
         return [platform.get("id", "") for platform in self.platforms if platform.get("id")]
 
     @property
+    def platform_name_map(self) -> Dict[str, str]:
+        return {
+            platform.get("id", ""): resolve_source_display_name(
+                platform.get("id", ""),
+                str(platform.get("name", "") or ""),
+            )
+            for platform in self.platforms
+            if platform.get("id")
+        }
+
+    @property
+    def crawl_source_specs(self) -> List[CrawlSourceSpec]:
+        return [
+            CrawlSourceSpec(source_id=source_id, source_name=source_name)
+            for source_id, source_name in self.platform_name_map.items()
+        ]
+
+    @property
     def display_mode(self) -> str:
         return self.config.get("DISPLAY_MODE", "keyword")
 
     @property
+    def display_config(self) -> Dict[str, Any]:
+        display = self.config.get("DISPLAY", {})
+        return display if isinstance(display, dict) else {}
+
+    @property
     def show_new_section(self) -> bool:
-        return self.config.get("DISPLAY", {}).get("REGIONS", {}).get("NEW_ITEMS", True)
+        return self.display_config.get("REGIONS", {}).get("NEW_ITEMS", True)
 
     @property
     def region_order(self) -> List[str]:
-        display = self.config.get("DISPLAY", {})
+        display = self.display_config
         configured_order = display.get("REGION_ORDER")
         base_order = configured_order if isinstance(configured_order, list) and configured_order else DEFAULT_REGION_ORDER
         regions = display.get("REGIONS")
@@ -146,6 +260,83 @@ class AppContext:
     @property
     def ai_priority_sort_enabled(self) -> bool:
         return bool(self.selection_stage_config.get("PRIORITY_SORT_ENABLED", False))
+
+    @property
+    def request_interval_ms(self) -> int:
+        return int(self.config.get("REQUEST_INTERVAL", 100) or 100)
+
+    @property
+    def default_report_mode(self) -> str:
+        return str(self.config.get("REPORT_MODE", "daily") or "daily")
+
+    @property
+    def crawler_enabled(self) -> bool:
+        return bool(self.config.get("ENABLE_CRAWLER", True))
+
+    @property
+    def notification_enabled(self) -> bool:
+        return bool(self.config.get("ENABLE_NOTIFICATION", True))
+
+    @property
+    def generic_webhook_url(self) -> str:
+        return str(self.config.get("GENERIC_WEBHOOK_URL", "") or "")
+
+    @property
+    def proxy_enabled(self) -> bool:
+        return bool(self.config.get("USE_PROXY", False))
+
+    @property
+    def default_proxy_url(self) -> str:
+        return str(self.config.get("DEFAULT_PROXY", "") or "")
+
+    @property
+    def show_version_update(self) -> bool:
+        return bool(self.config.get("SHOW_VERSION_UPDATE", False))
+
+    @property
+    def debug_enabled(self) -> bool:
+        return bool(self.config.get("DEBUG", False))
+
+    @property
+    def max_news_per_keyword(self) -> int:
+        return int(self.config.get("MAX_NEWS_PER_KEYWORD", 0) or 0)
+
+    @property
+    def sort_by_position_first(self) -> bool:
+        return bool(self.config.get("SORT_BY_POSITION_FIRST", False))
+
+    @property
+    def message_batch_size(self) -> int:
+        return int(self.config.get("MESSAGE_BATCH_SIZE", 4000) or 4000)
+
+    @property
+    def storage_config(self) -> Dict[str, Any]:
+        storage = self.config.get("STORAGE", {})
+        return storage if isinstance(storage, dict) else {}
+
+    @property
+    def storage_formats(self) -> Dict[str, Any]:
+        formats = self.storage_config.get("FORMATS", {})
+        return formats if isinstance(formats, dict) else {}
+
+    @property
+    def storage_local_config(self) -> Dict[str, Any]:
+        local = self.storage_config.get("LOCAL", {})
+        return local if isinstance(local, dict) else {}
+
+    @property
+    def storage_backend_type(self) -> str:
+        return str(self.storage_config.get("BACKEND", "local") or "local")
+
+    @property
+    def storage_retention_days(self) -> int:
+        return int(self.storage_local_config.get("RETENTION_DAYS", 0) or 0)
+
+    @property
+    def service_factory(self) -> ServiceFactory:
+        if self._service_factory is None:
+            self._service_factory = ServiceFactory(self)
+        return self._service_factory
 
     @property
     def ai_filter_config(self) -> Dict[str, Any]:
@@ -587,6 +778,98 @@ class AppContext:
                 return value
         return {}
 
+    def _normalize_config(self) -> None:
+        self.config["PLATFORMS"] = self._resolve_platforms()
+        self.config["DISPLAY"] = self._resolve_display_config()
+        self.config["STORAGE"] = self._resolve_storage_config()
+        self.config["WORKFLOW"] = {
+            "SELECTION": self.selection_stage_config,
+            "INSIGHT": self.insight_stage_config,
+        }
+        self.config["AI"] = self.ai_runtime_config
+        self.config["AI_FILTER"] = self.ai_filter_config
+        self.config["AI_ANALYSIS"] = self.ai_analysis_config
+        self.config["AI_FILTER_MODEL"] = self.ai_filter_model_config
+        self.config["AI_ANALYSIS_MODEL"] = self.ai_analysis_model_config
+        self.config["FILTER"] = {
+            "METHOD": self.filter_method,
+            "FREQUENCY_FILE": self.selection_stage_config.get("FREQUENCY_FILE"),
+            "PRIORITY_SORT_ENABLED": self.ai_priority_sort_enabled,
+        }
+
+    def _resolve_platforms(self) -> List[Dict[str, Any]]:
+        platforms = self.config.get("PLATFORMS", [])
+        if isinstance(platforms, list) and platforms:
+            return [dict(platform) for platform in platforms if isinstance(platform, dict)]
+
+        legacy_platforms = self._get_nested_mapping(self._raw_config, "platforms")
+        legacy_sources = legacy_platforms.get("sources", [])
+        if isinstance(legacy_sources, list):
+            return [dict(platform) for platform in legacy_sources if isinstance(platform, dict)]
+        return []
+
+    def _resolve_display_config(self) -> Dict[str, Any]:
+        display = self.config.get("DISPLAY", {})
+        if isinstance(display, dict) and display:
+            return {
+                "REGION_ORDER": list(display.get("REGION_ORDER", DEFAULT_REGION_ORDER)),
+                "REGIONS": self._coerce_mapping(display.get("REGIONS", {})),
+                "STANDALONE": self._coerce_mapping(display.get("STANDALONE", {})),
+            }
+
+        legacy_display = self._coerce_mapping(self._raw_config.get("display", {}))
+        if not legacy_display:
+            return {
+                "REGION_ORDER": list(DEFAULT_REGION_ORDER),
+                "REGIONS": {},
+                "STANDALONE": {},
+            }
+        legacy_regions = self._coerce_mapping(legacy_display.get("regions", {}))
+        legacy_standalone = self._coerce_mapping(legacy_display.get("standalone", {}))
+        region_order = [
+            str(region or "").strip().lower()
+            for region in legacy_display.get("region_order", DEFAULT_REGION_ORDER)
+            if str(region or "").strip().lower() in REGION_FLAG_KEYS
+        ]
+        return {
+            "REGION_ORDER": region_order or list(DEFAULT_REGION_ORDER),
+            "REGIONS": {
+                "HOTLIST": bool(legacy_regions.get("hotlist", True)),
+                "NEW_ITEMS": bool(legacy_regions.get("new_items", True)),
+                "STANDALONE": bool(legacy_regions.get("standalone", False)),
+                "INSIGHT": bool(legacy_regions.get("insight", True)),
+            },
+            "STANDALONE": {
+                "PLATFORMS": list(legacy_standalone.get("platforms", [])),
+                "MAX_ITEMS": int(legacy_standalone.get("max_items", 20) or 20),
+            },
+        }
+
+    def _resolve_storage_config(self) -> Dict[str, Any]:
+        storage = self.config.get("STORAGE", {})
+        if isinstance(storage, dict) and storage:
+            return {
+                "BACKEND": str(storage.get("BACKEND", "local") or "local"),
+                "FORMATS": self._coerce_mapping(storage.get("FORMATS", {})),
+                "LOCAL": self._coerce_mapping(storage.get("LOCAL", {})),
+            }
+
+        legacy_storage = self._coerce_mapping(self._raw_config.get("storage", {}))
+        legacy_formats = self._coerce_mapping(legacy_storage.get("formats", {}))
+        legacy_local = self._coerce_mapping(legacy_storage.get("local", {}))
+        return {
+            "BACKEND": str(legacy_storage.get("backend", "local") or "local"),
+            "FORMATS": {
+                "SQLITE": bool(legacy_formats.get("sqlite", True)),
+                "TXT": bool(legacy_formats.get("txt", True)),
+                "HTML": bool(legacy_formats.get("html", True)),
+            },
+            "LOCAL": {
+                "DATA_DIR": str(legacy_local.get("data_dir", "output") or "output"),
+                "RETENTION_DAYS": int(legacy_local.get("retention_days", 0) or 0),
+            },
+        }
+
     def get_time(self) -> datetime:
         return get_configured_time(self.timezone)
 
@@ -602,19 +885,17 @@ class AppContext:
     def get_storage_manager(self):
         if self._storage_manager is None:
             self._storage_manager = get_storage_manager(
-                backend_type=self.config.get("STORAGE", {}).get("BACKEND", "local"),
+                backend_type=self.storage_backend_type,
                 data_dir=str(self.get_data_dir()),
-                enable_txt=self.config.get("STORAGE", {}).get("FORMATS", {}).get("TXT", True),
-                enable_html=self.config.get("STORAGE", {}).get("FORMATS", {}).get("HTML", True),
-                local_retention_days=self.config.get("STORAGE", {}).get("LOCAL", {}).get("RETENTION_DAYS", 0),
+                enable_txt=bool(self.storage_formats.get("TXT", True)),
+                enable_html=bool(self.storage_formats.get("HTML", True)),
+                local_retention_days=self.storage_retention_days,
                 timezone=self.timezone,
             )
         return self._storage_manager
 
     def get_data_dir(self) -> Path:
-        storage_config = self.config.get("STORAGE", {})
-        local_config = storage_config.get("LOCAL", {})
-        return Path(local_config.get("DATA_DIR", "output"))
+        return Path(self.storage_local_config.get("DATA_DIR", "output"))
 
     def get_output_path(self, subfolder: str, filename: str) -> str:
         output_dir = self.get_data_dir() / subfolder / self.format_date()
@@ -631,45 +912,19 @@ class AppContext:
                 timeline_data=self.config.get("_TIMELINE_DATA", {}),
                 storage_backend=self.get_storage_manager(),
                 get_time_func=self.get_time,
-                fallback_report_mode=self.config.get("REPORT_MODE", "current"),
+                fallback_report_mode=self.default_report_mode,
             )
         return self._scheduler
 
     def create_snapshot_service(self) -> SnapshotService:
         """Create the workflow snapshot builder for the current runtime."""
 
-        standalone_config = self.config.get("DISPLAY", {}).get("STANDALONE", {})
-        platform_names = {
-            platform.get("id", ""): resolve_source_display_name(
-                platform.get("id", ""),
-                str(platform.get("name", "") or ""),
-            )
-            for platform in self.platforms
-            if platform.get("id")
-        }
-        return SnapshotService(
-            self.get_storage_manager(),
-            platform_ids=self.platform_ids,
-            platform_names=platform_names,
-            standalone_platform_ids=standalone_config.get("PLATFORMS", []),
-            standalone_max_items=standalone_config.get("MAX_ITEMS", 20),
-        )
+        return self.service_factory.create_snapshot_service()
 
     def create_selection_service(self) -> SelectionService:
         """Create the workflow selection service with the current project config."""
 
-        return SelectionService(
-            config_root=str(self.config_root),
-            rank_threshold=self.rank_threshold,
-            weight_config=self.weight_config,
-            max_news_per_keyword=self.config.get("MAX_NEWS_PER_KEYWORD", 0),
-            sort_by_position_first=self.config.get("SORT_BY_POSITION_FIRST", False),
-            storage_manager=self.get_storage_manager(),
-            ai_runtime_config=self.ai_filter_model_config,
-            embedding_runtime_config=self.ai_filter_embedding_model_config,
-            ai_filter_config=self.ai_filter_config,
-            debug=bool(self.config.get("DEBUG", False)),
-        )
+        return self.service_factory.create_selection_service()
 
     def build_selection_options(
         self,
@@ -729,60 +984,22 @@ class AppContext:
     def create_insight_service(self) -> InsightService:
         """Create the workflow insight service with the current project config."""
 
-        return InsightService(
-            ai_runtime_config=self.ai_analysis_model_config,
-            ai_analysis_config=self.ai_analysis_config,
-            config_root=str(self.config_root),
-            storage_manager=self.get_storage_manager(),
-            proxy_url=self.config.get("DEFAULT_PROXY") if self.config.get("USE_PROXY") else None,
-        )
+        return self.service_factory.create_insight_service()
 
     def create_report_assembler(self) -> ReportPackageAssembler:
         """Create the Stage 6 report package assembler for the current project config."""
 
-        return ReportPackageAssembler(
-            timezone=self.timezone,
-            display_mode=self.display_mode,
-        )
+        return self.service_factory.create_report_assembler()
 
     def create_render_service(self) -> RenderService:
         """Create the workflow render service with the current project config."""
 
-        from newspulse.workflow.render.html import HTMLRenderAdapter
-        from newspulse.workflow.render.notification import NotificationRenderAdapter
-        from newspulse.workflow.render.service import RenderService
-
-        html_adapter = HTMLRenderAdapter(
-            output_dir=str(self.get_data_dir()),
-            get_time_func=self.get_time,
-            date_folder_func=self.format_date,
-            time_filename_func=self.format_time,
-            region_order=self.region_order,
-            display_mode=self.display_mode,
-            show_new_section=self.show_new_section,
-        )
-        notification_adapter = NotificationRenderAdapter(
-            notification_channels=self._get_render_notification_channels(),
-            get_time_func=self.get_time,
-            region_order=self.region_order,
-            display_mode=self.display_mode,
-            rank_threshold=self.rank_threshold,
-            batch_size=self.config.get("MESSAGE_BATCH_SIZE", 4000),
-            show_new_section=self.show_new_section,
-        )
-        return RenderService(
-            html_adapter=html_adapter,
-            notification_adapter=notification_adapter,
-            display_mode=self.display_mode,
-            rank_threshold=self.rank_threshold,
-            weight_config=self.weight_config,
-        )
+        return self.service_factory.create_render_service()
 
     def create_delivery_service(self) -> DeliveryService:
         """Create the workflow delivery service with the current project config."""
 
-        generic_webhook_adapter = GenericWebhookDeliveryAdapter(self.config)
-        return DeliveryService(generic_webhook_adapter=generic_webhook_adapter)
+        return self.service_factory.create_delivery_service()
 
     def build_insight_options(
         self,
@@ -847,7 +1064,7 @@ class AppContext:
             metadata["proxy_url"] = proxy_url
 
         return DeliveryOptions(
-            enabled=bool(self.config.get("ENABLE_NOTIFICATION", True)) if enabled is None else enabled,
+            enabled=self.notification_enabled if enabled is None else enabled,
             channels=effective_channels,
             dry_run=dry_run,
             metadata=metadata,
@@ -991,7 +1208,7 @@ class AppContext:
 
     def _get_render_notification_channels(self) -> List[str]:
         channels: List[str] = []
-        if self.config.get("GENERIC_WEBHOOK_URL"):
+        if self.generic_webhook_url:
             channels.append("generic_webhook")
         return channels
 

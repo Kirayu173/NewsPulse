@@ -617,6 +617,9 @@ def _load_storage_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
     local = storage.get("local", {})
     txt_enabled_env = _get_env_bool("STORAGE_TXT_ENABLED")
     html_enabled_env = _get_env_bool("STORAGE_HTML_ENABLED")
+    retention_days_env = _get_env_int_or_none("STORAGE_RETENTION_DAYS")
+    if retention_days_env is None:
+        retention_days_env = _get_env_int_or_none("LOCAL_RETENTION_DAYS")
     return {
         "BACKEND": "local",
         "FORMATS": {
@@ -626,7 +629,7 @@ def _load_storage_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
         },
         "LOCAL": {
             "DATA_DIR": local.get("data_dir", "output"),
-            "RETENTION_DAYS": _get_env_int("LOCAL_RETENTION_DAYS") or local.get("retention_days", 0),
+            "RETENTION_DAYS": local.get("retention_days", 0) if retention_days_env is None else retention_days_env,
         },
     }
 

@@ -91,6 +91,12 @@ class FakeContext:
             diagnostics={"insight": {"enabled": True, "strategy": "ai", "diagnostics": {}}, "failed_sources": []},
         )
         self.calls = []
+        self.notification_enabled = True
+        self.generic_webhook_url = "https://example.com/webhook"
+        self.show_version_update = True
+        self.storage_formats = {"HTML": True}
+        self.crawler_enabled = True
+        self.debug_enabled = False
         self.config = {
             "ENABLE_NOTIFICATION": True,
             "GENERIC_WEBHOOK_URL": "https://example.com/webhook",
@@ -198,9 +204,9 @@ class NewsRunnerWorkflowStageTest(unittest.TestCase):
 
         runner = NewsRunner.__new__(NewsRunner)
         runner.ctx = SimpleNamespace(
-            platforms=[
-                {"id": "hackernews", "name": "Hacker News"},
-                {"id": "thepaper", "name": "The Paper"},
+            crawl_source_specs=[
+                CrawlSourceSpec(source_id="hackernews", source_name="Hacker News"),
+                CrawlSourceSpec(source_id="thepaper", source_name="The Paper"),
             ],
             get_data_dir=lambda: Path("output"),
             format_time=lambda: "2026-04-17 10:30:00",
@@ -232,6 +238,17 @@ class NewsRunnerWorkflowStageTest(unittest.TestCase):
         alpha = next(item for item in saved_batch.items["hackernews"] if item.title == "Alpha")
         self.assertEqual(alpha.ranks, [1, 2])
         self.assertEqual(runner.storage_manager.txt_snapshot_data, saved_batch)
+
+    def test_init_storage_manager_only_depends_on_context_contract(self):
+        runner = NewsRunner.__new__(NewsRunner)
+        runner.ctx = SimpleNamespace(
+            get_storage_manager=lambda: FakeStorageManager(),
+            storage_retention_days=7,
+        )
+
+        runner._init_storage_manager()
+
+        self.assertEqual(runner.storage_manager.backend_name, "fake")
 
     def test_execute_mode_strategy_runs_native_stage_chain(self):
         snapshot, selection = _build_snapshot(mode="current", total_selected=1)
