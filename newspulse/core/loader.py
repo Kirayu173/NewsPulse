@@ -9,6 +9,7 @@ import yaml
 
 from .config import parse_multi_account_config
 from .config_paths import get_config_layout, resolve_prompt_path, resolve_timeline_path
+from .runtime_config import normalize_runtime_config
 from newspulse.utils.logging import configure_logging, get_logger
 from newspulse.utils.time import DEFAULT_TIMEZONE
 
@@ -713,5 +714,6 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
         "CONFIG_PATH": str(layout.config_path),
     }
 
+    config = normalize_runtime_config(config)
     _print_notification_sources(config)
     return config
