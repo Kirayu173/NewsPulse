@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 from newspulse.core import load_config
 from newspulse.crawler.fetcher import DataFetcher
 from newspulse.crawler.models import CrawlBatchResult, CrawlSourceSpec
+from newspulse.crawler.source_names import resolve_source_display_name
 from newspulse.storage import NewsData, NormalizedCrawlBatch, StorageManager, normalize_crawl_batch
 from newspulse.utils.time import DEFAULT_TIMEZONE
 from newspulse.workflow.shared.options import SnapshotOptions
