@@ -20,7 +20,7 @@ from newspulse.runner.runtime import (
     resolve_mode_strategy,
 )
 from newspulse.storage import normalize_crawl_batch
-from newspulse.utils.logging import configure_logging, get_logger
+from newspulse.utils.logging import build_log_message, configure_logging, get_logger
 from newspulse.utils.time import DEFAULT_TIMEZONE
 from newspulse.workflow.shared.contracts import DeliveryPayload, ReportPackage, SelectionResult
 
@@ -34,7 +34,7 @@ class NewsRunner:
     def __init__(self, config: Optional[Dict] = None):
         configure_logging()
         if config is None:
-            logger.info("??????...")
+            logger.info("%s", build_log_message("runner.config_loading"))
             config = load_config()
         configure_logging(
             config.get("LOG_LEVEL", "INFO"),
@@ -42,9 +42,15 @@ class NewsRunner:
             bool(config.get("LOG_JSON", False)),
         )
 
-        logger.info("NewsPulse v%s ???", __version__)
-        logger.info("?????: %s", len(config["PLATFORMS"]))
-        logger.info("??: %s", config.get("TIMEZONE", DEFAULT_TIMEZONE))
+        logger.info(
+            "%s",
+            build_log_message(
+                "runner.ready",
+                version=__version__,
+                platform_count=len(config["PLATFORMS"]),
+                timezone=config.get("TIMEZONE", DEFAULT_TIMEZONE),
+            ),
+        )
 
         self.ctx = AppContext(config)
         self.request_interval = self.ctx.request_interval_ms
@@ -69,11 +75,17 @@ class NewsRunner:
 
     def _init_storage_manager(self) -> None:
         self.storage_manager = self.ctx.get_storage_manager()
-        logger.info("??: %s", self.storage_manager.backend_name)
+        logger.info(
+            "%s",
+            build_log_message("runtime.storage_ready", backend=self.storage_manager.backend_name),
+        )
 
         retention_days = self.ctx.storage_retention_days
         if retention_days > 0:
-            logger.info("????: %s ?", retention_days)
+            logger.info(
+                "%s",
+                build_log_message("runtime.storage_retention", retention_days=retention_days),
+            )
 
     def _should_open_browser(self) -> bool:
         return not self.is_github_actions and not self.is_docker_container
@@ -81,11 +93,11 @@ class NewsRunner:
     def _setup_proxy(self) -> None:
         if not self.is_github_actions and self.ctx.proxy_enabled:
             self.proxy_url = self.ctx.default_proxy_url
-            logger.info("?????")
+            logger.info("%s", build_log_message("runtime.proxy_enabled", proxy_url=self.proxy_url))
         elif not self.is_github_actions:
-            logger.info("?????")
+            logger.info("%s", build_log_message("runtime.proxy_disabled"))
         else:
-            logger.info("GitHub Actions ?????????")
+            logger.info("%s", build_log_message("runtime.proxy_skipped", environment="github_actions"))
 
     def _set_update_info_from_config(self) -> None:
         try:
@@ -101,7 +113,10 @@ class NewsRunner:
                     "remote_version": remote_version,
                 }
         except Exception as exc:
-            logger.warning("??????: %s", exc)
+            logger.warning(
+                "%s",
+                build_log_message("runtime.version_check_failed", error_type=exc.__class__.__name__, error=str(exc)),
+            )
 
     def _get_mode_strategy(self) -> ModeStrategy:
         return resolve_mode_strategy(self.report_mode)
@@ -121,15 +136,22 @@ class NewsRunner:
     def _log_selection_result(self, selection: SelectionResult) -> None:
         rejected_count = len(getattr(selection, "rejected_items", []) or [])
         logger.info(
-            "[selection] strategy=%s selected=%s rejected=%s",
-            selection.strategy,
-            selection.total_selected,
-            rejected_count,
+            "%s",
+            build_log_message(
+                "selection.summary",
+                strategy=selection.strategy,
+                selected=selection.total_selected,
+                rejected=rejected_count,
+            ),
         )
         if selection.diagnostics.get("fallback_strategy") == "keyword":
             logger.warning(
-                "[selection] AI selection fallback to keyword: %s",
-                selection.diagnostics.get("fallback_reason", "unknown error"),
+                "%s",
+                build_log_message(
+                    "selection.fallback",
+                    fallback_strategy="keyword",
+                    reason=selection.diagnostics.get("fallback_reason", "unknown error"),
+                ),
             )
 
     def _should_emit_notification(
@@ -139,37 +161,59 @@ class NewsRunner:
         schedule: ResolvedSchedule,
     ) -> bool:
         if not self.ctx.notification_enabled:
-            logger.info("??? %s ????", report_type)
+            logger.info(
+                "%s",
+                build_log_message("delivery.skipped", reason="notifications_disabled", report_type=report_type),
+            )
             return False
 
         if not self._has_notification_configured():
-            logger.warning("??????????????????")
+            logger.warning("%s", build_log_message("delivery.misconfigured", reason="missing_channel"))
             return False
 
         if not self._has_valid_content(report_package):
             if not report_package.integrity.valid:
                 logger.warning(
-                    "[delivery] Stage 6 ReportPackage ??????????: %s",
-                    "; ".join(report_package.integrity.errors or ["unknown validation error"]),
+                    "%s",
+                    build_log_message(
+                        "delivery.invalid_report",
+                        errors="; ".join(report_package.integrity.errors or ["unknown validation error"]),
+                    ),
                 )
                 return False
             if report_package.meta.mode == "incremental":
-                logger.info("????????????????")
+                logger.info("%s", build_log_message("delivery.skipped", reason="empty_incremental_report"))
             else:
-                logger.info("?? %s ???????", self._get_mode_strategy().mode_name)
+                logger.info(
+                    "%s",
+                    build_log_message("delivery.skipped", reason="empty_report", mode=self._get_mode_strategy().mode_name),
+                )
             return False
 
         if not schedule.push:
-            logger.info("[delivery] ???????????")
+            logger.info("%s", build_log_message("delivery.skipped", reason="schedule_push_disabled"))
             return False
 
         if schedule.once_push and schedule.period_key:
             scheduler = self.ctx.create_scheduler()
             date_str = self.ctx.format_date()
             if scheduler.already_executed(schedule.period_key, "push", date_str):
-                logger.info("[delivery] ???? %s ?????", schedule.period_name or schedule.period_key)
+                logger.info(
+                    "%s",
+                    build_log_message(
+                        "delivery.skipped",
+                        reason="period_already_pushed",
+                        period=schedule.period_name or schedule.period_key,
+                    ),
+                )
                 return False
-            logger.info("[delivery] ???? %s ????", schedule.period_name or schedule.period_key)
+            logger.info(
+                "%s",
+                build_log_message(
+                    "delivery.period_ready",
+                    period=schedule.period_name or schedule.period_key,
+                ),
+            )
 
         return True
 
@@ -180,12 +224,12 @@ class NewsRunner:
         schedule: ResolvedSchedule,
     ) -> bool:
         if not payloads:
-            logger.info("[delivery] render stage ???????? payload")
+            logger.info("%s", build_log_message("delivery.skipped", reason="no_payloads"))
             return False
 
         result = self.ctx.run_delivery_stage(payloads, proxy_url=self.proxy_url)
         if not getattr(result, "channel_results", None):
-            logger.warning("????????????")
+            logger.warning("%s", build_log_message("delivery.failed", reason="no_channel_results"))
             return False
 
         if result.success and schedule.once_push and schedule.period_key:
@@ -196,28 +240,43 @@ class NewsRunner:
 
     def _initialize_and_check_config(self) -> None:
         now = self.ctx.get_time()
-        logger.info("????: %s", now.strftime("%Y-%m-%d %H:%M:%S"))
+        logger.info(
+            "%s",
+            build_log_message("runtime.clock_ready", time=now.strftime("%Y-%m-%d %H:%M:%S")),
+        )
 
         if not self.ctx.crawler_enabled:
-            logger.info("??????ENABLE_CRAWLER=False??????")
+            logger.info("%s", build_log_message("runtime.crawler_disabled"))
             return
 
         if not self.ctx.notification_enabled:
-            logger.info("??????ENABLE_NOTIFICATION=False?????????")
+            logger.info("%s", build_log_message("runtime.notifications_disabled"))
         elif not self._has_notification_configured():
-            logger.warning("?????????????????")
+            logger.warning("%s", build_log_message("runtime.notifications_missing"))
         else:
-            logger.info("????????")
+            logger.info("%s", build_log_message("runtime.notifications_ready"))
 
         mode_strategy = self._get_mode_strategy()
-        logger.info("??: %s", self.report_mode)
-        logger.info("??: %s", mode_strategy.description)
+        logger.info(
+            "%s",
+            build_log_message(
+                "runtime.mode_ready",
+                report_mode=self.report_mode,
+                description=mode_strategy.description,
+            ),
+        )
 
     def _crawl_data(self) -> CrawlBatchResult:
         source_specs = self.ctx.crawl_source_specs
 
-        logger.info("??????: %s", [spec.source_name for spec in source_specs])
-        logger.info("????: ?????? %s ??", self.request_interval)
+        logger.info(
+            "%s",
+            build_log_message(
+                "crawl.start",
+                sources=[spec.source_name for spec in source_specs],
+                request_interval_ms=self.request_interval,
+            ),
+        )
         self.ctx.get_data_dir().mkdir(parents=True, exist_ok=True)
 
         crawl_batch = self.data_fetcher.crawl(source_specs, self.request_interval)
@@ -227,11 +286,14 @@ class NewsRunner:
         normalized_batch = normalize_crawl_batch(crawl_batch, crawl_time, crawl_date)
 
         if self.storage_manager.save_normalized_crawl_batch(normalized_batch):
-            logger.info("?????????: %s", self.storage_manager.backend_name)
+            logger.info(
+                "%s",
+                build_log_message("crawl.persisted", backend=self.storage_manager.backend_name),
+            )
 
         txt_file = self.storage_manager.save_txt_snapshot(normalized_batch)
         if txt_file:
-            logger.info("TXT ?????: %s", txt_file)
+            logger.info("%s", build_log_message("crawl.txt_snapshot_ready", path=txt_file))
 
         return crawl_batch
 
@@ -243,7 +305,10 @@ class NewsRunner:
     ) -> WorkflowExecutionPlan:
         effective_mode = schedule.report_mode
         if effective_mode != self.report_mode:
-            logger.info("[schedule] ????: %s -> %s", self.report_mode, effective_mode)
+            logger.info(
+                "%s",
+                build_log_message("schedule.mode_override", previous=self.report_mode, current=effective_mode),
+            )
 
         active_mode_strategy = mode_strategy if mode_strategy and mode_strategy.mode == effective_mode else resolve_mode_strategy(effective_mode)
         return WorkflowExecutionPlan(
@@ -300,16 +365,16 @@ class NewsRunner:
         if not html_file:
             return
 
-        logger.info("HTML ?????: %s", html_file)
+        logger.info("%s", build_log_message("render.html_ready", path=html_file))
         latest_file = self.ctx.get_data_dir() / "html" / "latest" / f"{self.report_mode}.html"
-        logger.info("??????: %s", latest_file)
+        logger.info("%s", build_log_message("render.html_latest", path=latest_file))
 
         if self._should_open_browser():
             file_url = "file://" + str(Path(html_file).resolve())
-            logger.info("???? HTML ??: %s", file_url)
+            logger.info("%s", build_log_message("render.browser_open", url=file_url))
             webbrowser.open(file_url)
         elif self.is_docker_container:
-            logger.info("HTML ???????????????: %s", html_file)
+            logger.info("%s", build_log_message("render.browser_skipped", environment="docker", path=html_file))
 
     def _execute_mode_strategy(
         self,
@@ -338,14 +403,14 @@ class NewsRunner:
 
             schedule = self.ctx.create_scheduler().resolve()
             if not schedule.collect:
-                logger.info("[schedule] ???????????")
+                logger.info("%s", build_log_message("schedule.collect_skipped"))
                 return
 
             mode_strategy = self._get_mode_strategy()
             self._crawl_data()
             self._execute_mode_strategy(mode_strategy, schedule=schedule)
         except Exception:
-            logger.exception("????")
+            logger.exception("%s", build_log_message("runner.failed"))
             if self.ctx.debug_enabled:
                 raise
         finally:

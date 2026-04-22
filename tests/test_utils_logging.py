@@ -2,10 +2,25 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from newspulse.utils.logging import configure_logging, get_logger
+from newspulse.utils.logging import build_log_message, configure_logging, get_logger
 
 
 class LoggingUtilsTest(unittest.TestCase):
+    def test_build_log_message_renders_structured_fields(self):
+        message = build_log_message(
+            "config.loaded",
+            path=Path("config/config.yaml"),
+            enabled=True,
+            channels=["webhook", "email"],
+            note="daily report",
+        )
+
+        self.assertIn("[config.loaded]", message)
+        self.assertIn("path=config", message)
+        self.assertIn("enabled=true", message)
+        self.assertIn("channels=[webhook,email]", message)
+        self.assertIn('note="daily report"', message)
+
     def test_configure_logging_replaces_managed_handlers_without_duplicates(self):
         with TemporaryDirectory() as tmp:
             log_file = Path(tmp) / "logs" / "newspulse.log"

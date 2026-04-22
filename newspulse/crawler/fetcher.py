@@ -15,7 +15,7 @@ from newspulse.crawler.models import (
 )
 from newspulse.crawler.source_names import resolve_source_display_name
 from newspulse.crawler.sources import SourceClient, resolve_source_definition
-from newspulse.utils.logging import get_logger
+from newspulse.utils.logging import build_log_message, get_logger
 
 
 logger = get_logger(__name__)
@@ -53,13 +53,24 @@ class DataFetcher:
                     source_spec.source_id,
                     source_spec.source_name,
                 )
-                items = definition.handler(self.client)
-                logger.info("获取 %s 成功（builtin，本地实现）", source_spec.source_id)
+                items = list(definition.handler(self.client))
+                logger.info(
+                    "%s",
+                    build_log_message(
+                        "crawl.fetch_success",
+                        source_id=source_spec.source_id,
+                        resolved_source_id=definition.canonical_id,
+                        category=definition.category,
+                        attempts=attempts,
+                        item_count=len(items),
+                        backend="builtin",
+                    ),
+                )
                 return SourceFetchResult(
                     source_id=source_spec.source_id,
                     source_name=source_name,
                     resolved_source_id=definition.canonical_id,
-                    items=list(items),
+                    items=items,
                     attempts=attempts,
                     metadata={"category": definition.category},
                 )
@@ -68,11 +79,31 @@ class DataFetcher:
                     base_wait = random.uniform(min_retry_wait, max_retry_wait)
                     additional_wait = (attempts - 1) * random.uniform(1, 2)
                     wait_time = base_wait + additional_wait
-                    logger.warning("请求 %s 失败: %s. %.2f秒后重试...", source_spec.source_id, exc, wait_time)
+                    logger.warning(
+                        "%s",
+                        build_log_message(
+                            "crawl.fetch_retry",
+                            source_id=source_spec.source_id,
+                            attempt=attempts,
+                            max_retries=max_retries,
+                            wait_seconds=round(wait_time, 2),
+                            error_type=exc.__class__.__name__,
+                            error=str(exc),
+                        ),
+                    )
                     time.sleep(wait_time)
                     continue
 
-                logger.error("请求 %s 失败: %s", source_spec.source_id, exc)
+                logger.error(
+                    "%s",
+                    build_log_message(
+                        "crawl.fetch_failed",
+                        source_id=source_spec.source_id,
+                        attempts=attempts,
+                        error_type=exc.__class__.__name__,
+                        error=str(exc),
+                    ),
+                )
                 resolved_source_id = source_spec.source_id
                 category = ""
                 try:
@@ -137,9 +168,12 @@ class DataFetcher:
                 time.sleep(actual_interval / 1000)
 
         logger.info(
-            "抓取完成: 成功=%s 失败=%s",
-            [source.source_id for source in sources],
-            [failure.source_id for failure in failures],
+            "%s",
+            build_log_message(
+                "crawl.completed",
+                success_ids=[source.source_id for source in sources],
+                failure_ids=[failure.source_id for failure in failures],
+            ),
         )
         return CrawlBatchResult(
             sources=sources,

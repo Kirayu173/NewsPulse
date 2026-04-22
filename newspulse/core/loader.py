@@ -10,7 +10,7 @@ import yaml
 from .config import parse_multi_account_config
 from .config_paths import get_config_layout, resolve_prompt_path, resolve_timeline_path
 from .runtime_config import normalize_runtime_config
-from newspulse.utils.logging import configure_logging, get_logger
+from newspulse.utils.logging import build_log_message, configure_logging, get_logger
 from newspulse.utils.time import DEFAULT_TIMEZONE
 
 
@@ -177,7 +177,7 @@ def _load_schedule_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
 def _load_timeline_data(config_root: Path) -> Dict[str, Any]:
     timeline_path = resolve_timeline_path(config_root=config_root)
     if not timeline_path.exists():
-        logger.warning("[配置] 未找到 timeline.yaml: %s，将使用默认时间线", timeline_path)
+        logger.warning("%s", build_log_message("config.timeline_missing", path=timeline_path))
         return {
             "presets": {},
             "custom": {
@@ -198,7 +198,7 @@ def _load_timeline_data(config_root: Path) -> Dict[str, Any]:
     with open(timeline_path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
-    logger.info("[配置] 已加载 timeline.yaml: %s", timeline_path)
+    logger.info("%s", build_log_message("config.timeline_loaded", path=timeline_path))
     return data or {}
 
 
@@ -689,10 +689,16 @@ def _print_notification_sources(config: Dict[str, Any]) -> None:
         notification_sources.append(f"通用 Webhook({source}, {count} 个账号)")
 
     if notification_sources:
-        logger.info("已启用通知渠道: %s", ", ".join(notification_sources))
-        logger.info("单渠道最大账号数: %s", max_accounts)
+        logger.info(
+            "%s",
+            build_log_message(
+                "config.notifications_enabled",
+                channels=notification_sources,
+                max_accounts=max_accounts,
+            ),
+        )
     else:
-        logger.info("未配置通知渠道")
+        logger.info("%s", build_log_message("config.notifications_missing"))
 
 
 def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
@@ -716,7 +722,7 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     config.update(_load_app_config(config_data))
     config.update(_load_logging_config(config_data))
     configure_logging(config["LOG_LEVEL"], config["LOG_FILE"], config["LOG_JSON"])
-    logger.info("config loaded: %s", resolved_config_path)
+    logger.info("%s", build_log_message("config.loaded", path=resolved_config_path))
     config.update(_load_crawler_config(config_data))
     config.update(_load_report_config(config_data))
     config.update(_load_notification_config(config_data))
