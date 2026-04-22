@@ -1,4 +1,4 @@
-﻿# coding=utf-8
+# coding=utf-8
 """Application context helpers."""
 
 from __future__ import annotations
@@ -8,16 +8,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
-from newspulse.crawler import CrawlSourceSpec
-from newspulse.core.scheduler import ResolvedSchedule
-from newspulse.core import (
-    Scheduler,
+from newspulse.core import Scheduler
+from newspulse.core.runtime_config import (
+    DEFAULT_REGION_ORDER,
+    REGION_FLAG_DEFAULTS,
+    REGION_FLAG_KEYS,
+    normalize_runtime_config,
 )
+from newspulse.core.scheduler import ResolvedSchedule
+from newspulse.crawler import CrawlSourceSpec
 from newspulse.crawler.source_names import resolve_source_display_name
 from newspulse.storage import get_storage_manager
-from newspulse.workflow.delivery import DeliveryService, GenericWebhookDeliveryAdapter
-from newspulse.workflow.insight import InsightService
-from newspulse.workflow.report import ReportPackageAssembler
 from newspulse.utils.time import (
     DEFAULT_TIMEZONE,
     format_date_folder,
@@ -25,6 +26,9 @@ from newspulse.utils.time import (
     get_configured_time,
     get_current_time_display,
 )
+from newspulse.workflow.delivery import DeliveryService, GenericWebhookDeliveryAdapter
+from newspulse.workflow.insight import InsightService
+from newspulse.workflow.report import ReportPackageAssembler
 from newspulse.workflow.selection import SelectionService
 from newspulse.workflow.selection.ai import build_embedding_runtime_config
 from newspulse.workflow.shared.contracts import (
@@ -45,131 +49,21 @@ from newspulse.workflow.shared.options import (
 from newspulse.workflow.snapshot import SnapshotService
 
 if TYPE_CHECKING:
+    from newspulse.storage.manager import StorageManager
     from newspulse.workflow.render.service import RenderService
 
 
-DEFAULT_REGION_ORDER = ["hotlist", "new_items", "standalone", "insight"]
-REGION_FLAG_KEYS = {
-    "hotlist": "HOTLIST",
-    "new_items": "NEW_ITEMS",
-    "standalone": "STANDALONE",
-    "insight": "INSIGHT",
-}
-REGION_FLAG_DEFAULTS = {
-    "hotlist": True,
-    "new_items": True,
-    "standalone": False,
-    "insight": True,
-}
-
-
-class ServiceFactory:
-    """Centralize workflow service construction for AppContext."""
-
-    def __init__(self, context: "AppContext"):
-        self.context = context
-
-    def create_snapshot_service(self) -> SnapshotService:
-        ctx = self.context
-        standalone_config = ctx.display_config.get("STANDALONE", {})
-        return SnapshotService(
-            ctx.get_storage_manager(),
-            platform_ids=ctx.platform_ids,
-            platform_names=ctx.platform_name_map,
-            standalone_platform_ids=standalone_config.get("PLATFORMS", []),
-            standalone_max_items=standalone_config.get("MAX_ITEMS", 20),
-        )
-
-    def create_selection_service(self) -> SelectionService:
-        ctx = self.context
-        return SelectionService(
-            config_root=str(ctx.config_root),
-            rank_threshold=ctx.rank_threshold,
-            weight_config=ctx.weight_config,
-            max_news_per_keyword=ctx.max_news_per_keyword,
-            sort_by_position_first=ctx.sort_by_position_first,
-            storage_manager=ctx.get_storage_manager(),
-            ai_runtime_config=ctx.ai_filter_model_config,
-            embedding_runtime_config=ctx.ai_filter_embedding_model_config,
-            ai_filter_config=ctx.ai_filter_config,
-            debug=ctx.debug_enabled,
-        )
-
-    def create_insight_service(self) -> InsightService:
-        ctx = self.context
-        return InsightService(
-            ai_runtime_config=ctx.ai_analysis_model_config,
-            ai_analysis_config=ctx.ai_analysis_config,
-            config_root=str(ctx.config_root),
-            storage_manager=ctx.get_storage_manager(),
-            proxy_url=ctx.default_proxy_url if ctx.proxy_enabled else None,
-        )
-
-    def create_report_assembler(self) -> ReportPackageAssembler:
-        ctx = self.context
-        return ReportPackageAssembler(
-            timezone=ctx.timezone,
-            display_mode=ctx.display_mode,
-        )
-
-    def create_render_service(self) -> "RenderService":
-        from newspulse.workflow.render.html import HTMLRenderAdapter
-        from newspulse.workflow.render.notification import NotificationRenderAdapter
-        from newspulse.workflow.render.service import RenderService
-
-        ctx = self.context
-        html_adapter = HTMLRenderAdapter(
-            output_dir=str(ctx.get_data_dir()),
-            get_time_func=ctx.get_time,
-            date_folder_func=ctx.format_date,
-            time_filename_func=ctx.format_time,
-            region_order=ctx.region_order,
-            display_mode=ctx.display_mode,
-            show_new_section=ctx.show_new_section,
-        )
-        notification_adapter = NotificationRenderAdapter(
-            notification_channels=ctx._get_render_notification_channels(),
-            get_time_func=ctx.get_time,
-            region_order=ctx.region_order,
-            display_mode=ctx.display_mode,
-            rank_threshold=ctx.rank_threshold,
-            batch_size=ctx.message_batch_size,
-            show_new_section=ctx.show_new_section,
-        )
-        return RenderService(
-            html_adapter=html_adapter,
-            notification_adapter=notification_adapter,
-            display_mode=ctx.display_mode,
-            rank_threshold=ctx.rank_threshold,
-            weight_config=ctx.weight_config,
-        )
-
-    def create_delivery_service(self) -> DeliveryService:
-        generic_webhook_adapter = GenericWebhookDeliveryAdapter(self.context.config)
-        return DeliveryService(generic_webhook_adapter=generic_webhook_adapter)
-
-
-class AppContext:
-    """Thin runtime facade around config, storage and report helpers."""
+class AppConfigView:
+    """Read-only view over normalized runtime configuration."""
 
     def __init__(self, config: Dict[str, Any]):
-        self._raw_config = deepcopy(config) if isinstance(config, dict) else {}
-        self.config = deepcopy(config) if isinstance(config, dict) else {}
-        self._storage_manager = None
-        self._scheduler = None
-        self._service_factory: ServiceFactory | None = None
-        self._normalize_config()
-
-    @property
-    def timezone(self) -> str:
-        return self.config.get("TIMEZONE", DEFAULT_TIMEZONE)
+        raw_config = deepcopy(config) if isinstance(config, dict) else {}
+        self._raw_config = raw_config
+        self.config = normalize_runtime_config(raw_config, raw_config=raw_config)
 
     @property
     def workflow_config(self) -> Dict[str, Any]:
         workflow = self.config.get("WORKFLOW", {})
-        if isinstance(workflow, dict) and workflow:
-            return workflow
-        workflow = self._raw_config.get("workflow", {})
         return workflow if isinstance(workflow, dict) else {}
 
     @property
@@ -178,16 +72,22 @@ class AppContext:
         return ai if isinstance(ai, dict) else {}
 
     @property
+    def timezone(self) -> str:
+        return self.config.get("TIMEZONE", DEFAULT_TIMEZONE)
+
+    @property
     def rank_threshold(self) -> int:
-        return self.config.get("RANK_THRESHOLD", 50)
+        return int(self.config.get("RANK_THRESHOLD", 50) or 50)
 
     @property
     def weight_config(self) -> Dict[str, Any]:
-        return self.config.get("WEIGHT_CONFIG", {})
+        weight = self.config.get("WEIGHT_CONFIG", {})
+        return dict(weight) if isinstance(weight, dict) else {}
 
     @property
     def platforms(self) -> List[Dict[str, Any]]:
-        return self.config.get("PLATFORMS", [])
+        platforms = self.config.get("PLATFORMS", [])
+        return [dict(platform) for platform in platforms if isinstance(platform, dict)]
 
     @property
     def platform_ids(self) -> List[str]:
@@ -213,16 +113,16 @@ class AppContext:
 
     @property
     def display_mode(self) -> str:
-        return self.config.get("DISPLAY_MODE", "keyword")
+        return str(self.config.get("DISPLAY_MODE", "keyword") or "keyword")
 
     @property
     def display_config(self) -> Dict[str, Any]:
         display = self.config.get("DISPLAY", {})
-        return display if isinstance(display, dict) else {}
+        return dict(display) if isinstance(display, dict) else {}
 
     @property
     def show_new_section(self) -> bool:
-        return self.display_config.get("REGIONS", {}).get("NEW_ITEMS", True)
+        return bool(self.display_config.get("REGIONS", {}).get("NEW_ITEMS", True))
 
     @property
     def region_order(self) -> List[str]:
@@ -244,14 +144,23 @@ class AppContext:
             region_name = str(region or "").strip().lower()
             if region_name not in REGION_FLAG_KEYS or region_name in normalized:
                 continue
-            flag_key = REGION_FLAG_KEYS[region_name]
-            enabled = regions.get(flag_key, REGION_FLAG_DEFAULTS[region_name])
+            enabled = regions.get(REGION_FLAG_KEYS[region_name], REGION_FLAG_DEFAULTS[region_name])
             if enabled:
                 normalized.append(region_name)
 
         if normalized or isinstance(configured_order, list):
             return normalized
         return list(DEFAULT_REGION_ORDER)
+
+    @property
+    def selection_stage_config(self) -> Dict[str, Any]:
+        selection = self.workflow_config.get("SELECTION", {})
+        return dict(selection) if isinstance(selection, dict) else {}
+
+    @property
+    def insight_stage_config(self) -> Dict[str, Any]:
+        insight = self.workflow_config.get("INSIGHT", {})
+        return dict(insight) if isinstance(insight, dict) else {}
 
     @property
     def filter_method(self) -> str:
@@ -312,17 +221,17 @@ class AppContext:
     @property
     def storage_config(self) -> Dict[str, Any]:
         storage = self.config.get("STORAGE", {})
-        return storage if isinstance(storage, dict) else {}
+        return dict(storage) if isinstance(storage, dict) else {}
 
     @property
     def storage_formats(self) -> Dict[str, Any]:
         formats = self.storage_config.get("FORMATS", {})
-        return formats if isinstance(formats, dict) else {}
+        return dict(formats) if isinstance(formats, dict) else {}
 
     @property
     def storage_local_config(self) -> Dict[str, Any]:
         local = self.storage_config.get("LOCAL", {})
-        return local if isinstance(local, dict) else {}
+        return dict(local) if isinstance(local, dict) else {}
 
     @property
     def storage_backend_type(self) -> str:
@@ -333,173 +242,24 @@ class AppContext:
         return int(self.storage_local_config.get("RETENTION_DAYS", 0) or 0)
 
     @property
-    def service_factory(self) -> ServiceFactory:
-        if self._service_factory is None:
-            self._service_factory = ServiceFactory(self)
-        return self._service_factory
-
-    @property
     def ai_filter_config(self) -> Dict[str, Any]:
-        selection_ai = self.selection_stage_config.get("AI", {})
-        operation = self._get_ai_operation_mapping("selection", legacy_key="AI_FILTER")
-        return {
-            "BATCH_SIZE": int(selection_ai.get("BATCH_SIZE", 200) or 200),
-            "BATCH_INTERVAL": float(selection_ai.get("BATCH_INTERVAL", 5) or 0),
-            "TIMEOUT": self._mapping_get(operation, "TIMEOUT", "timeout"),
-            "NUM_RETRIES": self._mapping_get(operation, "NUM_RETRIES", "num_retries"),
-            "EXTRA_PARAMS": self._coerce_mapping(
-                self._mapping_get(operation, "EXTRA_PARAMS", "extra_params", default={}),
-            ),
-            "INTERESTS_FILE": selection_ai.get("INTERESTS_FILE"),
-            "PROMPT_FILE": str(self._mapping_get(operation, "PROMPT_FILE", "prompt_file", default="prompt.txt") or "prompt.txt"),
-            "EXTRACT_PROMPT_FILE": str(
-                self._mapping_get(operation, "EXTRACT_PROMPT_FILE", "extract_prompt_file", default="extract_prompt.txt")
-                or "extract_prompt.txt"
-            ),
-            "UPDATE_TAGS_PROMPT_FILE": str(
-                self._mapping_get(
-                    operation,
-                    "UPDATE_TAGS_PROMPT_FILE",
-                    "update_tags_prompt_file",
-                    default="update_tags_prompt.txt",
-                )
-                or "update_tags_prompt.txt"
-            ),
-            "RECLASSIFY_THRESHOLD": float(selection_ai.get("RECLASSIFY_THRESHOLD", 0.6) or 0.6),
-            "MIN_SCORE": float(selection_ai.get("MIN_SCORE", 0) or 0),
-            "FALLBACK_TO_KEYWORD": bool(selection_ai.get("FALLBACK_TO_KEYWORD", True)),
-        }
+        config = self.config.get("AI_FILTER", {})
+        return dict(config) if isinstance(config, dict) else {}
 
     @property
     def ai_analysis_config(self) -> Dict[str, Any]:
-        insight = self.insight_stage_config
-        operation = self._get_ai_operation_mapping("insight", legacy_key="AI_ANALYSIS")
-        content = self._get_nested_mapping(insight, "CONTENT", "content")
-        item_analysis = self._get_nested_mapping(insight, "ITEM_ANALYSIS", "item_analysis")
-        aggregate = self._get_nested_mapping(insight, "AGGREGATE", "aggregate")
-        return {
-            "ENABLED": bool(insight.get("ENABLED", False)),
-            "STRATEGY": str(insight.get("STRATEGY", "noop") or "noop"),
-            "LANGUAGE": str(insight.get("LANGUAGE", "Chinese") or "Chinese"),
-            "PROMPT_FILE": str(
-                self._mapping_get(operation, "PROMPT_FILE", "prompt_file", default="ai_analysis_prompt.txt")
-                or "ai_analysis_prompt.txt"
-            ),
-            "MODE": str(insight.get("MODE", "follow_report") or "follow_report"),
-            "MAX_ITEMS": int(insight.get("MAX_ITEMS", 50) or 50),
-            "TIMEOUT": self._mapping_get(operation, "TIMEOUT", "timeout"),
-            "NUM_RETRIES": self._mapping_get(operation, "NUM_RETRIES", "num_retries"),
-            "EXTRA_PARAMS": self._coerce_mapping(
-                self._mapping_get(operation, "EXTRA_PARAMS", "extra_params", default={}),
-            ),
-            "ITEM_PROMPT_FILE": str(
-                self._mapping_get(
-                    operation,
-                    "ITEM_PROMPT_FILE",
-                    "item_prompt_file",
-                    default="ai_insight_item_prompt.txt",
-                )
-                or "ai_insight_item_prompt.txt"
-            ),
-            "CONTENT": {
-                "CACHE_ENABLED": bool(
-                    self._mapping_get(content, "CACHE_ENABLED", "cache_enabled", default=True)
-                ),
-                "ASYNC_ENABLED": bool(
-                    self._mapping_get(content, "ASYNC_ENABLED", "async_enabled", default=False)
-                ),
-                "MAX_CONCURRENCY": int(
-                    self._mapping_get(content, "MAX_CONCURRENCY", "max_concurrency", default=8) or 8
-                ),
-                "REQUEST_TIMEOUT": int(
-                    self._mapping_get(
-                        content,
-                        "REQUEST_TIMEOUT",
-                        "request_timeout",
-                        "TIMEOUT",
-                        "timeout",
-                        default=12,
-                    )
-                    or 12
-                ),
-                "TIMEOUT": int(
-                    self._mapping_get(
-                        content,
-                        "REQUEST_TIMEOUT",
-                        "request_timeout",
-                        "TIMEOUT",
-                        "timeout",
-                        default=12,
-                    )
-                    or 12
-                ),
-                "REDUCED_CHARS": int(
-                    self._mapping_get(content, "REDUCED_CHARS", "reduced_chars", default=1600) or 1600
-                ),
-            },
-            "ITEM_ANALYSIS": {
-                "MIN_EVIDENCE_SENTENCES": int(
-                    self._mapping_get(
-                        item_analysis,
-                        "MIN_EVIDENCE_SENTENCES",
-                        "min_evidence_sentences",
-                        default=3,
-                    )
-                    or 3
-                ),
-                "ITEM_PROMPT_FILE": str(
-                    self._mapping_get(
-                        item_analysis,
-                        "PROMPT_FILE",
-                        "prompt_file",
-                        default=(
-                            self._mapping_get(
-                                operation,
-                                "ITEM_PROMPT_FILE",
-                                "item_prompt_file",
-                                default="ai_insight_item_prompt.txt",
-                            )
-                            or "ai_insight_item_prompt.txt"
-                        ),
-                    )
-                    or "ai_insight_item_prompt.txt"
-                ),
-            },
-            "AGGREGATE": {
-                "PROMPT_FILE": str(
-                    self._mapping_get(
-                        aggregate,
-                        "PROMPT_FILE",
-                        "prompt_file",
-                        default=(
-                            self._mapping_get(operation, "PROMPT_FILE", "prompt_file", default="ai_analysis_prompt.txt")
-                            or "ai_analysis_prompt.txt"
-                        ),
-                    )
-                    or "ai_analysis_prompt.txt"
-                ),
-            },
-        }
+        config = self.config.get("AI_ANALYSIS", {})
+        return dict(config) if isinstance(config, dict) else {}
 
     @property
     def ai_analysis_model_config(self) -> Dict[str, Any]:
-        configured = self.config.get("AI_ANALYSIS_MODEL", {})
-        if isinstance(configured, dict) and configured:
-            return configured
-        return self._merge_ai_runtime_config(
-            self.ai_runtime_config,
-            self._get_ai_operation_mapping("insight", legacy_key="AI_ANALYSIS"),
-        )
+        config = self.config.get("AI_ANALYSIS_MODEL", {})
+        return dict(config) if isinstance(config, dict) else {}
 
     @property
     def ai_filter_model_config(self) -> Dict[str, Any]:
-        configured = self.config.get("AI_FILTER_MODEL", {})
-        if isinstance(configured, dict) and configured:
-            return configured
-        return self._merge_ai_runtime_config(
-            self.ai_runtime_config,
-            self._get_ai_operation_mapping("selection", legacy_key="AI_FILTER"),
-        )
+        config = self.config.get("AI_FILTER_MODEL", {})
+        return dict(config) if isinstance(config, dict) else {}
 
     @property
     def ai_filter_embedding_model_config(self) -> Dict[str, Any]:
@@ -507,368 +267,13 @@ class AppContext:
 
     @property
     def ai_runtime_config(self) -> Dict[str, Any]:
-        configured = self.config.get("AI", {})
-        if isinstance(configured, dict) and configured:
-            return configured
-        return self._normalize_ai_runtime_mapping(self._get_nested_mapping(self.raw_ai_config, "RUNTIME", "runtime"))
+        config = self.config.get("AI", {})
+        return dict(config) if isinstance(config, dict) else {}
 
     @property
     def config_root(self) -> Path:
         config_root = self.config.get("_PATHS", {}).get("CONFIG_ROOT")
         return Path(config_root) if config_root else Path("config")
-
-    @property
-    def selection_stage_config(self) -> Dict[str, Any]:
-        workflow_selection = self._get_workflow_stage("SELECTION", "selection")
-        if workflow_selection:
-            workflow_ai = self._get_nested_mapping(workflow_selection, "AI", "ai")
-            workflow_semantic = self._get_nested_mapping(workflow_selection, "SEMANTIC", "semantic")
-            return {
-                "STRATEGY": str(self._mapping_get(workflow_selection, "STRATEGY", "strategy", default="keyword") or "keyword"),
-                "FREQUENCY_FILE": self._mapping_get(workflow_selection, "FREQUENCY_FILE", "frequency_file"),
-                "PRIORITY_SORT_ENABLED": bool(
-                    self._mapping_get(workflow_selection, "PRIORITY_SORT_ENABLED", "priority_sort_enabled", default=False)
-                ),
-                "AI": {
-                    "INTERESTS_FILE": self._mapping_get(workflow_ai, "INTERESTS_FILE", "interests_file"),
-                    "BATCH_SIZE": int(self._mapping_get(workflow_ai, "BATCH_SIZE", "batch_size", default=200) or 200),
-                    "BATCH_INTERVAL": float(self._mapping_get(workflow_ai, "BATCH_INTERVAL", "batch_interval", default=5) or 0),
-                    "MIN_SCORE": float(self._mapping_get(workflow_ai, "MIN_SCORE", "min_score", default=0) or 0),
-                    "RECLASSIFY_THRESHOLD": float(
-                        self._mapping_get(workflow_ai, "RECLASSIFY_THRESHOLD", "reclassify_threshold", default=0.6) or 0.6
-                    ),
-                    "FALLBACK_TO_KEYWORD": bool(
-                        self._mapping_get(workflow_ai, "FALLBACK_TO_KEYWORD", "fallback_to_keyword", default=True)
-                    ),
-                },
-                "SEMANTIC": {
-                    "ENABLED": bool(
-                        self._mapping_get(workflow_semantic, "ENABLED", "enabled", default=True)
-                    ),
-                    "TOP_K": int(self._mapping_get(workflow_semantic, "TOP_K", "top_k", default=3) or 3),
-                    "MIN_SCORE": float(
-                        self._mapping_get(workflow_semantic, "MIN_SCORE", "min_score", default=0.55) or 0.55
-                    ),
-                    "DIRECT_THRESHOLD": float(
-                        self._mapping_get(
-                            workflow_semantic,
-                            "DIRECT_THRESHOLD",
-                            "direct_threshold",
-                            default=0.78,
-                        )
-                        or 0.78
-                    ),
-                },
-            }
-
-        filter_config = self.config.get("FILTER", {})
-        ai_filter_config = self.config.get("AI_FILTER", {})
-        return {
-            "STRATEGY": str(filter_config.get("METHOD", "keyword") or "keyword"),
-            "FREQUENCY_FILE": filter_config.get("FREQUENCY_FILE"),
-            "PRIORITY_SORT_ENABLED": bool(filter_config.get("PRIORITY_SORT_ENABLED", False)),
-            "AI": {
-                "INTERESTS_FILE": ai_filter_config.get("INTERESTS_FILE"),
-                "BATCH_SIZE": int(ai_filter_config.get("BATCH_SIZE", 200) or 200),
-                "BATCH_INTERVAL": float(ai_filter_config.get("BATCH_INTERVAL", 5) or 0),
-                "MIN_SCORE": float(ai_filter_config.get("MIN_SCORE", 0) or 0),
-                "RECLASSIFY_THRESHOLD": float(ai_filter_config.get("RECLASSIFY_THRESHOLD", 0.6) or 0.6),
-                "FALLBACK_TO_KEYWORD": bool(ai_filter_config.get("FALLBACK_TO_KEYWORD", True)),
-            },
-            "SEMANTIC": {
-                "ENABLED": True,
-                "TOP_K": 3,
-                "MIN_SCORE": 0.55,
-                "DIRECT_THRESHOLD": 0.78,
-            },
-        }
-
-    @property
-    def insight_stage_config(self) -> Dict[str, Any]:
-        workflow_insight = self._get_workflow_stage("INSIGHT", "insight")
-        if workflow_insight:
-            workflow_content = self._get_nested_mapping(workflow_insight, "CONTENT", "content")
-            workflow_item_analysis = self._get_nested_mapping(workflow_insight, "ITEM_ANALYSIS", "item_analysis")
-            workflow_aggregate = self._get_nested_mapping(workflow_insight, "AGGREGATE", "aggregate")
-            enabled = bool(self._mapping_get(workflow_insight, "ENABLED", "enabled", default=False))
-            return {
-                "ENABLED": enabled,
-                "STRATEGY": str(
-                    self._mapping_get(workflow_insight, "STRATEGY", "strategy", default="ai" if enabled else "noop")
-                    or ("ai" if enabled else "noop")
-                ),
-                "MODE": str(self._mapping_get(workflow_insight, "MODE", "mode", default="follow_report") or "follow_report"),
-                "MAX_ITEMS": int(self._mapping_get(workflow_insight, "MAX_ITEMS", "max_items", default=50) or 50),
-                "LANGUAGE": str(self._mapping_get(workflow_insight, "LANGUAGE", "language", default="Chinese") or "Chinese"),
-                "CONTENT": {
-                    "CACHE_ENABLED": bool(
-                        self._mapping_get(workflow_content, "CACHE_ENABLED", "cache_enabled", default=True)
-                    ),
-                    "ASYNC_ENABLED": bool(
-                        self._mapping_get(workflow_content, "ASYNC_ENABLED", "async_enabled", default=False)
-                    ),
-                    "MAX_CONCURRENCY": int(
-                        self._mapping_get(workflow_content, "MAX_CONCURRENCY", "max_concurrency", default=8) or 8
-                    ),
-                    "REQUEST_TIMEOUT": int(
-                        self._mapping_get(
-                            workflow_content,
-                            "REQUEST_TIMEOUT",
-                            "request_timeout",
-                            "TIMEOUT",
-                            "timeout",
-                            default=12,
-                        )
-                        or 12
-                    ),
-                    "TIMEOUT": int(
-                        self._mapping_get(
-                            workflow_content,
-                            "REQUEST_TIMEOUT",
-                            "request_timeout",
-                            "TIMEOUT",
-                            "timeout",
-                            default=12,
-                        )
-                        or 12
-                    ),
-                    "REDUCED_CHARS": int(
-                        self._mapping_get(workflow_content, "REDUCED_CHARS", "reduced_chars", default=1600) or 1600
-                    ),
-                },
-                "ITEM_ANALYSIS": {
-                    "PROMPT_FILE": str(
-                        self._mapping_get(
-                            workflow_item_analysis,
-                            "PROMPT_FILE",
-                            "prompt_file",
-                            default="ai_insight_item_prompt.txt",
-                        )
-                        or "ai_insight_item_prompt.txt"
-                    ),
-                    "MIN_EVIDENCE_SENTENCES": int(
-                        self._mapping_get(
-                            workflow_item_analysis,
-                            "MIN_EVIDENCE_SENTENCES",
-                            "min_evidence_sentences",
-                            default=3,
-                        )
-                        or 3
-                    ),
-                },
-                "AGGREGATE": {
-                    "PROMPT_FILE": str(
-                        self._mapping_get(
-                            workflow_aggregate,
-                            "PROMPT_FILE",
-                            "prompt_file",
-                            default="ai_analysis_prompt.txt",
-                        )
-                        or "ai_analysis_prompt.txt"
-                    ),
-                },
-            }
-
-        analysis_config = self.config.get("AI_ANALYSIS", {})
-        enabled = bool(analysis_config.get("ENABLED", False))
-        return {
-            "ENABLED": enabled,
-            "STRATEGY": str(analysis_config.get("STRATEGY", "ai" if enabled else "noop") or ("ai" if enabled else "noop")),
-            "MODE": str(analysis_config.get("MODE", "follow_report") or "follow_report"),
-            "MAX_ITEMS": int(analysis_config.get("MAX_ITEMS", 50) or 50),
-            "LANGUAGE": str(analysis_config.get("LANGUAGE", "Chinese") or "Chinese"),
-            "CONTENT": self._coerce_mapping(analysis_config.get("CONTENT", {})),
-            "ITEM_ANALYSIS": self._coerce_mapping(analysis_config.get("ITEM_ANALYSIS", {})),
-            "AGGREGATE": self._coerce_mapping(analysis_config.get("AGGREGATE", {})),
-        }
-
-    @staticmethod
-    def _mapping_get(mapping: Dict[str, Any], *names: str, default: Any = None) -> Any:
-        if not isinstance(mapping, dict):
-            return default
-        for name in names:
-            if name in mapping and mapping[name] is not None:
-                return mapping[name]
-        return default
-
-    @staticmethod
-    def _get_nested_mapping(mapping: Dict[str, Any], *names: str) -> Dict[str, Any]:
-        for name in names:
-            value = mapping.get(name)
-            if isinstance(value, dict):
-                return value
-        return {}
-
-    @staticmethod
-    def _coerce_mapping(value: Any) -> Dict[str, Any]:
-        return dict(value) if isinstance(value, dict) else {}
-
-    @classmethod
-    def _normalize_ai_runtime_mapping(cls, mapping: Dict[str, Any]) -> Dict[str, Any]:
-        if not isinstance(mapping, dict):
-            return {}
-
-        normalized: Dict[str, Any] = {}
-        for target_key, *source_keys in (
-            ("MODEL", "MODEL", "model"),
-            ("API_KEY", "API_KEY", "api_key"),
-            ("API_BASE", "API_BASE", "api_base"),
-            ("TIMEOUT", "TIMEOUT", "timeout"),
-            ("TEMPERATURE", "TEMPERATURE", "temperature"),
-            ("MAX_TOKENS", "MAX_TOKENS", "max_tokens"),
-            ("NUM_RETRIES", "NUM_RETRIES", "num_retries"),
-        ):
-            value = cls._mapping_get(mapping, *source_keys)
-            if value not in (None, ""):
-                normalized[target_key] = value
-
-        fallback_models = cls._mapping_get(mapping, "FALLBACK_MODELS", "fallback_models")
-        if fallback_models is not None:
-            normalized["FALLBACK_MODELS"] = fallback_models
-
-        extra_params = cls._mapping_get(mapping, "EXTRA_PARAMS", "extra_params")
-        if isinstance(extra_params, dict):
-            normalized["EXTRA_PARAMS"] = dict(extra_params)
-
-        return normalized
-
-    @classmethod
-    def _normalize_ai_operation_mapping(cls, mapping: Dict[str, Any]) -> Dict[str, Any]:
-        normalized = cls._normalize_ai_runtime_mapping(mapping)
-        if not isinstance(mapping, dict):
-            return normalized
-
-        for target_key, *source_keys in (
-            ("PROMPT_FILE", "PROMPT_FILE", "prompt_file"),
-            ("EXTRACT_PROMPT_FILE", "EXTRACT_PROMPT_FILE", "extract_prompt_file"),
-            ("UPDATE_TAGS_PROMPT_FILE", "UPDATE_TAGS_PROMPT_FILE", "update_tags_prompt_file"),
-        ):
-            value = cls._mapping_get(mapping, *source_keys)
-            if value not in (None, ""):
-                normalized[target_key] = value
-        return normalized
-
-    @classmethod
-    def _merge_ai_runtime_config(cls, base_config: Dict[str, Any], override_config: Dict[str, Any]) -> Dict[str, Any]:
-        merged = dict(base_config or {})
-        merged.update(cls._normalize_ai_runtime_mapping(override_config))
-        return merged
-
-    def _get_ai_operation_mapping(self, operation_name: str, *, legacy_key: str | None = None) -> Dict[str, Any]:
-        operations = self._get_nested_mapping(self.raw_ai_config, "OPERATIONS", "operations")
-        operation = self._get_nested_mapping(
-            operations,
-            operation_name,
-            operation_name.lower(),
-            operation_name.upper(),
-        )
-        merged: Dict[str, Any] = {}
-        if legacy_key:
-            legacy_config = self.config.get(legacy_key, {})
-            if isinstance(legacy_config, dict):
-                merged.update(legacy_config)
-        merged.update(operation)
-        merged.update(self._normalize_ai_operation_mapping(operation))
-        return merged
-
-    def _get_workflow_stage(self, *names: str) -> Dict[str, Any]:
-        for name in names:
-            value = self.workflow_config.get(name)
-            if isinstance(value, dict) and value:
-                return value
-        return {}
-
-    def _normalize_config(self) -> None:
-        self.config["PLATFORMS"] = self._resolve_platforms()
-        self.config["DISPLAY"] = self._resolve_display_config()
-        self.config["STORAGE"] = self._resolve_storage_config()
-        self.config["WORKFLOW"] = {
-            "SELECTION": self.selection_stage_config,
-            "INSIGHT": self.insight_stage_config,
-        }
-        self.config["AI"] = self.ai_runtime_config
-        self.config["AI_FILTER"] = self.ai_filter_config
-        self.config["AI_ANALYSIS"] = self.ai_analysis_config
-        self.config["AI_FILTER_MODEL"] = self.ai_filter_model_config
-        self.config["AI_ANALYSIS_MODEL"] = self.ai_analysis_model_config
-        self.config["FILTER"] = {
-            "METHOD": self.filter_method,
-            "FREQUENCY_FILE": self.selection_stage_config.get("FREQUENCY_FILE"),
-            "PRIORITY_SORT_ENABLED": self.ai_priority_sort_enabled,
-        }
-
-    def _resolve_platforms(self) -> List[Dict[str, Any]]:
-        platforms = self.config.get("PLATFORMS", [])
-        if isinstance(platforms, list) and platforms:
-            return [dict(platform) for platform in platforms if isinstance(platform, dict)]
-
-        legacy_platforms = self._get_nested_mapping(self._raw_config, "platforms")
-        legacy_sources = legacy_platforms.get("sources", [])
-        if isinstance(legacy_sources, list):
-            return [dict(platform) for platform in legacy_sources if isinstance(platform, dict)]
-        return []
-
-    def _resolve_display_config(self) -> Dict[str, Any]:
-        display = self.config.get("DISPLAY", {})
-        if isinstance(display, dict) and display:
-            return {
-                "REGION_ORDER": list(display.get("REGION_ORDER", DEFAULT_REGION_ORDER)),
-                "REGIONS": self._coerce_mapping(display.get("REGIONS", {})),
-                "STANDALONE": self._coerce_mapping(display.get("STANDALONE", {})),
-            }
-
-        legacy_display = self._coerce_mapping(self._raw_config.get("display", {}))
-        if not legacy_display:
-            return {
-                "REGION_ORDER": list(DEFAULT_REGION_ORDER),
-                "REGIONS": {},
-                "STANDALONE": {},
-            }
-        legacy_regions = self._coerce_mapping(legacy_display.get("regions", {}))
-        legacy_standalone = self._coerce_mapping(legacy_display.get("standalone", {}))
-        region_order = [
-            str(region or "").strip().lower()
-            for region in legacy_display.get("region_order", DEFAULT_REGION_ORDER)
-            if str(region or "").strip().lower() in REGION_FLAG_KEYS
-        ]
-        return {
-            "REGION_ORDER": region_order or list(DEFAULT_REGION_ORDER),
-            "REGIONS": {
-                "HOTLIST": bool(legacy_regions.get("hotlist", True)),
-                "NEW_ITEMS": bool(legacy_regions.get("new_items", True)),
-                "STANDALONE": bool(legacy_regions.get("standalone", False)),
-                "INSIGHT": bool(legacy_regions.get("insight", True)),
-            },
-            "STANDALONE": {
-                "PLATFORMS": list(legacy_standalone.get("platforms", [])),
-                "MAX_ITEMS": int(legacy_standalone.get("max_items", 20) or 20),
-            },
-        }
-
-    def _resolve_storage_config(self) -> Dict[str, Any]:
-        storage = self.config.get("STORAGE", {})
-        if isinstance(storage, dict) and storage:
-            return {
-                "BACKEND": str(storage.get("BACKEND", "local") or "local"),
-                "FORMATS": self._coerce_mapping(storage.get("FORMATS", {})),
-                "LOCAL": self._coerce_mapping(storage.get("LOCAL", {})),
-            }
-
-        legacy_storage = self._coerce_mapping(self._raw_config.get("storage", {}))
-        legacy_formats = self._coerce_mapping(legacy_storage.get("formats", {}))
-        legacy_local = self._coerce_mapping(legacy_storage.get("local", {}))
-        return {
-            "BACKEND": str(legacy_storage.get("backend", "local") or "local"),
-            "FORMATS": {
-                "SQLITE": bool(legacy_formats.get("sqlite", True)),
-                "TXT": bool(legacy_formats.get("txt", True)),
-                "HTML": bool(legacy_formats.get("html", True)),
-            },
-            "LOCAL": {
-                "DATA_DIR": str(legacy_local.get("data_dir", "output") or "output"),
-                "RETENTION_DAYS": int(legacy_local.get("retention_days", 0) or 0),
-            },
-        }
 
     def get_time(self) -> datetime:
         return get_configured_time(self.timezone)
@@ -882,18 +287,6 @@ class AppContext:
     def get_time_display(self) -> str:
         return get_current_time_display(self.timezone)
 
-    def get_storage_manager(self):
-        if self._storage_manager is None:
-            self._storage_manager = get_storage_manager(
-                backend_type=self.storage_backend_type,
-                data_dir=str(self.get_data_dir()),
-                enable_txt=bool(self.storage_formats.get("TXT", True)),
-                enable_html=bool(self.storage_formats.get("HTML", True)),
-                local_retention_days=self.storage_retention_days,
-                timezone=self.timezone,
-            )
-        return self._storage_manager
-
     def get_data_dir(self) -> Path:
         return Path(self.storage_local_config.get("DATA_DIR", "output"))
 
@@ -902,30 +295,6 @@ class AppContext:
         output_dir.mkdir(parents=True, exist_ok=True)
         return str(output_dir / filename)
 
-    def is_first_crawl(self) -> bool:
-        return self.get_storage_manager().is_first_crawl_today()
-
-    def create_scheduler(self) -> Scheduler:
-        if self._scheduler is None:
-            self._scheduler = Scheduler(
-                schedule_config=self.config.get("SCHEDULE", {}),
-                timeline_data=self.config.get("_TIMELINE_DATA", {}),
-                storage_backend=self.get_storage_manager(),
-                get_time_func=self.get_time,
-                fallback_report_mode=self.default_report_mode,
-            )
-        return self._scheduler
-
-    def create_snapshot_service(self) -> SnapshotService:
-        """Create the workflow snapshot builder for the current runtime."""
-
-        return self.service_factory.create_snapshot_service()
-
-    def create_selection_service(self) -> SelectionService:
-        """Create the workflow selection service with the current project config."""
-
-        return self.service_factory.create_selection_service()
-
     def build_selection_options(
         self,
         *,
@@ -933,8 +302,6 @@ class AppContext:
         frequency_file: Optional[str] = None,
         interests_file: Optional[str] = None,
     ) -> SelectionOptions:
-        """Build workflow selection options from the current app config."""
-
         selection_config = self.selection_stage_config
         selection_ai = selection_config.get("AI", {})
         selection_semantic = selection_config.get("SEMANTIC", {})
@@ -958,59 +325,13 @@ class AppContext:
             ),
         )
 
-    def run_selection_stage(
-        self,
-        *,
-        mode: str,
-        strategy: Optional[str] = None,
-        frequency_file: Optional[str] = None,
-        interests_file: Optional[str] = None,
-        snapshot_service: Optional[SnapshotService] = None,
-        selection_service: Optional[SelectionService] = None,
-    ) -> Tuple[HotlistSnapshot, SelectionResult]:
-        """Run the native selection stage."""
-
-        snapshot_builder = snapshot_service or self.create_snapshot_service()
-        selection_runner = selection_service or self.create_selection_service()
-        snapshot = snapshot_builder.build(SnapshotOptions(mode=mode))
-        options = self.build_selection_options(
-            strategy=strategy,
-            frequency_file=frequency_file,
-            interests_file=interests_file,
-        )
-        selection = selection_runner.run(snapshot, options)
-        return snapshot, selection
-
-    def create_insight_service(self) -> InsightService:
-        """Create the workflow insight service with the current project config."""
-
-        return self.service_factory.create_insight_service()
-
-    def create_report_assembler(self) -> ReportPackageAssembler:
-        """Create the Stage 6 report package assembler for the current project config."""
-
-        return self.service_factory.create_report_assembler()
-
-    def create_render_service(self) -> RenderService:
-        """Create the workflow render service with the current project config."""
-
-        return self.service_factory.create_render_service()
-
-    def create_delivery_service(self) -> DeliveryService:
-        """Create the workflow delivery service with the current project config."""
-
-        return self.service_factory.create_delivery_service()
-
-    def build_insight_options(
-        self,
-        *,
-        report_mode: str,
-    ) -> InsightOptions:
-        """Build workflow insight options from the current app config."""
-
+    def build_insight_options(self, *, report_mode: str) -> InsightOptions:
         analysis_config = self.insight_stage_config
         enabled = bool(analysis_config.get("ENABLED", False))
-        configured_strategy = str(analysis_config.get("STRATEGY", "ai" if enabled else "noop") or ("ai" if enabled else "noop")).strip()
+        configured_strategy = str(
+            analysis_config.get("STRATEGY", "ai" if enabled else "noop")
+            or ("ai" if enabled else "noop")
+        ).strip()
         requested_mode = str(analysis_config.get("MODE", "follow_report") or "follow_report").strip()
         effective_mode = report_mode
 
@@ -1034,8 +355,6 @@ class AppContext:
         display_regions: Optional[List[str]] = None,
         update_info: Optional[Dict[str, Any]] = None,
     ) -> RenderOptions:
-        """Build workflow render options from the current app config."""
-
         notification_channels = self._get_render_notification_channels()
         metadata: Dict[str, Any] = {}
         if update_info:
@@ -1056,8 +375,6 @@ class AppContext:
         dry_run: bool = False,
         proxy_url: Optional[str] = None,
     ) -> DeliveryOptions:
-        """Build workflow delivery options from the current app config."""
-
         effective_channels = list(channels or self._get_render_notification_channels())
         metadata: Dict[str, Any] = {}
         if proxy_url:
@@ -1070,8 +387,167 @@ class AppContext:
             metadata=metadata,
         )
 
+    def _get_render_notification_channels(self) -> List[str]:
+        channels: List[str] = []
+        if self.generic_webhook_url:
+            channels.append("generic_webhook")
+        return channels
+
+
+class ServiceFactory:
+    """Centralize workflow service construction for the runtime facade."""
+
+    def __init__(self, runtime: "WorkflowRuntimeFacade"):
+        self.runtime = runtime
+
+    def create_snapshot_service(self) -> SnapshotService:
+        cfg = self.runtime.config_view
+        standalone_config = cfg.display_config.get("STANDALONE", {})
+        return SnapshotService(
+            self.runtime.get_storage_manager(),
+            platform_ids=cfg.platform_ids,
+            platform_names=cfg.platform_name_map,
+            standalone_platform_ids=standalone_config.get("PLATFORMS", []),
+            standalone_max_items=standalone_config.get("MAX_ITEMS", 20),
+        )
+
+    def create_selection_service(self) -> SelectionService:
+        cfg = self.runtime.config_view
+        return SelectionService(
+            config_root=str(cfg.config_root),
+            rank_threshold=cfg.rank_threshold,
+            weight_config=cfg.weight_config,
+            max_news_per_keyword=cfg.max_news_per_keyword,
+            sort_by_position_first=cfg.sort_by_position_first,
+            storage_manager=self.runtime.get_storage_manager(),
+            ai_runtime_config=cfg.ai_filter_model_config,
+            embedding_runtime_config=cfg.ai_filter_embedding_model_config,
+            ai_filter_config=cfg.ai_filter_config,
+            debug=cfg.debug_enabled,
+        )
+
+    def create_insight_service(self) -> InsightService:
+        cfg = self.runtime.config_view
+        return InsightService(
+            ai_runtime_config=cfg.ai_analysis_model_config,
+            ai_analysis_config=cfg.ai_analysis_config,
+            config_root=str(cfg.config_root),
+            storage_manager=self.runtime.get_storage_manager(),
+            proxy_url=cfg.default_proxy_url if cfg.proxy_enabled else None,
+        )
+
+    def create_report_assembler(self) -> ReportPackageAssembler:
+        cfg = self.runtime.config_view
+        return ReportPackageAssembler(
+            timezone=cfg.timezone,
+            display_mode=cfg.display_mode,
+        )
+
+    def create_render_service(self) -> "RenderService":
+        from newspulse.workflow.render.html import HTMLRenderAdapter
+        from newspulse.workflow.render.notification import NotificationRenderAdapter
+        from newspulse.workflow.render.service import RenderService
+
+        cfg = self.runtime.config_view
+        html_adapter = HTMLRenderAdapter(
+            output_dir=str(cfg.get_data_dir()),
+            get_time_func=cfg.get_time,
+            date_folder_func=cfg.format_date,
+            time_filename_func=cfg.format_time,
+            region_order=cfg.region_order,
+            display_mode=cfg.display_mode,
+            show_new_section=cfg.show_new_section,
+        )
+        notification_adapter = NotificationRenderAdapter(
+            notification_channels=cfg._get_render_notification_channels(),
+            get_time_func=cfg.get_time,
+            region_order=cfg.region_order,
+            display_mode=cfg.display_mode,
+            rank_threshold=cfg.rank_threshold,
+            batch_size=cfg.message_batch_size,
+            show_new_section=cfg.show_new_section,
+        )
+        return RenderService(
+            html_adapter=html_adapter,
+            notification_adapter=notification_adapter,
+            display_mode=cfg.display_mode,
+            rank_threshold=cfg.rank_threshold,
+            weight_config=cfg.weight_config,
+        )
+
+    def create_delivery_service(self) -> DeliveryService:
+        generic_webhook_adapter = GenericWebhookDeliveryAdapter(self.runtime.config_view.config)
+        return DeliveryService(generic_webhook_adapter=generic_webhook_adapter)
+
+
+class WorkflowRuntimeFacade:
+    """Own stateful runtime services created from the config view."""
+
+    def __init__(self, config_view: AppConfigView):
+        self.config_view = config_view
+        self._storage_manager: StorageManager | None = None
+        self._scheduler: Scheduler | None = None
+        self._service_factory: ServiceFactory | None = None
+
+    @property
+    def service_factory(self) -> ServiceFactory:
+        if self._service_factory is None:
+            self._service_factory = ServiceFactory(self)
+        return self._service_factory
+
+    def get_storage_manager(self) -> StorageManager:
+        if self._storage_manager is None:
+            cfg = self.config_view
+            self._storage_manager = get_storage_manager(
+                backend_type=cfg.storage_backend_type,
+                data_dir=str(cfg.get_data_dir()),
+                enable_txt=bool(cfg.storage_formats.get("TXT", True)),
+                enable_html=bool(cfg.storage_formats.get("HTML", True)),
+                local_retention_days=cfg.storage_retention_days,
+                timezone=cfg.timezone,
+            )
+        return self._storage_manager
+
+    def is_first_crawl(self) -> bool:
+        return self.get_storage_manager().is_first_crawl_today()
+
+    def create_scheduler(self) -> Scheduler:
+        if self._scheduler is None:
+            cfg = self.config_view
+            self._scheduler = Scheduler(
+                schedule_config=cfg.config.get("SCHEDULE", {}),
+                timeline_data=cfg.config.get("_TIMELINE_DATA", {}),
+                storage_backend=self.get_storage_manager(),
+                get_time_func=cfg.get_time,
+                fallback_report_mode=cfg.default_report_mode,
+            )
+        return self._scheduler
+
+    def create_snapshot_service(self) -> SnapshotService:
+        return self.service_factory.create_snapshot_service()
+
+    def create_selection_service(self) -> SelectionService:
+        return self.service_factory.create_selection_service()
+
+    def create_insight_service(self) -> InsightService:
+        return self.service_factory.create_insight_service()
+
+    def create_report_assembler(self) -> ReportPackageAssembler:
+        return self.service_factory.create_report_assembler()
+
+    def create_render_service(self) -> RenderService:
+        return self.service_factory.create_render_service()
+
+    def create_delivery_service(self) -> DeliveryService:
+        return self.service_factory.create_delivery_service()
+
     @staticmethod
-    def _build_noop_insight_result(reason: str, *, report_mode: str, schedule: Optional[ResolvedSchedule] = None) -> InsightResult:
+    def _build_noop_insight_result(
+        reason: str,
+        *,
+        report_mode: str,
+        schedule: Optional[ResolvedSchedule] = None,
+    ) -> InsightResult:
         diagnostics = {
             "report_mode": report_mode,
             "skipped": True,
@@ -1097,6 +573,28 @@ class AppContext:
             and not bool(diagnostics.get("parse_error"))
         )
 
+    def run_selection_stage(
+        self,
+        *,
+        mode: str,
+        strategy: Optional[str] = None,
+        frequency_file: Optional[str] = None,
+        interests_file: Optional[str] = None,
+        snapshot_service: Optional[SnapshotService] = None,
+        selection_service: Optional[SelectionService] = None,
+    ) -> Tuple[HotlistSnapshot, SelectionResult]:
+        cfg = self.config_view
+        snapshot_builder = snapshot_service or self.create_snapshot_service()
+        selection_runner = selection_service or self.create_selection_service()
+        snapshot = snapshot_builder.build(SnapshotOptions(mode=mode))
+        options = cfg.build_selection_options(
+            strategy=strategy,
+            frequency_file=frequency_file,
+            interests_file=interests_file,
+        )
+        selection = selection_runner.run(snapshot, options)
+        return snapshot, selection
+
     def run_insight_stage(
         self,
         *,
@@ -1110,9 +608,8 @@ class AppContext:
         selection_service: Optional[SelectionService] = None,
         insight_service: Optional[InsightService] = None,
     ) -> InsightResult:
-        """Run the native insight stage and return only the native insight result."""
-
-        options = self.build_insight_options(report_mode=report_mode)
+        cfg = self.config_view
+        options = cfg.build_insight_options(report_mode=report_mode)
         if not options.enabled or options.strategy == "noop":
             return self._build_noop_insight_result("insight stage disabled", report_mode=report_mode, schedule=schedule)
 
@@ -1125,7 +622,7 @@ class AppContext:
                 )
 
             if schedule.once_analyze and schedule.period_key:
-                date_str = self.format_date()
+                date_str = cfg.format_date()
                 if self.get_storage_manager().has_period_executed(date_str, schedule.period_key, "analyze"):
                     return self._build_noop_insight_result(
                         f"insight stage already executed for {schedule.period_name or schedule.period_key}",
@@ -1137,7 +634,7 @@ class AppContext:
         if snapshot is None or selection is None:
             snapshot, selection = self.run_selection_stage(
                 mode=selection_mode,
-                strategy=self.filter_method if strategy is None else strategy,
+                strategy=cfg.filter_method if strategy is None else strategy,
                 frequency_file=frequency_file,
                 interests_file=interests_file,
                 selection_service=selection_service,
@@ -1147,7 +644,7 @@ class AppContext:
         insight = runner.run(snapshot, selection, options)
 
         if self._is_successful_insight_result(insight) and schedule is not None and schedule.once_analyze and schedule.period_key:
-            self.get_storage_manager().record_period_execution(self.format_date(), schedule.period_key, "analyze")
+            self.get_storage_manager().record_period_execution(cfg.format_date(), schedule.period_key, "analyze")
 
         return insight
 
@@ -1159,8 +656,6 @@ class AppContext:
         *,
         report_assembler: Optional[ReportPackageAssembler] = None,
     ) -> ReportPackage:
-        """Assemble the Stage 6 report package from native stage outputs."""
-
         assembler = report_assembler or self.create_report_assembler()
         return assembler.assemble(snapshot, selection, insight)
 
@@ -1174,9 +669,7 @@ class AppContext:
         update_info: Optional[Dict[str, Any]] = None,
         render_service: Optional[RenderService] = None,
     ):
-        """Run the native render stage for the assembled report package."""
-
-        options = self.build_render_options(
+        options = self.config_view.build_render_options(
             emit_html=emit_html,
             emit_notification=emit_notification,
             display_regions=display_regions,
@@ -1195,9 +688,7 @@ class AppContext:
         proxy_url: Optional[str] = None,
         delivery_service: Optional[DeliveryService] = None,
     ):
-        """Run the native delivery stage for prepared payloads."""
-
-        options = self.build_delivery_options(
+        options = self.config_view.build_delivery_options(
             enabled=enabled,
             channels=channels,
             dry_run=dry_run,
@@ -1206,14 +697,52 @@ class AppContext:
         service = delivery_service or self.create_delivery_service()
         return service.run(payloads, options)
 
-    def _get_render_notification_channels(self) -> List[str]:
-        channels: List[str] = []
-        if self.generic_webhook_url:
-            channels.append("generic_webhook")
-        return channels
-
-    def cleanup(self):
+    def cleanup(self) -> None:
         if self._storage_manager:
             self._storage_manager.cleanup_old_data()
             self._storage_manager.cleanup()
             self._storage_manager = None
+
+
+class AppContext:
+    """Backward-compatible facade over config and runtime services."""
+
+    def __init__(self, config: Dict[str, Any]):
+        self._config_view = AppConfigView(config)
+        self._runtime = WorkflowRuntimeFacade(self._config_view)
+
+    def __getattr__(self, name: str) -> Any:
+        for target in (self._config_view, self._runtime):
+            try:
+                return getattr(target, name)
+            except AttributeError:
+                continue
+        raise AttributeError(f"{type(self).__name__!s} object has no attribute {name!r}")
+
+    @property
+    def _raw_config(self) -> Dict[str, Any]:
+        return self._config_view._raw_config
+
+    @property
+    def _storage_manager(self) -> StorageManager | None:
+        return self._runtime._storage_manager
+
+    @_storage_manager.setter
+    def _storage_manager(self, value: StorageManager | None) -> None:
+        self._runtime._storage_manager = value
+
+    @property
+    def _scheduler(self) -> Scheduler | None:
+        return self._runtime._scheduler
+
+    @_scheduler.setter
+    def _scheduler(self, value: Scheduler | None) -> None:
+        self._runtime._scheduler = value
+
+    @property
+    def _service_factory(self) -> ServiceFactory | None:
+        return self._runtime._service_factory
+
+    @_service_factory.setter
+    def _service_factory(self, value: ServiceFactory | None) -> None:
+        self._runtime._service_factory = value
