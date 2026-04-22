@@ -11,6 +11,7 @@ from newspulse.storage.local import LocalStorageBackend
 from newspulse.workflow.selection.service import SelectionService
 from newspulse.workflow.shared.options import SelectionAIOptions, SelectionOptions, SnapshotOptions
 from newspulse.workflow.snapshot.service import SnapshotService
+from tests.helpers.io import write_text
 
 
 TEST_TIMEZONE = ZoneInfo("Asia/Shanghai")
@@ -36,11 +37,6 @@ def _load_dotenv(path: Path) -> None:
         key = key.strip()
         value = value.strip().strip('"').strip("'")
         os.environ.setdefault(key, value)
-
-
-def _write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
 
 
 class LiveAISelectionStrategyTest(unittest.TestCase):
@@ -118,7 +114,7 @@ class LiveAISelectionStrategyTest(unittest.TestCase):
                 ).build(SnapshotOptions(mode="current"))
 
                 temp_config_root = Path(tmp) / "config"
-                _write_text(
+                write_text(
                     temp_config_root / "custom" / "ai" / "live.txt",
                     "AI agents and large models\nOpen source developer tools\nstartup product launches",
                 )

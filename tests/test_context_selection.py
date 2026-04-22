@@ -1,6 +1,5 @@
 import json
 import shutil
-import textwrap
 import unittest
 import uuid
 from pathlib import Path
@@ -11,22 +10,19 @@ from newspulse.storage.base import NewsData, NewsItem
 from newspulse.workflow.selection.ai import AISelectionStrategy
 from newspulse.workflow.selection.service import SelectionService
 from newspulse.workflow.shared.contracts import SelectionResult
-
-
-def _write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(textwrap.dedent(content).strip(), encoding="utf-8")
+from tests.helpers.io import write_text
+from tests.helpers.selection import DeterministicQualityAIClient, FakeEmbeddingClient
 
 
 def _write_selection_configs(config_root: Path) -> None:
-    _write_text(
+    write_text(
         config_root / "custom" / "keyword" / "topics.txt",
         """
         [GLOBAL_FILTER]
         sports
         """,
     )
-    _write_text(
+    write_text(
         config_root / "ai_filter" / "prompt.txt",
         """
         [user]
@@ -38,7 +34,7 @@ def _write_selection_configs(config_root: Path) -> None:
         {news_list}
         """,
     )
-    _write_text(
+    write_text(
         config_root / "ai_filter" / "extract_prompt.txt",
         """
         [user]
@@ -46,7 +42,7 @@ def _write_selection_configs(config_root: Path) -> None:
         {interests_content}
         """,
     )
-    _write_text(
+    write_text(
         config_root / "ai_filter" / "update_tags_prompt.txt",
         """
         [user]
@@ -167,53 +163,6 @@ def _seed_hotlist(ctx: AppContext) -> None:
     )
 
 
-class DeterministicQualityAIClient:
-    def __init__(self):
-        self.classify_calls = 0
-
-    def chat(self, messages, **kwargs):
-        self.classify_calls += 1
-        results = []
-        for line in messages[-1]["content"].splitlines():
-            if not line[:1].isdigit() or ". [" not in line:
-                continue
-            prompt_id = int(line.split(".", 1)[0])
-            lowered = line.lower()
-            if "openai" in lowered or "agent" in lowered:
-                results.append({"id": prompt_id, "keep": True, "score": 0.96, "reasons": ["信息增量"], "evidence": "agent launch"})
-            elif "github" in lowered or "open source" in lowered:
-                results.append({"id": prompt_id, "keep": True, "score": 0.91, "reasons": ["开源发布"], "evidence": "open source release"})
-            elif "startup" in lowered:
-                results.append({"id": prompt_id, "keep": True, "score": 0.87, "reasons": ["创业动态"], "evidence": "funding"})
-            else:
-                results.append({"id": prompt_id, "keep": False, "score": 0.1, "reasons": ["低价值"], "evidence": "drop"})
-        return json.dumps(results)
-
-
-class FakeEmbeddingClient:
-    class _Config:
-        model = "openai/embedding-test"
-
-    config = _Config()
-
-    def is_enabled(self):
-        return True
-
-    def embed_texts(self, texts, **kwargs):
-        vectors = []
-        for text in texts:
-            lowered = str(text).lower()
-            if "agent" in lowered or "openai" in lowered:
-                vectors.append([1.0, 0.0, 0.0])
-            elif "open source" in lowered or "github" in lowered:
-                vectors.append([0.0, 1.0, 0.0])
-            elif "startup" in lowered or "funding" in lowered:
-                vectors.append([0.0, 0.0, 1.0])
-            else:
-                vectors.append([1.0, 1.0, 1.0])
-        return vectors
-
-
 class FailingAIClient:
     def chat(self, messages, **kwargs):
         raise RuntimeError("boom")
@@ -231,7 +180,7 @@ class AppContextSelectionStageTest(unittest.TestCase):
         config_root = root / "config"
         output_dir = root / "output"
         _write_selection_configs(config_root)
-        _write_text(
+        write_text(
             config_root / "custom" / "ai" / "ai.txt",
             """
             [TOPIC_CATALOG]
@@ -249,7 +198,7 @@ class AppContextSelectionStageTest(unittest.TestCase):
             @priority: 2
             """,
         )
-        _write_text(
+        write_text(
             config_root / "custom" / "ai" / "startup.txt",
             """
             [TOPIC_CATALOG]
@@ -272,11 +221,58 @@ class AppContextSelectionStageTest(unittest.TestCase):
         )
         return ctx
 
+    def _make_quality_client(self) -> DeterministicQualityAIClient:
+        return DeterministicQualityAIClient(
+            rules=[
+                {
+                    "contains": ("openai", "agent"),
+                    "keep": True,
+                    "score": 0.96,
+                    "reasons": ["信息增量"],
+                    "evidence": "agent launch",
+                    "matched_topics": ["AI Agents"],
+                },
+                {
+                    "contains": ("github", "open source"),
+                    "keep": True,
+                    "score": 0.91,
+                    "reasons": ["开源发布"],
+                    "evidence": "open source release",
+                    "matched_topics": ["Open Source"],
+                },
+                {
+                    "contains": ("startup", "funding"),
+                    "keep": True,
+                    "score": 0.87,
+                    "reasons": ["创业动态"],
+                    "evidence": "funding",
+                    "matched_topics": ["Startups"],
+                },
+            ],
+            default_decision={
+                "keep": False,
+                "score": 0.1,
+                "reasons": ["低价值"],
+                "evidence": "drop",
+                "matched_topics": [],
+            },
+        )
+
+    def _make_embedding_client(self) -> FakeEmbeddingClient:
+        return FakeEmbeddingClient(
+            groups=[
+                (("agent", "openai"), (1.0, 0.0, 0.0)),
+                (("open source", "github"), (0.0, 1.0, 0.0)),
+                (("startup", "funding"), (0.0, 0.0, 1.0)),
+            ],
+            default_vector=(1.0, 1.0, 1.0),
+        )
+
     def _build_ai_selection_service(self, ctx: AppContext, client) -> SelectionService:
         ai_strategy = AISelectionStrategy(
             storage_manager=ctx.get_storage_manager(),
             client=client,
-            embedding_client=FakeEmbeddingClient(),
+            embedding_client=self._make_embedding_client(),
             filter_config=ctx.ai_filter_config,
             config_root=ctx.config_root,
             sleep_func=lambda _: None,
@@ -302,7 +298,7 @@ class AppContextSelectionStageTest(unittest.TestCase):
                 frequency_file="topics.txt",
             )
 
-            ai_service = self._build_ai_selection_service(ctx, DeterministicQualityAIClient())
+            ai_service = self._build_ai_selection_service(ctx, self._make_quality_client())
             _, ai_selection = ctx.run_selection_stage(
                 mode="current",
                 strategy="ai",
@@ -327,7 +323,7 @@ class AppContextSelectionStageTest(unittest.TestCase):
         ctx = self._create_context(tmpdir)
         try:
             _seed_hotlist(ctx)
-            client = DeterministicQualityAIClient()
+            client = self._make_quality_client()
             ai_service = self._build_ai_selection_service(ctx, client)
 
             _, result = ctx.run_selection_stage(
@@ -353,7 +349,7 @@ class AppContextSelectionStageTest(unittest.TestCase):
         ctx = self._create_context(tmpdir)
         try:
             _seed_hotlist(ctx)
-            ai_service = self._build_ai_selection_service(ctx, DeterministicQualityAIClient())
+            ai_service = self._build_ai_selection_service(ctx, self._make_quality_client())
             _, first_result = ctx.run_selection_stage(
                 mode="current",
                 strategy="ai",

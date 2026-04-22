@@ -1,4 +1,3 @@
-import textwrap
 import unittest
 from pathlib import Path
 from uuid import uuid4
@@ -9,14 +8,10 @@ from newspulse.workflow.render import render_hotlist_stats_html
 from newspulse.workflow.selection.service import SelectionService
 from newspulse.workflow.shared.contracts import HotlistItem, HotlistSnapshot, InsightResult
 from newspulse.workflow.shared.options import SelectionOptions
+from tests.helpers.io import write_text
 
 TEST_TMPDIR = Path("tmp_test_work")
 TEST_TMPDIR.mkdir(exist_ok=True)
-
-
-def _write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(textwrap.dedent(content).strip(), encoding="utf-8")
 
 
 def _make_tmp_dir() -> Path:
@@ -29,7 +24,7 @@ class SelectionServiceTest(unittest.TestCase):
     def test_keyword_selection_filters_blacklisted_items_and_keeps_remaining_candidates(self):
         tmp_root = _make_tmp_dir()
         config_root = tmp_root / "config"
-        _write_text(
+        write_text(
             config_root / "custom" / "keyword" / "selection.txt",
             """
             [GLOBAL_FILTER]
@@ -71,7 +66,7 @@ class SelectionServiceTest(unittest.TestCase):
     def test_keyword_selection_result_feeds_render_with_report_package(self):
         tmp_root = _make_tmp_dir()
         config_root = tmp_root / "config"
-        _write_text(
+        write_text(
             config_root / "custom" / "keyword" / "render.txt",
             """
             [GLOBAL_FILTER]

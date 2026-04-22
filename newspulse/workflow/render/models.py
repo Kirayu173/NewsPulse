@@ -17,7 +17,7 @@ from newspulse.workflow.shared.contracts import (
     SelectionGroup,
     StandaloneSection,
 )
-from newspulse.workflow.shared.scoring import calculate_news_weight
+from newspulse.workflow.shared.scoring import DEFAULT_WEIGHT_CONFIG, calculate_news_weight
 
 
 DEFAULT_RENDER_REGIONS = [
@@ -26,13 +26,6 @@ DEFAULT_RENDER_REGIONS = [
     "standalone",
     "insight",
 ]
-
-DEFAULT_WEIGHT_CONFIG = {
-    "RANK_WEIGHT": 0.6,
-    "FREQUENCY_WEIGHT": 0.3,
-    "HOTNESS_WEIGHT": 0.1,
-}
-
 
 @dataclass(frozen=True)
 class RenderTitleView:

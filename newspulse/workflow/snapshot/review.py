@@ -17,34 +17,17 @@ from zoneinfo import ZoneInfo
 from newspulse.core import load_config
 from newspulse.crawler.fetcher import DataFetcher
 from newspulse.crawler.models import CrawlBatchResult, CrawlSourceSpec
-from newspulse.crawler.source_names import resolve_source_display_name
 from newspulse.storage import NewsData, NormalizedCrawlBatch, StorageManager, normalize_crawl_batch
 from newspulse.utils.time import DEFAULT_TIMEZONE
 from newspulse.workflow.shared.options import SnapshotOptions
+from newspulse.workflow.shared.review_helpers import (
+    REVIEW_FILE_ENCODING,
+    build_source_specs as _build_source_specs,
+    write_review_text as _write_review_text,
+)
 from newspulse.workflow.snapshot import SnapshotService
 
-
-REVIEW_FILE_ENCODING = "utf-8-sig"
 SNAPSHOT_MODES = ("daily", "current", "incremental")
-
-
-def _write_review_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding=REVIEW_FILE_ENCODING)
-
-
-def _build_source_specs(platforms: Sequence[dict]) -> list[CrawlSourceSpec]:
-    return [
-        CrawlSourceSpec(
-            source_id=str(platform["id"]),
-            source_name=resolve_source_display_name(
-                str(platform["id"]),
-                str(platform.get("name", "") or ""),
-            ),
-        )
-        for platform in platforms
-        if platform.get("id")
-    ]
 
 
 def _snapshot_mode_summary(snapshot) -> dict[str, object]:

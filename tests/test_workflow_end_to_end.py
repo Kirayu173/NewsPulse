@@ -1,5 +1,4 @@
 import json
-import textwrap
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -15,19 +14,16 @@ from newspulse.workflow.selection.ai import AISelectionStrategy
 from newspulse.workflow.selection.service import SelectionService
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate
 from newspulse.workflow.shared.contracts import InsightSection
+from tests.helpers.io import write_text
+from tests.helpers.selection import FakeEmbeddingClient
 
 
 def _today_at(ctx: AppContext, time_text: str) -> str:
     return f"{ctx.format_date()} {time_text}"
 
 
-def _write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(textwrap.dedent(content).strip(), encoding="utf-8")
-
-
 def _write_config_files(config_root: Path) -> None:
-    _write_text(
+    write_text(
         config_root / "custom" / "keyword" / "topics.txt",
         """
         [WORD_GROUPS]
@@ -42,14 +38,14 @@ def _write_config_files(config_root: Path) -> None:
         Product Hunt
         """,
     )
-    _write_text(
+    write_text(
         config_root / "custom" / "ai" / "interests.txt",
         """
         AI agents and coding tools
         startup launches
         """,
     )
-    _write_text(
+    write_text(
         config_root / "ai_filter" / "prompt.txt",
         """
         [user]
@@ -61,7 +57,7 @@ def _write_config_files(config_root: Path) -> None:
         {interests_content}
         """,
     )
-    _write_text(
+    write_text(
         config_root / "ai_filter" / "extract_prompt.txt",
         """
         [user]
@@ -69,7 +65,7 @@ def _write_config_files(config_root: Path) -> None:
         {interests_content}
         """,
     )
-    _write_text(
+    write_text(
         config_root / "ai_filter" / "update_tags_prompt.txt",
         """
         [user]
@@ -196,30 +192,6 @@ class RoutingAISelectionClient:
         return json.dumps(results)
 
 
-class FakeEmbeddingClient:
-    class _Config:
-        model = "openai/embedding-test"
-
-    config = _Config()
-
-    def is_enabled(self):
-        return True
-
-    def embed_texts(self, texts, **kwargs):
-        vectors = []
-        for text in texts:
-            lowered = str(text).lower()
-            if "selection focus" in lowered or "ai agents" in lowered or "startup launches" in lowered:
-                vectors.append([1.0, 1.0, 0.0])
-            elif "openai" in lowered or "agent" in lowered:
-                vectors.append([1.0, 0.0, 0.0])
-            elif "startup" in lowered or "productivity" in lowered or "launch" in lowered:
-                vectors.append([0.0, 1.0, 0.0])
-            else:
-                vectors.append([0.0, 0.0, 1.0])
-        return vectors
-
-
 class StubInsightFetcher:
     def fetch_many(self, contexts):
         return [
@@ -296,6 +268,16 @@ class RecordingSender:
 
 
 class NativeWorkflowEndToEndTest(unittest.TestCase):
+    @staticmethod
+    def _build_embedding_client() -> FakeEmbeddingClient:
+        return FakeEmbeddingClient(
+            groups=[
+                (("selection focus", "ai agents", "startup launches"), (1.0, 1.0, 0.0)),
+                (("openai", "agent"), (1.0, 0.0, 0.0)),
+                (("startup", "productivity", "launch"), (0.0, 1.0, 0.0)),
+            ]
+        )
+
     def _create_context(
         self,
         tmp: str,
@@ -396,7 +378,7 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
         ai_strategy = AISelectionStrategy(
             storage_manager=ctx.get_storage_manager(),
             client=RoutingAISelectionClient(),
-            embedding_client=FakeEmbeddingClient(),
+            embedding_client=self._build_embedding_client(),
             filter_config=ctx.ai_filter_config,
             config_root=ctx.config_root,
             sleep_func=lambda _: None,

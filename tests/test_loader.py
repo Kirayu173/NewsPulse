@@ -1,5 +1,4 @@
 import os
-import textwrap
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -8,11 +7,7 @@ from unittest.mock import patch
 from newspulse.core.config_paths import resolve_ai_interests_path
 from newspulse.core.loader import load_config
 from newspulse.workflow.selection.frequency import load_frequency_words
-
-
-def _write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(textwrap.dedent(content).strip(), encoding="utf-8")
+from tests.helpers.io import write_text
 
 
 class LoaderConfigRootTest(unittest.TestCase):
@@ -28,7 +23,7 @@ class LoaderConfigRootTest(unittest.TestCase):
                 "EMB_MODEL=embedding-3\n",
                 encoding="utf-8",
             )
-            _write_text(
+            write_text(
                 config_dir / "config.yaml",
                 """
                 app:
@@ -70,7 +65,7 @@ class LoaderConfigRootTest(unittest.TestCase):
                 "MODEL=openai/parent-model\n",
                 encoding="utf-8",
             )
-            _write_text(
+            write_text(
                 config_dir / "config.yaml",
                 """
                 app:
@@ -100,7 +95,7 @@ class LoaderConfigRootTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             project = Path(tmp)
             config_dir = project / "configs" / "dev"
-            _write_text(
+            write_text(
                 config_dir / "config.yaml",
                 """
                 app:
@@ -114,10 +109,10 @@ class LoaderConfigRootTest(unittest.TestCase):
                   api_base: ""
                 """,
             )
-            _write_text(config_dir / "ai_analysis_prompt.txt", "[user]\nhello")
-            _write_text(config_dir / "ai_filter" / "prompt.txt", "[user]\nclassify")
-            _write_text(config_dir / "ai_filter" / "extract_prompt.txt", "[user]\nextract")
-            _write_text(config_dir / "ai_filter" / "update_tags_prompt.txt", "[user]\nupdate")
+            write_text(config_dir / "ai_analysis_prompt.txt", "[user]\nhello")
+            write_text(config_dir / "ai_filter" / "prompt.txt", "[user]\nclassify")
+            write_text(config_dir / "ai_filter" / "extract_prompt.txt", "[user]\nextract")
+            write_text(config_dir / "ai_filter" / "update_tags_prompt.txt", "[user]\nupdate")
 
             env = {
                 "CONFIG_PATH": "configs/dev/config.yaml",
@@ -148,7 +143,7 @@ class LoaderConfigRootTest(unittest.TestCase):
             workspace = Path(tmp)
             config_dir = workspace / "config"
             config_file = config_dir / "config.yaml"
-            _write_text(
+            write_text(
                 config_file,
                 """
                 app:
@@ -192,7 +187,7 @@ class LoaderConfigRootTest(unittest.TestCase):
             workspace = Path(tmp)
             config_dir = workspace / "config"
             config_file = config_dir / "config.yaml"
-            _write_text(
+            write_text(
                 config_file,
                 """
                 app:
@@ -219,11 +214,11 @@ class LoaderConfigRootTest(unittest.TestCase):
             workspace = Path(tmp)
             config_dir = workspace / "config"
             config_file = config_dir / "config.yaml"
-            _write_text(config_dir / "ai_analysis_prompt.txt", "[user]\nanalysis")
-            _write_text(config_dir / "ai_filter" / "prompt.txt", "[user]\nfilter")
-            _write_text(config_dir / "ai_filter" / "extract_prompt.txt", "[user]\nextract")
-            _write_text(config_dir / "ai_filter" / "update_tags_prompt.txt", "[user]\nupdate")
-            _write_text(
+            write_text(config_dir / "ai_analysis_prompt.txt", "[user]\nanalysis")
+            write_text(config_dir / "ai_filter" / "prompt.txt", "[user]\nfilter")
+            write_text(config_dir / "ai_filter" / "extract_prompt.txt", "[user]\nextract")
+            write_text(config_dir / "ai_filter" / "update_tags_prompt.txt", "[user]\nupdate")
+            write_text(
                 config_file,
                 """
                 app:
@@ -332,7 +327,7 @@ class FrequencyWordsPathTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             project = Path(tmp)
             config_dir = project / "config"
-            _write_text(
+            write_text(
                 config_dir / "custom" / "keyword" / "weekly.txt",
                 """
                 [WORD_GROUPS]
@@ -354,7 +349,7 @@ class FrequencyWordsPathTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             project = Path(tmp)
             config_dir = project / "config"
-            _write_text(config_dir / "ai_interests.txt", "AI agents")
+            write_text(config_dir / "ai_interests.txt", "AI agents")
 
             path = resolve_ai_interests_path(
                 "ai_interests.txt",

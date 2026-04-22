@@ -16,28 +16,11 @@ from typing import Sequence
 from newspulse.core import load_config
 from newspulse.crawler.fetcher import DataFetcher
 from newspulse.crawler.models import CrawlBatchResult, CrawlSourceSpec
-from newspulse.crawler.source_names import resolve_source_display_name
-
-REVIEW_FILE_ENCODING = "utf-8-sig"
-
-
-def _write_review_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding=REVIEW_FILE_ENCODING)
-
-
-def _build_source_specs(platforms: Sequence[dict]) -> list[CrawlSourceSpec]:
-    return [
-        CrawlSourceSpec(
-            source_id=str(platform["id"]),
-            source_name=resolve_source_display_name(
-                str(platform["id"]),
-                str(platform.get("name", "") or ""),
-            ),
-        )
-        for platform in platforms
-        if platform.get("id")
-    ]
+from newspulse.workflow.shared.review_helpers import (
+    REVIEW_FILE_ENCODING,
+    build_source_specs as _build_source_specs,
+    write_review_text as _write_review_text,
+)
 
 
 def _build_crawl_review_markdown(

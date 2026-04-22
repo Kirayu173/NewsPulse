@@ -1,5 +1,4 @@
 ﻿import json
-import textwrap
 import unittest
 from pathlib import Path
 from uuid import uuid4
@@ -12,14 +11,11 @@ from newspulse.workflow.selection.semantic import SemanticSelectionLayer
 from newspulse.workflow.shared.contracts import HotlistItem
 from newspulse.workflow.shared.options import SelectionAIOptions, SelectionOptions, SelectionSemanticOptions, SnapshotOptions
 from newspulse.workflow.snapshot.service import SnapshotService
+from tests.helpers.io import write_text
+from tests.helpers.selection import FakeEmbeddingClient
 
 TEST_TMPDIR = Path('tmp_test_work')
 TEST_TMPDIR.mkdir(exist_ok=True)
-
-
-def _write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(textwrap.dedent(content).strip(), encoding='utf-8')
 
 
 def _make_tmp_dir() -> Path:
@@ -29,7 +25,7 @@ def _make_tmp_dir() -> Path:
 
 
 def _write_test_ai_config(config_root: Path) -> None:
-    _write_text(
+    write_text(
         config_root / 'ai_filter' / 'prompt.txt',
         '''
         [user]
@@ -112,28 +108,6 @@ def _build_snapshot(storage: LocalStorageBackend):
         platform_names={'hackernews': 'Hacker News'},
     )
     return service.build(SnapshotOptions(mode='current'))
-
-
-class FakeEmbeddingClient:
-    class _Config:
-        model = 'openai/embedding-test'
-
-    config = _Config()
-
-    def is_enabled(self):
-        return True
-
-    def embed_texts(self, texts, **kwargs):
-        vectors = []
-        for text in texts:
-            lowered = str(text).lower()
-            if 'ai agents' in lowered or 'coding agent' in lowered or 'openai' in lowered:
-                vectors.append([1.0, 0.0, 0.0])
-            elif 'open source' in lowered or 'github' in lowered:
-                vectors.append([0.0, 1.0, 0.0])
-            else:
-                vectors.append([0.0, 0.0, 1.0])
-        return vectors
 
 
 class QualityGateAIClient:
@@ -233,7 +207,7 @@ class SemanticAISelectionIntegrationTest(unittest.TestCase):
         tmp_root = _make_tmp_dir()
         config_root = tmp_root / 'config'
         _write_test_ai_config(config_root)
-        _write_text(
+        write_text(
             config_root / 'custom' / 'ai' / 'unit.txt',
             '''
             [TOPIC_CATALOG]

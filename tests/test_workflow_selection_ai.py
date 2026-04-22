@@ -1,5 +1,4 @@
 import json
-import textwrap
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +14,8 @@ from newspulse.workflow.shared.contracts import HotlistItem
 from newspulse.workflow.selection.service import SelectionService
 from newspulse.workflow.shared.options import SelectionAIOptions, SelectionOptions, SelectionSemanticOptions, SnapshotOptions
 from newspulse.workflow.snapshot.service import SnapshotService
+from tests.helpers.io import write_text
+from tests.helpers.selection import DeterministicQualityAIClient, FakeEmbeddingClient
 
 TEST_TMPDIR = Path("tmp_test_work")
 TEST_TMPDIR.mkdir(exist_ok=True)
@@ -31,11 +32,6 @@ def _today_at(time_text: str) -> str:
     return f"{_today_str()} {time_text}"
 
 
-def _write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(textwrap.dedent(content).strip(), encoding="utf-8")
-
-
 def _make_tmp_dir() -> Path:
     path = TEST_TMPDIR / f"case-{uuid4().hex}"
     path.mkdir(parents=True, exist_ok=True)
@@ -43,7 +39,7 @@ def _make_tmp_dir() -> Path:
 
 
 def _write_test_ai_config(config_root: Path) -> None:
-    _write_text(
+    write_text(
         config_root / "ai_filter" / "prompt.txt",
         """
         [user]
@@ -130,54 +126,6 @@ def _build_snapshot(storage: LocalStorageBackend):
     return service.build(SnapshotOptions(mode="current"))
 
 
-class DeterministicQualityAIClient:
-    def __init__(self):
-        self.classify_calls = 0
-
-    def chat(self, messages, **kwargs):
-        self.classify_calls += 1
-        user_content = messages[-1]["content"]
-        results = []
-        for line in user_content.splitlines():
-            if not line[:1].isdigit() or ". [" not in line:
-                continue
-            prompt_id = int(line.split(".", 1)[0])
-            if "OpenAI launches" in line:
-                results.append(
-                    {
-                        "id": prompt_id,
-                        "keep": True,
-                        "score": 0.95,
-                        "reasons": ["有信息增量", "代理工具发布"],
-                        "evidence": "OpenAI coding agent 属于值得分析的产品动态",
-                        "matched_topics": ["AI Agent / MCP"],
-                    }
-                )
-            elif "GitHub ships" in line:
-                results.append(
-                    {
-                        "id": prompt_id,
-                        "keep": True,
-                        "score": 0.82,
-                        "reasons": ["开源工具发布"],
-                        "evidence": "开源 CLI 更新具备一定讨论价值",
-                        "matched_topics": ["开源发布 / GitHub / HN"],
-                    }
-                )
-            else:
-                results.append(
-                    {
-                        "id": prompt_id,
-                        "keep": False,
-                        "score": 0.12,
-                        "reasons": ["低价值教程"],
-                        "evidence": "与深度分析目标不匹配",
-                        "matched_topics": [],
-                    }
-                )
-        return json.dumps(results)
-
-
 class SplitFallbackAIClient:
     def __init__(self):
         self.calls = []
@@ -225,28 +173,6 @@ class EmptyResponseAIClient:
         return ""
 
 
-class FakeEmbeddingClient:
-    class _Config:
-        model = "openai/embedding-test"
-
-    config = _Config()
-
-    def is_enabled(self):
-        return True
-
-    def embed_texts(self, texts, **kwargs):
-        vectors = []
-        for text in texts:
-            lowered = str(text).lower()
-            if "agent" in lowered or "openai" in lowered:
-                vectors.append([1.0, 0.0, 0.0])
-            elif "open source" in lowered or "github" in lowered:
-                vectors.append([0.0, 1.0, 0.0])
-            else:
-                vectors.append([0.0, 0.0, 1.0])
-        return vectors
-
-
 class DummyStorage:
     def begin_batch(self):
         pass
@@ -260,7 +186,7 @@ class AISelectionStrategyTest(unittest.TestCase):
         tmp_root = _make_tmp_dir()
         config_root = tmp_root / "config"
         _write_test_ai_config(config_root)
-        _write_text(
+        write_text(
             config_root / "custom" / "ai" / "unit.txt",
             """
             [TOPIC_CATALOG]
@@ -278,7 +204,7 @@ class AISelectionStrategyTest(unittest.TestCase):
             @priority: 2
             """,
         )
-        _write_text(
+        write_text(
             config_root / "custom" / "keyword" / "selection.txt",
             """
             [GLOBAL_FILTER]
@@ -447,7 +373,7 @@ class AISelectionStrategyTest(unittest.TestCase):
         tmp_root = _make_tmp_dir()
         config_root = tmp_root / "config"
         _write_test_ai_config(config_root)
-        _write_text(
+        write_text(
             config_root / "custom" / "ai" / "catalog.txt",
             """
             [TOPIC_CATALOG]
@@ -504,7 +430,7 @@ class AISelectionStrategyTest(unittest.TestCase):
         tmp_root = _make_tmp_dir()
         config_root = tmp_root / "config"
         _write_test_ai_config(config_root)
-        _write_text(config_root / "custom" / "ai" / "unit.txt", "AI agents")
+        write_text(config_root / "custom" / "ai" / "unit.txt", "AI agents")
 
         storage = _build_storage(str(tmp_root))
         try:
@@ -540,7 +466,7 @@ class AISelectionStrategyTest(unittest.TestCase):
         tmp_root = _make_tmp_dir()
         config_root = tmp_root / "config"
         _write_test_ai_config(config_root)
-        _write_text(config_root / "custom" / "ai" / "unit.txt", "AI agents")
+        write_text(config_root / "custom" / "ai" / "unit.txt", "AI agents")
 
         storage = _build_storage(str(tmp_root))
         try:
