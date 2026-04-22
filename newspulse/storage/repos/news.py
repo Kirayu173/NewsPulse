@@ -30,6 +30,22 @@ class _PreparedNewsItem:
     metadata: Dict[str, Any]
 
 
+@dataclass
+class _PreparedCrawlBatch:
+    success_sources: list[str]
+    current_urls_by_source: dict[str, set[str]]
+    prepared_url_items: dict[tuple[str, str], _PreparedNewsItem]
+    prepared_no_url_items: list[_PreparedNewsItem]
+
+
+@dataclass
+class _PersistenceMutationRows:
+    update_rows: list[tuple[Any, ...]]
+    insert_rows: list[tuple[Any, ...]]
+    title_change_rows: list[tuple[Any, ...]]
+    rank_history_rows: list[tuple[Any, ...]]
+
+
 class NewsRepository(SQLiteRepositoryBase):
     def detect_new_titles(self, current_data: NewsData) -> Dict[str, Dict]:
         return self._detect_new_titles_impl(current_data)
@@ -234,241 +250,26 @@ class NewsRepository(SQLiteRepositoryBase):
             cursor = conn.cursor()
 
             now_str = self._get_configured_time().strftime("%Y-%m-%d %H:%M:%S")
-
-            for source in batch.sources:
-                self._sync_platform(cursor, source.source_id, source.source_name, now_str)
-            for failure in batch.failures:
-                self._sync_platform(cursor, failure.source_id, failure.source_name, now_str)
-
-            new_count = 0
-            updated_count = 0
-            title_changed_count = 0
-            success_sources: list[str] = []
-            current_urls_by_source: dict[str, set[str]] = {}
-            prepared_url_items: dict[tuple[str, str], _PreparedNewsItem] = {}
-            prepared_no_url_items: list[_PreparedNewsItem] = []
-
-            for source in batch.sources:
-                source_id = source.source_id
-                success_sources.append(source_id)
-                source_urls = current_urls_by_source.setdefault(source_id, set())
-
-                for item in source.items:
-                    normalized_url = normalize_url(item.url, source_id) if item.url else ""
-                    prepared_item = _PreparedNewsItem(
-                        source_id=source_id,
-                        title=item.title,
-                        rank=item.rank,
-                        url=normalized_url,
-                        mobile_url=item.mobile_url,
-                        summary=item.summary,
-                        metadata=dict(item.metadata or {}),
-                    )
-                    if normalized_url:
-                        source_urls.add(normalized_url)
-                        prepared_url_items[(source_id, normalized_url)] = prepared_item
-                    else:
-                        prepared_no_url_items.append(prepared_item)
-
-            existing_by_key = self._load_existing_news_items(cursor, set(prepared_url_items))
-
-            update_rows: list[tuple[Any, ...]] = []
-            insert_rows: list[tuple[Any, ...]] = []
-            title_change_rows: list[tuple[Any, ...]] = []
-            rank_history_rows: list[tuple[Any, ...]] = []
-
-            for key, item in prepared_url_items.items():
-                existing = existing_by_key.get(key)
-                if existing is None:
-                    insert_rows.append(
-                        (
-                            item.title,
-                            item.source_id,
-                            item.rank,
-                            item.url,
-                            item.mobile_url,
-                            item.summary,
-                            _serialize_source_metadata(item.metadata),
-                            batch.crawl_time,
-                            batch.crawl_time,
-                            now_str,
-                            now_str,
-                        )
-                    )
-                    continue
-
-                existing_id = int(existing["id"])
-                existing_title = str(existing["title"] or "")
-                merged_summary = item.summary or str(existing["summary"] or "")
-                merged_metadata = _merge_source_metadata(
-                    _deserialize_source_metadata(existing["source_metadata_json"]),
-                    item.metadata,
-                )
-                if existing_title != item.title:
-                    title_change_rows.append((existing_id, existing_title, item.title, now_str))
-
-                update_rows.append(
-                    (
-                        item.title,
-                        item.rank,
-                        item.mobile_url,
-                        merged_summary,
-                        _serialize_source_metadata(merged_metadata),
-                        batch.crawl_time,
-                        now_str,
-                        existing_id,
-                    )
-                )
-                rank_history_rows.append((existing_id, item.rank, batch.crawl_time, now_str))
-
-            if update_rows:
-                cursor.executemany(
-                    """
-                    UPDATE news_items SET
-                        title = ?,
-                        rank = ?,
-                        mobile_url = ?,
-                        summary = ?,
-                        source_metadata_json = ?,
-                        last_crawl_time = ?,
-                        crawl_count = crawl_count + 1,
-                        updated_at = ?
-                    WHERE id = ?
-                    """,
-                    update_rows,
-                )
-                updated_count = len(update_rows)
-
-            if title_change_rows:
-                cursor.executemany(
-                    """
-                    INSERT INTO title_changes
-                    (news_item_id, old_title, new_title, changed_at)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    title_change_rows,
-                )
-                title_changed_count = len(title_change_rows)
-
-            inserted_items = self._bulk_insert_news_items(cursor, insert_rows)
-            new_count += len(inserted_items)
-            rank_history_rows.extend(
-                (news_id, rank, batch.crawl_time, now_str)
-                for news_id, rank in inserted_items
+            self._sync_batch_platforms(cursor, batch, now_str)
+            prepared_batch = self._prepare_crawl_batch(batch)
+            mutation_rows = self._build_mutation_rows(cursor, batch, prepared_batch, now_str)
+            new_count, updated_count, title_changed_count = self._apply_mutation_rows(
+                cursor,
+                batch,
+                prepared_batch,
+                mutation_rows,
+                now_str,
             )
-
-            no_url_insert_rows = [
-                (
-                    item.title,
-                    item.source_id,
-                    item.rank,
-                    "",
-                    item.mobile_url,
-                    item.summary,
-                    _serialize_source_metadata(item.metadata),
-                    batch.crawl_time,
-                    batch.crawl_time,
-                    now_str,
-                    now_str,
-                )
-                for item in prepared_no_url_items
-            ]
-            no_url_inserted_items = self._bulk_insert_news_items(cursor, no_url_insert_rows)
-            new_count += len(no_url_inserted_items)
-            rank_history_rows.extend(
-                (news_id, rank, batch.crawl_time, now_str)
-                for news_id, rank in no_url_inserted_items
+            off_list_count = self._append_off_list_rank_rows(
+                cursor,
+                batch,
+                prepared_batch,
+                mutation_rows.rank_history_rows,
+                now_str,
             )
-
+            self._persist_rank_history(cursor, mutation_rows.rank_history_rows)
             total_items = new_count + updated_count
-
-            off_list_count = 0
-
-            cursor.execute(
-                """
-                SELECT crawl_time FROM crawl_records
-                WHERE crawl_time < ?
-                ORDER BY crawl_time DESC
-                LIMIT 1
-                """,
-                (batch.crawl_time,),
-            )
-            prev_record = cursor.fetchone()
-
-            if prev_record:
-                prev_crawl_time = prev_record[0]
-                previous_rows = self._load_previous_source_rows(cursor, prev_crawl_time, success_sources)
-                for news_id, source_id, url in previous_rows:
-                    if not url or url in current_urls_by_source.get(source_id, set()):
-                        continue
-                    rank_history_rows.append((news_id, 0, batch.crawl_time, now_str))
-                    off_list_count += 1
-
-            if rank_history_rows:
-                cursor.executemany(
-                    """
-                    INSERT INTO rank_history
-                    (news_item_id, rank, crawl_time, created_at)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    rank_history_rows,
-                )
-
-            cursor.execute(
-                """
-                INSERT OR REPLACE INTO crawl_records
-                (crawl_time, total_items, created_at)
-                VALUES (?, ?, ?)
-                """,
-                (batch.crawl_time, total_items, now_str),
-            )
-
-            cursor.execute(
-                """
-                SELECT id FROM crawl_records WHERE crawl_time = ?
-                """,
-                (batch.crawl_time,),
-            )
-            record_row = cursor.fetchone()
-            if record_row:
-                crawl_record_id = record_row[0]
-
-                status_rows = [(crawl_record_id, source_id, "success") for source_id in success_sources]
-                status_rows.extend((crawl_record_id, failure.source_id, "failed") for failure in batch.failures)
-                if status_rows:
-                    cursor.executemany(
-                        """
-                        INSERT OR REPLACE INTO crawl_source_status
-                        (crawl_record_id, platform_id, status)
-                        VALUES (?, ?, ?)
-                        """,
-                        status_rows,
-                    )
-
-                failure_rows = [
-                    (
-                        crawl_record_id,
-                        failure.source_id,
-                        failure.resolved_source_id or failure.source_id,
-                        failure.exception_type,
-                        failure.message,
-                        failure.attempts,
-                        1 if failure.retryable else 0,
-                        now_str,
-                    )
-                    for failure in batch.failures
-                ]
-                if failure_rows:
-                    cursor.executemany(
-                        """
-                        INSERT OR REPLACE INTO crawl_source_failures
-                        (crawl_record_id, platform_id, resolved_source_id, exception_type,
-                         message, attempts, retryable, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        failure_rows,
-                    )
-
+            self._persist_crawl_batch_metadata(cursor, batch, prepared_batch.success_sources, total_items, now_str)
             conn.commit()
 
             return True, new_count, updated_count, title_changed_count, off_list_count
@@ -476,6 +277,364 @@ class NewsRepository(SQLiteRepositoryBase):
         except Exception:
             logger.exception("%s ????", log_prefix)
             return False, 0, 0, 0, 0
+
+    def _sync_batch_platforms(
+        self,
+        cursor: sqlite3.Cursor,
+        batch: NormalizedCrawlBatch,
+        now_str: str,
+    ) -> None:
+        for source in batch.sources:
+            self._sync_platform(cursor, source.source_id, source.source_name, now_str)
+        for failure in batch.failures:
+            self._sync_platform(cursor, failure.source_id, failure.source_name, now_str)
+
+    def _prepare_crawl_batch(self, batch: NormalizedCrawlBatch) -> _PreparedCrawlBatch:
+        success_sources: list[str] = []
+        current_urls_by_source: dict[str, set[str]] = {}
+        prepared_url_items: dict[tuple[str, str], _PreparedNewsItem] = {}
+        prepared_no_url_items: list[_PreparedNewsItem] = []
+
+        for source in batch.sources:
+            source_id = source.source_id
+            success_sources.append(source_id)
+            source_urls = current_urls_by_source.setdefault(source_id, set())
+
+            for item in source.items:
+                normalized_url = normalize_url(item.url, source_id) if item.url else ""
+                prepared_item = _PreparedNewsItem(
+                    source_id=source_id,
+                    title=item.title,
+                    rank=item.rank,
+                    url=normalized_url,
+                    mobile_url=item.mobile_url,
+                    summary=item.summary,
+                    metadata=dict(item.metadata or {}),
+                )
+                if normalized_url:
+                    source_urls.add(normalized_url)
+                    prepared_url_items[(source_id, normalized_url)] = prepared_item
+                else:
+                    prepared_no_url_items.append(prepared_item)
+
+        return _PreparedCrawlBatch(
+            success_sources=success_sources,
+            current_urls_by_source=current_urls_by_source,
+            prepared_url_items=prepared_url_items,
+            prepared_no_url_items=prepared_no_url_items,
+        )
+
+    def _build_mutation_rows(
+        self,
+        cursor: sqlite3.Cursor,
+        batch: NormalizedCrawlBatch,
+        prepared_batch: _PreparedCrawlBatch,
+        now_str: str,
+    ) -> _PersistenceMutationRows:
+        existing_by_key = self._load_existing_news_items(cursor, set(prepared_batch.prepared_url_items))
+        update_rows: list[tuple[Any, ...]] = []
+        insert_rows: list[tuple[Any, ...]] = []
+        title_change_rows: list[tuple[Any, ...]] = []
+        rank_history_rows: list[tuple[Any, ...]] = []
+
+        for key, item in prepared_batch.prepared_url_items.items():
+            existing = existing_by_key.get(key)
+            if existing is None:
+                insert_rows.append(self._build_insert_row(item, batch.crawl_time, now_str))
+                continue
+
+            existing_id = int(existing["id"])
+            existing_title = str(existing["title"] or "")
+            merged_summary = item.summary or str(existing["summary"] or "")
+            merged_metadata = _merge_source_metadata(
+                _deserialize_source_metadata(existing["source_metadata_json"]),
+                item.metadata,
+            )
+            if existing_title != item.title:
+                title_change_rows.append((existing_id, existing_title, item.title, now_str))
+
+            update_rows.append(
+                (
+                    item.title,
+                    item.rank,
+                    item.mobile_url,
+                    merged_summary,
+                    _serialize_source_metadata(merged_metadata),
+                    batch.crawl_time,
+                    now_str,
+                    existing_id,
+                )
+            )
+            rank_history_rows.append((existing_id, item.rank, batch.crawl_time, now_str))
+
+        return _PersistenceMutationRows(
+            update_rows=update_rows,
+            insert_rows=insert_rows,
+            title_change_rows=title_change_rows,
+            rank_history_rows=rank_history_rows,
+        )
+
+    def _build_insert_row(
+        self,
+        item: _PreparedNewsItem,
+        crawl_time: str,
+        now_str: str,
+        *,
+        url_override: Optional[str] = None,
+    ) -> tuple[Any, ...]:
+        return (
+            item.title,
+            item.source_id,
+            item.rank,
+            item.url if url_override is None else url_override,
+            item.mobile_url,
+            item.summary,
+            _serialize_source_metadata(item.metadata),
+            crawl_time,
+            crawl_time,
+            now_str,
+            now_str,
+        )
+
+    def _apply_mutation_rows(
+        self,
+        cursor: sqlite3.Cursor,
+        batch: NormalizedCrawlBatch,
+        prepared_batch: _PreparedCrawlBatch,
+        mutation_rows: _PersistenceMutationRows,
+        now_str: str,
+    ) -> tuple[int, int, int]:
+        updated_count = self._apply_news_item_updates(cursor, mutation_rows.update_rows)
+        title_changed_count = self._persist_title_changes(cursor, mutation_rows.title_change_rows)
+        new_count = self._insert_new_items(
+            cursor,
+            mutation_rows.insert_rows,
+            mutation_rows.rank_history_rows,
+            batch.crawl_time,
+            now_str,
+        )
+        new_count += self._insert_no_url_items(
+            cursor,
+            prepared_batch.prepared_no_url_items,
+            mutation_rows.rank_history_rows,
+            batch.crawl_time,
+            now_str,
+        )
+        return new_count, updated_count, title_changed_count
+
+    def _apply_news_item_updates(
+        self,
+        cursor: sqlite3.Cursor,
+        update_rows: list[tuple[Any, ...]],
+    ) -> int:
+        if not update_rows:
+            return 0
+
+        cursor.executemany(
+            """
+            UPDATE news_items SET
+                title = ?,
+                rank = ?,
+                mobile_url = ?,
+                summary = ?,
+                source_metadata_json = ?,
+                last_crawl_time = ?,
+                crawl_count = crawl_count + 1,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            update_rows,
+        )
+        return len(update_rows)
+
+    def _persist_title_changes(
+        self,
+        cursor: sqlite3.Cursor,
+        title_change_rows: list[tuple[Any, ...]],
+    ) -> int:
+        if not title_change_rows:
+            return 0
+
+        cursor.executemany(
+            """
+            INSERT INTO title_changes
+            (news_item_id, old_title, new_title, changed_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            title_change_rows,
+        )
+        return len(title_change_rows)
+
+    def _insert_new_items(
+        self,
+        cursor: sqlite3.Cursor,
+        insert_rows: list[tuple[Any, ...]],
+        rank_history_rows: list[tuple[Any, ...]],
+        crawl_time: str,
+        now_str: str,
+    ) -> int:
+        inserted_items = self._bulk_insert_news_items(cursor, insert_rows)
+        rank_history_rows.extend((news_id, rank, crawl_time, now_str) for news_id, rank in inserted_items)
+        return len(inserted_items)
+
+    def _insert_no_url_items(
+        self,
+        cursor: sqlite3.Cursor,
+        prepared_no_url_items: list[_PreparedNewsItem],
+        rank_history_rows: list[tuple[Any, ...]],
+        crawl_time: str,
+        now_str: str,
+    ) -> int:
+        no_url_insert_rows = [
+            self._build_insert_row(item, crawl_time, now_str, url_override="")
+            for item in prepared_no_url_items
+        ]
+        inserted_items = self._bulk_insert_news_items(cursor, no_url_insert_rows)
+        rank_history_rows.extend((news_id, rank, crawl_time, now_str) for news_id, rank in inserted_items)
+        return len(inserted_items)
+
+    def _append_off_list_rank_rows(
+        self,
+        cursor: sqlite3.Cursor,
+        batch: NormalizedCrawlBatch,
+        prepared_batch: _PreparedCrawlBatch,
+        rank_history_rows: list[tuple[Any, ...]],
+        now_str: str,
+    ) -> int:
+        previous_crawl_time = self._load_previous_crawl_time(cursor, batch.crawl_time)
+        if not previous_crawl_time:
+            return 0
+
+        off_list_count = 0
+        previous_rows = self._load_previous_source_rows(cursor, previous_crawl_time, prepared_batch.success_sources)
+        for news_id, source_id, url in previous_rows:
+            if not url or url in prepared_batch.current_urls_by_source.get(source_id, set()):
+                continue
+            rank_history_rows.append((news_id, 0, batch.crawl_time, now_str))
+            off_list_count += 1
+        return off_list_count
+
+    def _load_previous_crawl_time(
+        self,
+        cursor: sqlite3.Cursor,
+        crawl_time: str,
+    ) -> Optional[str]:
+        cursor.execute(
+            """
+            SELECT crawl_time FROM crawl_records
+            WHERE crawl_time < ?
+            ORDER BY crawl_time DESC
+            LIMIT 1
+            """,
+            (crawl_time,),
+        )
+        prev_record = cursor.fetchone()
+        if prev_record:
+            return str(prev_record[0])
+        return None
+
+    def _persist_rank_history(
+        self,
+        cursor: sqlite3.Cursor,
+        rank_history_rows: list[tuple[Any, ...]],
+    ) -> None:
+        if not rank_history_rows:
+            return
+
+        cursor.executemany(
+            """
+            INSERT INTO rank_history
+            (news_item_id, rank, crawl_time, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            rank_history_rows,
+        )
+
+    def _persist_crawl_batch_metadata(
+        self,
+        cursor: sqlite3.Cursor,
+        batch: NormalizedCrawlBatch,
+        success_sources: list[str],
+        total_items: int,
+        now_str: str,
+    ) -> None:
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO crawl_records
+            (crawl_time, total_items, created_at)
+            VALUES (?, ?, ?)
+            """,
+            (batch.crawl_time, total_items, now_str),
+        )
+
+        cursor.execute(
+            """
+            SELECT id FROM crawl_records WHERE crawl_time = ?
+            """,
+            (batch.crawl_time,),
+        )
+        record_row = cursor.fetchone()
+        if not record_row:
+            return
+
+        crawl_record_id = record_row[0]
+        self._persist_source_status_rows(cursor, crawl_record_id, success_sources, batch)
+        self._persist_source_failure_rows(cursor, crawl_record_id, batch.failures, now_str)
+
+    def _persist_source_status_rows(
+        self,
+        cursor: sqlite3.Cursor,
+        crawl_record_id: int,
+        success_sources: list[str],
+        batch: NormalizedCrawlBatch,
+    ) -> None:
+        status_rows = [(crawl_record_id, source_id, "success") for source_id in success_sources]
+        status_rows.extend((crawl_record_id, failure.source_id, "failed") for failure in batch.failures)
+        if not status_rows:
+            return
+
+        cursor.executemany(
+            """
+            INSERT OR REPLACE INTO crawl_source_status
+            (crawl_record_id, platform_id, status)
+            VALUES (?, ?, ?)
+            """,
+            status_rows,
+        )
+
+    def _persist_source_failure_rows(
+        self,
+        cursor: sqlite3.Cursor,
+        crawl_record_id: int,
+        failures: list[SourceFailureRecord],
+        now_str: str,
+    ) -> None:
+        failure_rows = [
+            (
+                crawl_record_id,
+                failure.source_id,
+                failure.resolved_source_id or failure.source_id,
+                failure.exception_type,
+                failure.message,
+                failure.attempts,
+                1 if failure.retryable else 0,
+                now_str,
+            )
+            for failure in failures
+        ]
+        if not failure_rows:
+            return
+
+        cursor.executemany(
+            """
+            INSERT OR REPLACE INTO crawl_source_failures
+            (crawl_record_id, platform_id, resolved_source_id, exception_type,
+             message, attempts, retryable, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            failure_rows,
+        )
+
     def _load_existing_news_items(
         self,
         cursor: sqlite3.Cursor,
