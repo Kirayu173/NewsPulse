@@ -24,8 +24,8 @@ from newspulse.workflow.selection.context_builder import build_selection_context
 from newspulse.workflow.shared.contracts import HotlistItem, HotlistSnapshot, SelectionRejectedItem, SelectionResult
 from newspulse.workflow.shared.options import SnapshotOptions
 from newspulse.workflow.shared.review_helpers import (
+    ReviewOutboxWriter as _ReviewOutboxWriter,
     build_source_specs as _build_source_specs,
-    write_review_text as _write_review_text,
 )
 
 def _snapshot_summary(snapshot: HotlistSnapshot) -> dict[str, object]:
@@ -568,8 +568,7 @@ def export_selection_outbox(
     ai_skip_reason: str,
     run_log: str,
 ) -> dict[str, object]:
-    outbox_path = Path(outbox_dir)
-    outbox_path.mkdir(parents=True, exist_ok=True)
+    outbox = _ReviewOutboxWriter(outbox_dir)
     config_path_obj = Path(config_path)
     storage_path = Path(storage_data_dir)
     item_index = _build_selection_item_index(
@@ -602,59 +601,35 @@ def export_selection_outbox(
         ),
     }
 
-    _write_review_text(
-        outbox_path / "stage4_snapshot.json",
-        json.dumps(
-            {"summary": summary, "snapshot": asdict(snapshot)},
-            ensure_ascii=False,
-            indent=2,
-        ),
+    outbox.write_stage_json(
+        "stage4_snapshot.json",
+        summary=summary,
+        snapshot=asdict(snapshot),
     )
-    _write_review_text(
-        outbox_path / "stage4_selection_keyword.json",
-        json.dumps(
-            {"summary": summary, "selection": asdict(keyword_selection)},
-            ensure_ascii=False,
-            indent=2,
-        ),
+    outbox.write_stage_json(
+        "stage4_selection_keyword.json",
+        summary=summary,
+        selection=asdict(keyword_selection),
     )
-    _write_review_text(
-        outbox_path / "stage4_selection_semantic.json",
-        json.dumps(
-            {
-                "summary": summary,
-                "semantic": semantic_payload,
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
+    outbox.write_stage_json(
+        "stage4_selection_semantic.json",
+        summary=summary,
+        semantic=semantic_payload,
     )
-    _write_review_text(
-        outbox_path / "stage4_selection_ai.json",
-        json.dumps(
-            {
-                "summary": summary,
-                "selection": asdict(ai_selection) if ai_selection is not None else None,
-                "skipped": ai_selection is None,
-                "reason": ai_skip_reason,
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
+    outbox.write_stage_json(
+        "stage4_selection_ai.json",
+        summary=summary,
+        selection=asdict(ai_selection) if ai_selection is not None else None,
+        skipped=ai_selection is None,
+        reason=ai_skip_reason,
     )
-    _write_review_text(
-        outbox_path / "stage4_selection_llm.json",
-        json.dumps(
-            {
-                "summary": summary,
-                "llm": llm_payload,
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
+    outbox.write_stage_json(
+        "stage4_selection_llm.json",
+        summary=summary,
+        llm=llm_payload,
     )
-    _write_review_text(
-        outbox_path / "stage4_selection_review.md",
+    outbox.write_markdown(
+        "stage4_selection_review.md",
         _build_selection_review_markdown(
             generated_at=generated_at,
             config_path=config_path_obj,
@@ -667,7 +642,7 @@ def export_selection_outbox(
             llm_payload=llm_payload,
         ),
     )
-    _write_review_text(outbox_path / "stage4_selection_run.log", run_log)
+    outbox.write_log("stage4_selection_run.log", run_log)
     return summary
 
 

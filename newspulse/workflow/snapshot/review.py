@@ -22,8 +22,8 @@ from newspulse.storage import NewsData, NormalizedCrawlBatch, StorageManager, no
 from newspulse.utils.time import DEFAULT_TIMEZONE
 from newspulse.workflow.shared.options import SnapshotOptions
 from newspulse.workflow.shared.review_helpers import (
+    ReviewOutboxWriter as _ReviewOutboxWriter,
     build_source_specs as _build_source_specs,
-    write_review_text as _write_review_text,
 )
 from newspulse.workflow.snapshot import SnapshotService
 
@@ -113,8 +113,7 @@ def export_snapshot_outbox(
     snapshots: dict[str, object],
     run_log: str,
 ) -> dict[str, object]:
-    outbox_path = Path(outbox_dir)
-    outbox_path.mkdir(parents=True, exist_ok=True)
+    outbox = _ReviewOutboxWriter(outbox_dir)
     config_path_obj = Path(config_path)
     storage_path = Path(storage_data_dir)
 
@@ -148,34 +147,30 @@ def export_snapshot_outbox(
         },
     }
 
-    _write_review_text(
-        outbox_path / "stage3_crawl_batch.json",
-        json.dumps({"summary": summary, "batch": asdict(crawl_batch)}, ensure_ascii=False, indent=2),
+    outbox.write_stage_json(
+        "stage3_crawl_batch.json",
+        summary=summary,
+        batch=asdict(crawl_batch),
     )
-    _write_review_text(
-        outbox_path / "stage3_normalized_batch.json",
-        json.dumps({"summary": summary, "batch": normalized_batch.to_dict()}, ensure_ascii=False, indent=2),
+    outbox.write_stage_json(
+        "stage3_normalized_batch.json",
+        summary=summary,
+        batch=normalized_batch.to_dict(),
     )
-    _write_review_text(
-        outbox_path / "stage3_latest_news_data.json",
-        json.dumps(
-            {"summary": summary, "latest": latest_data.to_dict() if latest_data else None},
-            ensure_ascii=False,
-            indent=2,
-        ),
+    outbox.write_stage_json(
+        "stage3_latest_news_data.json",
+        summary=summary,
+        latest=latest_data.to_dict() if latest_data else None,
     )
     for mode, snapshot in snapshots.items():
-        _write_review_text(
-            outbox_path / f"stage3_snapshot_{mode}.json",
-            json.dumps(
-                {"summary": summary, "snapshot": asdict(snapshot)},
-                ensure_ascii=False,
-                indent=2,
-            ),
+        outbox.write_stage_json(
+            f"stage3_snapshot_{mode}.json",
+            summary=summary,
+            snapshot=asdict(snapshot),
         )
 
-    _write_review_text(
-        outbox_path / "stage3_snapshot_review.md",
+    outbox.write_markdown(
+        "stage3_snapshot_review.md",
         _build_snapshot_review_markdown(
             generated_at=generated_at,
             config_path=config_path_obj,
@@ -188,7 +183,7 @@ def export_snapshot_outbox(
             snapshots=snapshots,
         ),
     )
-    _write_review_text(outbox_path / "stage3_snapshot_run.log", run_log)
+    outbox.write_log("stage3_snapshot_run.log", run_log)
     return summary
 
 

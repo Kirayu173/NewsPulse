@@ -20,8 +20,8 @@ from newspulse.crawler.models import CrawlBatchResult, CrawlSourceSpec
 from newspulse.storage import NewsData, NormalizedCrawlBatch, StorageManager, normalize_crawl_batch
 from newspulse.utils.time import DEFAULT_TIMEZONE
 from newspulse.workflow.shared.review_helpers import (
+    ReviewOutboxWriter as _ReviewOutboxWriter,
     build_source_specs as _build_source_specs,
-    write_review_text as _write_review_text,
 )
 
 def _build_stage2_review_markdown(
@@ -139,8 +139,7 @@ def export_stage2_outbox(
     latest_data: NewsData | None,
     run_log: str,
 ) -> dict[str, object]:
-    outbox_path = Path(outbox_dir)
-    outbox_path.mkdir(parents=True, exist_ok=True)
+    outbox = _ReviewOutboxWriter(outbox_dir)
     config_path_obj = Path(config_path)
     storage_path = Path(storage_data_dir)
 
@@ -176,32 +175,23 @@ def export_stage2_outbox(
         },
     }
 
-    _write_review_text(
-        outbox_path / "stage2_crawl_batch.json",
-        json.dumps(
-            {"summary": summary, "batch": asdict(crawl_batch)},
-            ensure_ascii=False,
-            indent=2,
-        ),
+    outbox.write_stage_json(
+        "stage2_crawl_batch.json",
+        summary=summary,
+        batch=asdict(crawl_batch),
     )
-    _write_review_text(
-        outbox_path / "stage2_normalized_batch.json",
-        json.dumps(
-            {"summary": summary, "batch": normalized_batch.to_dict()},
-            ensure_ascii=False,
-            indent=2,
-        ),
+    outbox.write_stage_json(
+        "stage2_normalized_batch.json",
+        summary=summary,
+        batch=normalized_batch.to_dict(),
     )
-    _write_review_text(
-        outbox_path / "stage2_latest_news_data.json",
-        json.dumps(
-            {"summary": summary, "latest": latest_data.to_dict() if latest_data else None},
-            ensure_ascii=False,
-            indent=2,
-        ),
+    outbox.write_stage_json(
+        "stage2_latest_news_data.json",
+        summary=summary,
+        latest=latest_data.to_dict() if latest_data else None,
     )
-    _write_review_text(
-        outbox_path / "stage2_review.md",
+    outbox.write_markdown(
+        "stage2_review.md",
         _build_stage2_review_markdown(
             generated_at=generated_at,
             config_path=config_path_obj,
@@ -213,7 +203,7 @@ def export_stage2_outbox(
             latest_data=latest_data,
         ),
     )
-    _write_review_text(outbox_path / "stage2_run.log", run_log)
+    outbox.write_log("stage2_run.log", run_log)
     return summary
 
 

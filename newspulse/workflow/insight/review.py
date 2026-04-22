@@ -22,8 +22,8 @@ from newspulse.storage import normalize_crawl_batch
 from newspulse.utils.time import DEFAULT_TIMEZONE
 from newspulse.workflow.shared.options import SnapshotOptions
 from newspulse.workflow.shared.review_helpers import (
+    ReviewOutboxWriter as _ReviewOutboxWriter,
     build_source_specs as _build_source_specs,
-    write_review_text as _write_review_text,
 )
 
 def export_insight_outbox(
@@ -37,8 +37,7 @@ def export_insight_outbox(
     insight: Any,
     run_log: str,
 ) -> dict[str, Any]:
-    outbox_path = Path(outbox_dir)
-    outbox_path.mkdir(parents=True, exist_ok=True)
+    outbox = _ReviewOutboxWriter(outbox_dir)
     config_path_obj = Path(config_path)
     storage_path = Path(storage_data_dir)
     diagnostics = dict(getattr(insight, 'diagnostics', {}) or {})
@@ -68,63 +67,33 @@ def export_insight_outbox(
         },
     }
 
-    _write_review_text(
-        outbox_path / 'stage5_insight_input.json',
-        json.dumps(
-            {
-                'summary': summary,
-                'input_contexts': diagnostics.get('input_contexts', []),
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
+    outbox.write_stage_json(
+        'stage5_insight_input.json',
+        summary=summary,
+        input_contexts=diagnostics.get('input_contexts', []),
     )
-    _write_review_text(
-        outbox_path / 'stage5_content_fetch.json',
-        json.dumps(
-            {
-                'summary': summary,
-                'content_payloads': diagnostics.get('content_payloads', []),
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
+    outbox.write_stage_json(
+        'stage5_content_fetch.json',
+        summary=summary,
+        content_payloads=diagnostics.get('content_payloads', []),
     )
-    _write_review_text(
-        outbox_path / 'stage5_content_reduce.json',
-        json.dumps(
-            {
-                'summary': summary,
-                'reduced_bundles': diagnostics.get('reduced_bundles', []),
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
+    outbox.write_stage_json(
+        'stage5_content_reduce.json',
+        summary=summary,
+        reduced_bundles=diagnostics.get('reduced_bundles', []),
     )
-    _write_review_text(
-        outbox_path / 'stage5_item_analysis.json',
-        json.dumps(
-            {
-                'summary': summary,
-                'item_analyses': diagnostics.get('item_analysis_payloads', []),
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
+    outbox.write_stage_json(
+        'stage5_item_analysis.json',
+        summary=summary,
+        item_analyses=diagnostics.get('item_analysis_payloads', []),
     )
-    _write_review_text(
-        outbox_path / 'stage5_insight.json',
-        json.dumps(
-            {
-                'summary': summary,
-                'insight': asdict(insight),
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
+    outbox.write_stage_json(
+        'stage5_insight.json',
+        summary=summary,
+        insight=asdict(insight),
     )
-    _write_review_text(
-        outbox_path / 'stage5_insight_review.md',
+    outbox.write_markdown(
+        'stage5_insight_review.md',
         _build_insight_review_markdown(
             generated_at=generated_at,
             config_path=config_path_obj,
@@ -134,7 +103,7 @@ def export_insight_outbox(
             insight=insight,
         ),
     )
-    _write_review_text(outbox_path / 'stage5_insight_run.log', run_log)
+    outbox.write_log('stage5_insight_run.log', run_log)
     return summary
 
 

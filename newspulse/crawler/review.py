@@ -17,8 +17,8 @@ from newspulse.core import load_config
 from newspulse.crawler.fetcher import DataFetcher
 from newspulse.crawler.models import CrawlBatchResult, CrawlSourceSpec
 from newspulse.workflow.shared.review_helpers import (
+    ReviewOutboxWriter as _ReviewOutboxWriter,
     build_source_specs as _build_source_specs,
-    write_review_text as _write_review_text,
 )
 
 
@@ -93,8 +93,7 @@ def export_crawl_outbox(
     crawl_batch: CrawlBatchResult,
     crawl_log: str,
 ) -> dict[str, object]:
-    outbox_path = Path(outbox_dir)
-    outbox_path.mkdir(parents=True, exist_ok=True)
+    outbox = _ReviewOutboxWriter(outbox_dir)
 
     summary = {
         "generated_at": generated_at.isoformat(),
@@ -110,12 +109,9 @@ def export_crawl_outbox(
         "batch": asdict(crawl_batch),
     }
 
-    _write_review_text(
-        outbox_path / "crawl_batch.json",
-        json.dumps(batch_payload, ensure_ascii=False, indent=2),
-    )
-    _write_review_text(
-        outbox_path / "crawl_review.md",
+    outbox.write_json("crawl_batch.json", batch_payload)
+    outbox.write_markdown(
+        "crawl_review.md",
         _build_crawl_review_markdown(
             generated_at=generated_at,
             request_interval_ms=request_interval_ms,
@@ -123,7 +119,7 @@ def export_crawl_outbox(
             crawl_batch=crawl_batch,
         ),
     )
-    _write_review_text(outbox_path / "crawl_run.log", crawl_log)
+    outbox.write_log("crawl_run.log", crawl_log)
     return summary
 
 
