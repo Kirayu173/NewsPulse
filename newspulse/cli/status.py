@@ -11,11 +11,11 @@ def handle_status_commands(config: Dict) -> None:
     """处理状态查看命令 - 显示当前调度状态"""
     ctx = AppContext(config)
 
-    print("=" * 60)
-    print(f"NewsPulse v{__version__} 调度状态")
-    print("=" * 60)
-
     try:
+        print("=" * 60)
+        print(f"NewsPulse v{__version__} 调度状态")
+        print("=" * 60)
+
         scheduler = ctx.create_scheduler()
         schedule = scheduler.resolve()
 
@@ -51,11 +51,6 @@ def handle_status_commands(config: Dict) -> None:
                 print(f"  推送通知: 仅一次 {'(今日已执行 ⚠️)' if already_pushed else '(今日未执行 ✅)'}")
             else:
                 print("  推送通知: 不限次数")
-
-    except Exception as e:
-        print(f"\n❌ 获取调度状态失败: {e}")
-
-    print("\n" + "=" * 60)
-
-    # 清理资源
-    ctx.cleanup()
+        print("\n" + "=" * 60)
+    finally:
+        ctx.cleanup()
