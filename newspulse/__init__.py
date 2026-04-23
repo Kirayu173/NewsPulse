@@ -7,7 +7,7 @@ NewsPulse - 热点新闻聚合与分析工具
   newspulse            # 安装后执行
 """
 
-from newspulse.context import AppContext
-
 __version__ = "1.0.0"
+
+from newspulse.context import AppContext
 __all__ = ["AppContext", "__version__"]
