@@ -239,14 +239,18 @@ def _load_display_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
 def _load_ai_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
     ai = _get_section(config_data, "ai", "runtime") or config_data.get("ai", {})
     timeout_env = _get_env_int_or_none("AI_TIMEOUT")
+    temperature_env = _get_env_float_or_none("AI_TEMPERATURE")
+    max_tokens_env = _get_env_int_or_none("AI_MAX_TOKENS")
+    num_retries_env = _get_env_int_or_none("AI_NUM_RETRIES")
     return {
         "MODEL": _get_env_first("AI_MODEL", "MODEL") or ai.get("model", ""),
         "API_KEY": _get_env_first("AI_API_KEY", "API_KEY") or ai.get("api_key", ""),
-        "API_BASE": _get_env_first("AI_API_BASE", "BASE_URL", "API_BASE") or ai.get("api_base", ""),
+        "API_BASE": _get_env_first("AI_API_BASE", "AI_BASE_URL", "BASE_URL", "API_BASE") or ai.get("api_base", ""),
+        "DRIVER": _get_env_first("AI_DRIVER", "DRIVER") or ai.get("driver", "auto"),
         "TIMEOUT": ai.get("timeout", 120) if timeout_env is None else timeout_env,
-        "TEMPERATURE": ai.get("temperature", 1.0),
-        "MAX_TOKENS": ai.get("max_tokens", 5000),
-        "NUM_RETRIES": ai.get("num_retries", 2),
+        "TEMPERATURE": ai.get("temperature", 1.0) if temperature_env is None else temperature_env,
+        "MAX_TOKENS": ai.get("max_tokens", 5000) if max_tokens_env is None else max_tokens_env,
+        "NUM_RETRIES": ai.get("num_retries", 2) if num_retries_env is None else num_retries_env,
         "FALLBACK_MODELS": ai.get("fallback_models", []),
         "EXTRA_PARAMS": ai.get("extra_params", {}),
     }
@@ -255,11 +259,18 @@ def _load_ai_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
 def _merge_ai_runtime_config(base_ai_config: Dict[str, Any], section_config: Dict[str, Any], env_prefix: str) -> Dict[str, Any]:
     merged = dict(base_ai_config)
 
-    string_fields = {"MODEL": "model", "API_KEY": "api_key", "API_BASE": "api_base"}
+    string_fields = {
+        "MODEL": "model",
+        "API_KEY": "api_key",
+        "API_BASE": "api_base",
+        "DRIVER": "driver",
+    }
     int_fields = {"TIMEOUT": "timeout", "MAX_TOKENS": "max_tokens", "NUM_RETRIES": "num_retries"}
 
     for target_key, yaml_key in string_fields.items():
         env_value = _get_env_str(f"{env_prefix}_{target_key}")
+        if not env_value and target_key == "API_BASE":
+            env_value = _get_env_str(f"{env_prefix}_BASE_URL")
         if env_value:
             merged[target_key] = env_value
         elif section_config.get(yaml_key) not in (None, ""):

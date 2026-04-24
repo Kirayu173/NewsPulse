@@ -20,7 +20,7 @@ from newspulse.core.config_paths import (
 )
 from newspulse.core.loader import load_config
 from newspulse.workflow.shared.ai_runtime.client import AIRuntimeClient
-from newspulse.workflow.shared.ai_runtime.embedding import EmbeddingRuntimeConfig
+from newspulse.workflow.shared.ai_runtime.embedding import EmbeddingRuntimeClient, EmbeddingRuntimeConfig
 from newspulse.workflow.shared.ai_runtime.errors import AIConfigError
 
 CheckStatus = Literal["pass", "warn", "fail", "skip"]
@@ -112,13 +112,13 @@ def run_preflight(
     report.add(*_python_version_check())
 
     if layout.config_path.exists():
-        report.add("pass", "Config file", f"???: {layout.config_path}")
+        report.add("pass", "Config file", f"found: {layout.config_path}")
     else:
         report.add(
             "fail",
             "Config file",
-            f"??: {layout.config_path}",
-            hint="???? `config/config.yaml` ?????? `CONFIG_PATH` ?????????",
+            f"missing: {layout.config_path}",
+            hint="Create `config/config.yaml` or point `CONFIG_PATH` to a valid config file.",
         )
         return report
 
@@ -128,8 +128,8 @@ def run_preflight(
         report.add(
             "fail",
             "Config load",
-            f"????: {exc}",
-            hint="???? `config/config.yaml` ????????????? `newspulse doctor`?",
+            f"load failed: {exc}",
+            hint="Check whether `config/config.yaml` is valid YAML, then rerun `newspulse doctor`.",
         )
         return report
 
@@ -149,13 +149,13 @@ def run_preflight(
 
     timeline_path = resolve_timeline_path(config_root=layout.config_root)
     if timeline_path.exists():
-        report.add("pass", "Timeline file", f"???: {timeline_path}")
+        report.add("pass", "Timeline file", f"found: {timeline_path}")
     else:
         report.add(
             "warn",
             "Timeline file",
-            f"???: {timeline_path}???????????",
-            hint="??????????? `config/timeline.yaml`?",
+            f"missing: {timeline_path}; scheduler will fall back to defaults",
+            hint="Add `config/timeline.yaml` if you need custom scheduling.",
         )
     return report
 
@@ -166,12 +166,12 @@ def _python_version_check() -> tuple[CheckStatus, str, str, str]:
     current_text = ".".join(str(part) for part in current)
     required_text = ".".join(str(part) for part in required)
     if current >= required:
-        return "pass", "Python version", f"{current_text} (?? >= {required_text})", ""
+        return "pass", "Python version", f"{current_text} (meets >= {required_text})", ""
     return (
         "fail",
         "Python version",
-        f"{current_text} (??? >= {required_text})",
-        "???????? Python ?????????????? `pyproject.toml`?",
+        f"{current_text} (needs >= {required_text})",
+        "Use the Python version declared in `pyproject.toml`.",
     )
 
 
@@ -206,14 +206,14 @@ def _check_schedule(report: PreflightReport, ctx: AppContext) -> None:
         report.add(
             "pass",
             "Schedule",
-            f"???? (report_mode={schedule.report_mode}, ai_mode={schedule.ai_mode})",
+            f"resolved (report_mode={schedule.report_mode}, ai_mode={schedule.ai_mode})",
         )
     except Exception as exc:
         report.add(
             "fail",
             "Schedule",
-            f"????: {exc}",
-            hint="??? `config/timeline.yaml` ?? `schedule` ?????????? preset ?????",
+            f"resolve failed: {exc}",
+            hint="Check `config/timeline.yaml` and the `schedule` preset name in config.",
         )
 
 
@@ -233,31 +233,31 @@ def _check_selection_inputs(report: PreflightReport, ctx: AppContext) -> None:
             config_root=ctx.config_root,
         )
         if frequency_path.exists():
-            report.add("pass", "Frequency words", f"???: {frequency_path}")
+            report.add("pass", "Frequency words", f"found: {frequency_path}")
         else:
             report.add(
                 "fail",
                 "Frequency words",
-                f"??: {frequency_path}",
-                hint="???????????? `workflow.selection.frequency_file` / `FREQUENCY_WORDS_PATH`?",
+                f"missing: {frequency_path}",
+                hint="Set `workflow.selection.frequency_file` or `FREQUENCY_WORDS_PATH` to a valid file.",
             )
     else:
-        report.add("skip", "Frequency words", "????? keyword ?????????")
+        report.add("skip", "Frequency words", "not required because keyword fallback is disabled")
 
     if strategy == "ai":
         interests_file = selection_ai.get("INTERESTS_FILE") if isinstance(selection_ai, dict) else None
         interests_path = resolve_ai_interests_path(interests_file, config_root=ctx.config_root)
         if interests_path.exists():
-            report.add("pass", "AI interests", f"???: {interests_path}")
+            report.add("pass", "AI interests", f"found: {interests_path}")
         else:
             report.add(
                 "fail",
                 "AI interests",
-                f"??: {interests_path}",
-                hint="??? interests ?????? `workflow.selection.ai.interests_file`?",
+                f"missing: {interests_path}",
+                hint="Set `workflow.selection.ai.interests_file` to a valid interests file.",
             )
     else:
-        report.add("skip", "AI interests", "????? AI selection?????")
+        report.add("skip", "AI interests", "not required because AI selection is disabled")
 
 
 def _check_ai_runtime(report: PreflightReport, ctx: AppContext) -> None:
@@ -274,7 +274,7 @@ def _check_ai_runtime(report: PreflightReport, ctx: AppContext) -> None:
             report,
             item="AI selection runtime",
             config=ctx.ai_filter_model_config,
-            hint="??? `.env` / `config/config.yaml` ? selection ??????API Key ? API Base?",
+            hint="Check the selection runtime fields in `.env` or `config/config.yaml`, especially model, API key, and base URL.",
         )
         _check_prompt_files(
             report,
@@ -284,33 +284,28 @@ def _check_ai_runtime(report: PreflightReport, ctx: AppContext) -> None:
                 ctx.ai_filter_config.get("EXTRACT_PROMPT_FILE"),
                 ctx.ai_filter_config.get("UPDATE_TAGS_PROMPT_FILE"),
             ],
-            hint="??? `config/ai_filter/` ???? prompt ?????? selection prompt ???",
+            hint="Make sure the selection prompt files under `config/ai_filter/` exist and are readable.",
         )
     else:
-        report.add("skip", "AI selection runtime", "????? AI selection?????")
-        report.add("skip", "AI selection prompts", "????? AI selection?????")
+        report.add("skip", "AI selection runtime", "not required because AI selection is disabled")
+        report.add("skip", "AI selection prompts", "not required because AI selection is disabled")
 
     if semantic_enabled:
-        embedding_config = EmbeddingRuntimeConfig.from_mapping(ctx.ai_filter_embedding_model_config)
-        try:
-            embedding_config.validate()
-            report.add("pass", "Semantic embedding", f"embedding model: {embedding_config.model}")
-        except AIConfigError as exc:
-            report.add(
-                "fail",
-                "Semantic embedding",
-                str(exc),
-                hint="??? `.env` ? `EMB_MODEL`?????? provider ? embedding API key ???",
-            )
+        _check_embedding_runtime(
+            report,
+            item="Semantic embedding",
+            config=ctx.ai_filter_embedding_model_config,
+            hint="Set `AI_EMBEDDING_MODEL` / `AI_EMBEDDING_API_KEY` / `AI_EMBEDDING_BASE_URL` in `.env`, or keep using legacy `EMB_MODEL`.",
+        )
     else:
-        report.add("skip", "Semantic embedding", "????? semantic recall?????")
+        report.add("skip", "Semantic embedding", "not required because semantic recall is disabled")
 
     if insight_enabled:
         _check_runtime_mapping(
             report,
             item="AI insight runtime",
             config=ctx.ai_analysis_model_config,
-            hint="??? `.env` / `config/config.yaml` ? insight ??????API Key ? API Base?",
+            hint="Check the insight runtime fields in `.env` or `config/config.yaml`, especially model, API key, and base URL.",
         )
         _check_prompt_files(
             report,
@@ -319,19 +314,40 @@ def _check_ai_runtime(report: PreflightReport, ctx: AppContext) -> None:
                 ctx.ai_analysis_config.get("PROMPT_FILE"),
                 ctx.ai_analysis_config.get("ITEM_PROMPT_FILE"),
             ],
-            hint="??? `config/` ???? insight prompt ?????? insight prompt ???",
+            hint="Make sure the insight prompt files under `config/` exist and are readable.",
         )
     else:
-        report.add("skip", "AI insight runtime", "????? AI insight?????")
-        report.add("skip", "AI insight prompts", "????? AI insight?????")
+        report.add("skip", "AI insight runtime", "not required because AI insight is disabled")
+        report.add("skip", "AI insight prompts", "not required because AI insight is disabled")
 
 
 def _check_runtime_mapping(report: PreflightReport, *, item: str, config: dict[str, Any], hint: str) -> None:
-    valid, message = AIRuntimeClient(config).validate_config()
+    client = AIRuntimeClient(config)
+    valid, message = client.validate_config()
     if valid:
-        report.add("pass", item, f"model: {config.get('MODEL', '')}")
+        report.add("pass", item, client.runtime_summary())
         return
     report.add("fail", item, message, hint=hint)
+
+
+def _check_embedding_runtime(report: PreflightReport, *, item: str, config: dict[str, Any], hint: str) -> None:
+    embedding_config = EmbeddingRuntimeConfig.from_mapping(config)
+    runtime = embedding_config.resolve_runtime()
+    if not runtime.enabled:
+        report.add(
+            "warn",
+            item,
+            "embedding runtime not configured; semantic recall will auto-skip",
+            hint=hint,
+        )
+        return
+    try:
+        embedding_config.validate()
+    except AIConfigError as exc:
+        report.add("fail", item, str(exc), hint=hint)
+        return
+
+    report.add("pass", item, EmbeddingRuntimeClient(config).runtime_summary())
 
 
 def _check_prompt_files(
@@ -343,40 +359,40 @@ def _check_prompt_files(
 ) -> None:
     missing = [str(Path(path)) for path in paths if path and not Path(path).exists()]
     if missing:
-        report.add("fail", item, f"??: {', '.join(missing)}", hint=hint)
+        report.add("fail", item, f"missing: {', '.join(missing)}", hint=hint)
         return
     existing = [str(Path(path)) for path in paths if path]
-    report.add("pass", item, f"???: {', '.join(existing)}")
+    report.add("pass", item, f"found: {', '.join(existing)}")
 
 
 def _check_notification(report: PreflightReport, ctx: AppContext) -> None:
     if not ctx.notification_enabled:
-        report.add("skip", "Notification", "??????????????")
+        report.add("skip", "Notification", "not required because notifications are disabled")
         return
     if ctx.generic_webhook_url:
-        report.add("pass", "Notification", "??? Generic Webhook ??")
+        report.add("pass", "Notification", "configured: Generic Webhook")
         return
     report.add(
         "warn",
         "Notification",
-        "?????????",
-        hint="????????? `config/config.yaml` ???????? `GENERIC_WEBHOOK_URL`?",
+        "enabled but no delivery channel is configured",
+        hint="Configure a channel in `config/config.yaml` or set `GENERIC_WEBHOOK_URL`.",
     )
 
 
 def _check_storage(report: PreflightReport, ctx: AppContext) -> None:
     try:
         storage_manager = ctx.get_storage_manager()
-        detail = f"????: {storage_manager.backend_name}"
+        detail = f"backend: {storage_manager.backend_name}"
         if ctx.storage_retention_days > 0:
-            detail += f"?????: {ctx.storage_retention_days} ?"
+            detail += f", retention_days: {ctx.storage_retention_days}"
         report.add("pass", "Storage", detail)
     except Exception as exc:
         report.add(
             "fail",
             "Storage",
-            f"????: {exc}",
-            hint="??? `storage` ??????????",
+            f"init failed: {exc}",
+            hint="Check the `storage` section in config.",
         )
 
 
@@ -387,13 +403,13 @@ def _check_output_dir(report: PreflightReport, config: dict[str, Any]) -> None:
         probe_file = output_dir / ".preflight_write_probe"
         probe_file.write_text("ok", encoding="utf-8")
         probe_file.unlink(missing_ok=True)
-        report.add("pass", "Output dir", f"??: {output_dir}")
+        report.add("pass", "Output dir", f"writable: {output_dir}")
     except Exception as exc:
         report.add(
             "fail",
             "Output dir",
-            f"???: {exc}",
-            hint="??? `storage.local.data_dir` ????????????",
+            f"write failed: {exc}",
+            hint="Check whether `storage.local.data_dir` points to a writable directory.",
         )
 
 

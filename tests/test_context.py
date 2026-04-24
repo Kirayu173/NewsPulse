@@ -31,13 +31,44 @@ class AppContextTest(unittest.TestCase):
             }
         )
 
-        with patch.dict("os.environ", {"EMB_MODEL": "embedding-3"}, clear=False):
+        with patch.dict("os.environ", {"AI_EMBEDDING_MODEL": "embedding-3", "AI_EMBEDDING_DRIVER": "openai"}, clear=False):
             config = ctx.ai_filter_embedding_model_config
 
         self.assertEqual(config["MODEL"], "openai/embedding-3")
         self.assertEqual(config["API_KEY"], "filter-key")
         self.assertEqual(config["API_BASE"], "https://provider.example/v1")
         self.assertEqual(config["TIMEOUT"], 480)
+        self.assertEqual(config["DRIVER"], "openai")
+
+    def test_ai_filter_embedding_model_config_prefers_embedding_specific_credentials(self):
+        ctx = AppContext(
+            {
+                "AI_FILTER_MODEL": {
+                    "MODEL": "anthropic/MiniMax-M2.7",
+                    "API_KEY": "chat-key",
+                    "API_BASE": "https://api.minimaxi.com/anthropic",
+                    "DRIVER": "anthropic",
+                    "TIMEOUT": 240,
+                }
+            }
+        )
+
+        with patch.dict(
+            "os.environ",
+            {
+                "AI_EMBEDDING_MODEL": "text-embedding-3-small",
+                "AI_EMBEDDING_API_KEY": "embedding-key",
+                "AI_EMBEDDING_BASE_URL": "https://embedding.example/v1",
+                "AI_EMBEDDING_DRIVER": "openai",
+            },
+            clear=False,
+        ):
+            config = ctx.ai_filter_embedding_model_config
+
+        self.assertEqual(config["MODEL"], "openai/text-embedding-3-small")
+        self.assertEqual(config["API_KEY"], "embedding-key")
+        self.assertEqual(config["API_BASE"], "https://embedding.example/v1")
+        self.assertEqual(config["DRIVER"], "openai")
 
     def test_build_selection_options_uses_loader_frequency_file(self):
         ctx = AppContext(

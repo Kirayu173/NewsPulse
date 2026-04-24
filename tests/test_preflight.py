@@ -176,7 +176,7 @@ class PreflightTest(unittest.TestCase):
         self.assertEqual(report.checks[1].item, "Config file")
         self.assertEqual(report.checks[1].status, "fail")
 
-    def test_run_preflight_fails_when_semantic_embedding_model_is_missing(self):
+    def test_run_preflight_warns_when_semantic_embedding_model_is_missing(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             config_path = _write_config(
@@ -190,15 +190,31 @@ class PreflightTest(unittest.TestCase):
             with patch.dict(os.environ, {}, clear=True):
                 report = run_preflight(str(config_path), mode="startup")
 
-            self.assertFalse(report.ok)
+            self.assertTrue(report.ok)
             self.assertEqual(
                 next(check.status for check in report.checks if check.item == "Semantic embedding"),
-                "fail",
+                "warn",
             )
             self.assertIn(
-                "Embedding model is not configured",
+                "auto-skip",
                 next(check.detail for check in report.checks if check.item == "Semantic embedding"),
             )
+
+    def test_run_preflight_reports_resolved_ai_runtime_details(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = _write_config(
+                root / "config",
+                output_dir=root / "output",
+                selection_strategy="ai",
+            )
+
+            with patch.dict(os.environ, {}, clear=True):
+                report = run_preflight(str(config_path), mode="doctor")
+
+            detail = next(check.detail for check in report.checks if check.item == "AI selection runtime")
+            self.assertIn("driver=openai", detail)
+            self.assertIn("model=openai/filter-model", detail)
 
     def test_run_preflight_warns_when_notification_channel_is_missing(self):
         with TemporaryDirectory() as tmp:

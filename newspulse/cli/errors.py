@@ -48,8 +48,8 @@ def build_cli_error_guidance(exc: Exception) -> CLIErrorGuidance:
             title="AI 配置不完整",
             detail=str(exc),
             fixes=(
-                "检查仓库根目录 `.env` 中的 `API_KEY` / `BASE_URL` / `MODEL`。",
-                "如启用了 semantic recall，再检查 `EMB_MODEL` 是否已配置。",
+                "检查仓库根目录 `.env` 中的 `AI_MODEL` / `AI_API_KEY` / `AI_BASE_URL`，旧字段 `MODEL` / `API_KEY` / `BASE_URL` 也仍兼容。",
+                "如需固定接入方式，再补充 `AI_DRIVER`；如启用了 semantic recall，再检查 `AI_EMBEDDING_MODEL` 或旧字段 `EMB_MODEL`。",
                 "运行 `newspulse doctor` 确认具体缺失项。",
             ),
         )
@@ -59,7 +59,7 @@ def build_cli_error_guidance(exc: Exception) -> CLIErrorGuidance:
             title="AI 调用失败",
             detail=str(exc),
             fixes=(
-                "确认 `API_KEY`、`BASE_URL`、`MODEL` 与 provider 兼容。",
+                "确认 `.env` 中生效的 `AI_MODEL`、`AI_API_KEY`、`AI_BASE_URL`、`AI_DRIVER` 彼此兼容。",
                 "检查当前网络或代理设置是否可访问模型服务。",
                 "如果只是偶发调用问题，可先重试或暂时切换到无需 AI 的配置。",
             ),

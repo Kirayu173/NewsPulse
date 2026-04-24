@@ -54,6 +54,7 @@ def normalize_ai_runtime_mapping(mapping: Dict[str, Any]) -> Dict[str, Any]:
         ("MODEL", "MODEL", "model"),
         ("API_KEY", "API_KEY", "api_key"),
         ("API_BASE", "API_BASE", "api_base"),
+        ("DRIVER", "DRIVER", "driver"),
         ("TIMEOUT", "TIMEOUT", "timeout"),
         ("TEMPERATURE", "TEMPERATURE", "temperature"),
         ("MAX_TOKENS", "MAX_TOKENS", "max_tokens"),

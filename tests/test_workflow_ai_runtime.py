@@ -2,6 +2,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from newspulse.workflow.shared.ai_runtime import (
     AIConfigError,
@@ -14,8 +15,10 @@ from newspulse.workflow.shared.ai_runtime import (
     PromptTemplateNotFoundError,
     build_request_overrides,
     decode_json_response,
+    EmbeddingRuntimeClient,
     load_prompt_template,
 )
+from newspulse.workflow.selection.ai import build_embedding_runtime_config
 
 
 class AIRuntimePromptTest(unittest.TestCase):
@@ -176,6 +179,37 @@ class AIRuntimeClientTest(unittest.TestCase):
         with self.assertRaises(AIInvocationError):
             client.chat([{"role": "user", "content": "hello"}])
 
+    def test_runtime_client_routes_anthropic_style_base_to_anthropic_sdk(self):
+        calls = {}
+
+        class FakeClient:
+            def __init__(self, **kwargs):
+                calls["init"] = kwargs
+                self.messages = SimpleNamespace(create=self.create)
+
+            def create(self, **kwargs):
+                calls["chat"] = kwargs
+                return SimpleNamespace(
+                    content=[SimpleNamespace(type="text", text="anthropic-response")],
+                    stop_reason="end_turn",
+                )
+
+        client = AIRuntimeClient(
+            {
+                "MODEL": "MiniMax-M2.7",
+                "API_KEY": "test-key",
+                "API_BASE": "https://api.minimaxi.com/anthropic",
+            },
+            anthropic_client_factory=FakeClient,
+        )
+
+        result = client.chat([{"role": "user", "content": "hello"}])
+
+        self.assertEqual(result, "anthropic-response")
+        self.assertEqual(client.resolve_runtime().driver, "anthropic")
+        self.assertEqual(calls["chat"]["model"], "MiniMax-M2.7")
+        self.assertEqual(calls["init"]["base_url"], "https://api.minimaxi.com/anthropic")
+
     def test_cached_runtime_client_reuses_identical_requests(self):
         calls = []
 
@@ -231,6 +265,38 @@ class AIRuntimeClientTest(unittest.TestCase):
         self.assertEqual(first, "response-1")
         self.assertEqual(second, "response-2")
         self.assertEqual(len(calls), 2)
+
+
+class EmbeddingRuntimeClientTest(unittest.TestCase):
+    def test_embedding_runtime_config_prefers_embedding_specific_env_fields(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "AI_EMBEDDING_MODEL": "text-embedding-3-small",
+                "AI_EMBEDDING_API_KEY": "embedding-key",
+                "AI_EMBEDDING_BASE_URL": "https://provider.example/v1",
+                "AI_EMBEDDING_DRIVER": "openai",
+            },
+            clear=True,
+        ):
+            config = build_embedding_runtime_config(
+                {
+                    "MODEL": "openai/chat-model",
+                    "API_KEY": "chat-key",
+                    "API_BASE": "https://chat.example/v1",
+                    "DRIVER": "litellm",
+                }
+            )
+
+        self.assertEqual(config["MODEL"], "openai/text-embedding-3-small")
+        self.assertEqual(config["API_KEY"], "embedding-key")
+        self.assertEqual(config["API_BASE"], "https://provider.example/v1")
+        self.assertEqual(config["DRIVER"], "openai")
+
+    def test_embedding_runtime_client_is_disabled_without_model(self):
+        client = EmbeddingRuntimeClient({})
+
+        self.assertFalse(client.is_enabled())
 
 
 if __name__ == "__main__":
