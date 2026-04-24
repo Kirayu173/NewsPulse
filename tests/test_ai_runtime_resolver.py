@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from newspulse.workflow.shared.ai_runtime.resolver import (
     detect_api_style,
@@ -8,6 +9,13 @@ from newspulse.workflow.shared.ai_runtime.resolver import (
 
 
 class AIRuntimeResolverTest(unittest.TestCase):
+    def setUp(self):
+        self._env_patcher = patch.dict("os.environ", {}, clear=True)
+        self._env_patcher.start()
+
+    def tearDown(self):
+        self._env_patcher.stop()
+
     def test_detect_api_style_recognizes_anthropic_endpoints(self):
         self.assertEqual(detect_api_style("https://api.minimaxi.com/anthropic"), "anthropic")
         self.assertEqual(detect_api_style("https://example.com/v1"), "openai")

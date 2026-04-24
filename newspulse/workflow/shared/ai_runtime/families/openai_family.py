@@ -81,7 +81,8 @@ class OpenAIFamilyRuntime:
         message = getattr(choice, "message", None)
         content = getattr(message, "content", None)
         text = coerce_text_content(content)
-        blocks = tuple(_content_blocks(content, text))
+        reasoning_blocks = tuple(_reasoning_blocks(getattr(message, "reasoning_details", None)))
+        blocks = tuple((*reasoning_blocks, *_content_blocks(content, text)))
         tool_calls = tuple(_tool_calls(getattr(message, "tool_calls", None)))
         payload = decode_json_response(text) if request.response_mode == "json" else None
         return AIResult(
@@ -90,14 +91,17 @@ class OpenAIFamilyRuntime:
             text=text,
             json_payload=payload,
             blocks=blocks,
+            thinking_blocks=reasoning_blocks,
             tool_calls=tool_calls,
             finish_reason=str(getattr(choice, "finish_reason", "") or ""),
             usage=_openai_usage(getattr(response, "usage", None)),
             provider_response=response,
+            continuation_payload=_message_payload(message),
             diagnostics={
                 "provider_family": "openai",
                 "api_style": runtime.api_style,
                 "response_mode": request.response_mode,
+                "reasoning_detail_count": len(reasoning_blocks),
             },
         )
 
@@ -182,6 +186,21 @@ def _content_blocks(content: Any, fallback_text: str) -> Iterable[AIBlock]:
         yield AIBlock(type="text", payload={"text": text})
 
 
+def _reasoning_blocks(reasoning_details: Any) -> Iterable[AIBlock]:
+    if not reasoning_details:
+        return ()
+    normalized = []
+    for detail in reasoning_details:
+        payload = _to_mapping(detail)
+        if not payload:
+            payload = {"text": str(detail)}
+        elif "text" not in payload and hasattr(detail, "text"):
+            payload["text"] = str(getattr(detail, "text", "") or "")
+        block_type = str(payload.get("type", "reasoning") or "reasoning").strip() or "reasoning"
+        normalized.append(AIBlock(type=block_type, payload=payload))
+    return normalized
+
+
 def _tool_calls(tool_calls: Any) -> Iterable[dict[str, Any]]:
     if not tool_calls:
         return ()
@@ -193,6 +212,26 @@ def _tool_calls(tool_calls: Any) -> Iterable[dict[str, Any]]:
             payload["function"] = function_payload
         normalized.append(payload)
     return normalized
+
+
+def _message_payload(message: Any) -> dict[str, Any] | None:
+    if message is None:
+        return None
+    payload = _to_mapping(message)
+    if not payload:
+        return None
+    payload.setdefault("role", str(getattr(message, "role", "assistant") or "assistant"))
+    if "content" not in payload:
+        payload["content"] = getattr(message, "content", None)
+
+    tool_calls = getattr(message, "tool_calls", None)
+    if tool_calls and "tool_calls" not in payload:
+        payload["tool_calls"] = [_to_mapping(item) for item in tool_calls]
+
+    reasoning_details = getattr(message, "reasoning_details", None)
+    if reasoning_details and "reasoning_details" not in payload:
+        payload["reasoning_details"] = [_to_mapping(item) for item in reasoning_details]
+    return payload
 
 
 def _openai_usage(usage: Any) -> AIUsage | None:

@@ -58,6 +58,76 @@ class OpenAIFamilyRuntimeTest(unittest.TestCase):
         self.assertEqual(calls["chat"]["model"], "gpt-4o-mini")
         self.assertEqual(calls["chat"]["temperature"], 0.3)
 
+    def test_generate_preserves_reasoning_details_and_continuation_payload(self):
+        class FakeToolCall:
+            def __init__(self):
+                self.id = "call-1"
+                self.type = "function"
+                self.function = SimpleNamespace(name="get_weather", arguments='{"location":"Shanghai"}')
+
+            def model_dump(self):
+                return {
+                    "id": self.id,
+                    "type": self.type,
+                    "function": {
+                        "name": self.function.name,
+                        "arguments": self.function.arguments,
+                    },
+                }
+
+        class FakeMessage:
+            role = "assistant"
+            content = ""
+            reasoning_details = [{"type": "reasoning", "text": "Need to call the weather tool."}]
+            tool_calls = [FakeToolCall()]
+
+            def model_dump(self):
+                return {
+                    "role": self.role,
+                    "content": self.content,
+                    "reasoning_details": list(self.reasoning_details),
+                    "tool_calls": [tool_call.model_dump() for tool_call in self.tool_calls],
+                }
+
+        class FakeClient:
+            def __init__(self, **kwargs):
+                self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+
+            def create(self, **kwargs):
+                return SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            message=FakeMessage(),
+                            finish_reason="tool_calls",
+                        )
+                    ],
+                    usage=None,
+                )
+
+        runtime = OpenAIFamilyRuntime(client_factory=FakeClient)
+        response = runtime.generate(
+            ResolvedChatRuntime(
+                provider_family="openai",
+                model="openai/gpt-4o-mini",
+                request_model="gpt-4o-mini",
+                api_style="openai",
+            ),
+            ChatRequest(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "hello"}],
+                api_key="test-key",
+            ),
+        )
+
+        self.assertEqual(response.finish_reason, "tool_calls")
+        self.assertEqual(len(response.thinking_blocks), 1)
+        self.assertEqual(response.thinking_blocks[0].payload["text"], "Need to call the weather tool.")
+        self.assertEqual(response.tool_calls[0]["function"]["name"], "get_weather")
+        self.assertEqual(response.continuation_payload["role"], "assistant")
+        self.assertEqual(response.continuation_payload["tool_calls"][0]["id"], "call-1")
+        self.assertEqual(response.continuation_payload["reasoning_details"][0]["type"], "reasoning")
+        self.assertEqual(response.diagnostics["reasoning_detail_count"], 1)
+
     def test_generate_json_decodes_payload(self):
         class FakeClient:
             def __init__(self, **kwargs):
