@@ -10,6 +10,7 @@ import yaml
 from .config import parse_multi_account_config
 from .config_paths import get_config_layout, resolve_prompt_path, resolve_timeline_path
 from .runtime_config import normalize_runtime_config
+from newspulse.workflow.shared.ai_runtime.provider_env import resolve_chat_env_defaults
 from newspulse.utils.logging import build_log_message, configure_logging, get_logger
 from newspulse.utils.time import DEFAULT_TIMEZONE
 
@@ -242,16 +243,20 @@ def _load_ai_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
     temperature_env = _get_env_float_or_none("AI_TEMPERATURE")
     max_tokens_env = _get_env_int_or_none("AI_MAX_TOKENS")
     num_retries_env = _get_env_int_or_none("AI_NUM_RETRIES")
+    env_defaults = resolve_chat_env_defaults(
+        provider_family=ai.get("provider_family", "auto"),
+        api_base=ai.get("api_base", ""),
+        model=ai.get("model", ""),
+    )
     return {
-        "MODEL": _get_env_first("AI_MODEL") or ai.get("model", ""),
-        "API_KEY": _get_env_first("AI_API_KEY") or ai.get("api_key", ""),
-        "API_BASE": _get_env_first("AI_API_BASE", "AI_BASE_URL") or ai.get("api_base", ""),
-        "DRIVER": _get_env_first("AI_DRIVER") or ai.get("driver", "auto"),
+        "MODEL": _get_env_first("AI_MODEL", "MODEL") or env_defaults.get("MODEL", "") or ai.get("model", ""),
+        "API_KEY": _get_env_first("AI_API_KEY", "API_KEY") or env_defaults.get("API_KEY", "") or ai.get("api_key", ""),
+        "API_BASE": _get_env_first("AI_API_BASE", "AI_BASE_URL", "API_BASE", "BASE_URL") or env_defaults.get("API_BASE", "") or ai.get("api_base", ""),
+        "PROVIDER_FAMILY": _get_env_first("AI_PROVIDER_FAMILY", "PROVIDER_FAMILY") or ai.get("provider_family", "auto"),
         "TIMEOUT": ai.get("timeout", 120) if timeout_env is None else timeout_env,
         "TEMPERATURE": ai.get("temperature", 1.0) if temperature_env is None else temperature_env,
         "MAX_TOKENS": ai.get("max_tokens", 5000) if max_tokens_env is None else max_tokens_env,
         "NUM_RETRIES": ai.get("num_retries", 2) if num_retries_env is None else num_retries_env,
-        "FALLBACK_MODELS": ai.get("fallback_models", []),
         "EXTRA_PARAMS": ai.get("extra_params", {}),
     }
 
@@ -263,7 +268,7 @@ def _merge_ai_runtime_config(base_ai_config: Dict[str, Any], section_config: Dic
         "MODEL": "model",
         "API_KEY": "api_key",
         "API_BASE": "api_base",
-        "DRIVER": "driver",
+        "PROVIDER_FAMILY": "provider_family",
     }
     int_fields = {"TIMEOUT": "timeout", "MAX_TOKENS": "max_tokens", "NUM_RETRIES": "num_retries"}
 
@@ -289,8 +294,6 @@ def _merge_ai_runtime_config(base_ai_config: Dict[str, Any], section_config: Dic
     elif section_config.get("temperature") is not None:
         merged["TEMPERATURE"] = section_config.get("temperature")
 
-    if section_config.get("fallback_models") is not None:
-        merged["FALLBACK_MODELS"] = section_config.get("fallback_models")
     if section_config.get("extra_params") is not None:
         merged["EXTRA_PARAMS"] = section_config.get("extra_params")
 
@@ -717,10 +720,7 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     resolved_config_path = layout.config_path
     dotenv_root = layout.config_root.parent
     _load_dotenv_file(dotenv_root / ".env")
-    if (
-        config_path is None
-        or resolved_config_path.is_relative_to(layout.project_root)
-    ):
+    if config_path is None:
         _load_dotenv_file(layout.project_root / ".env")
 
     if not resolved_config_path.exists():

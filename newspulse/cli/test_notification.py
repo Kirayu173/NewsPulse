@@ -6,7 +6,7 @@ from __future__ import annotations
 import copy
 from typing import Dict
 
-from newspulse.context import AppContext
+from newspulse.runtime import build_runtime, run_delivery_stage, run_render_stage
 from newspulse.utils.logging import configure_logging, get_logger
 from newspulse.workflow.shared.contracts import (
     HotlistItem,
@@ -21,8 +21,8 @@ from newspulse.workflow.shared.contracts import (
 logger = get_logger(__name__)
 
 
-def _build_test_package(ctx: AppContext) -> ReportPackage:
-    now = ctx.get_time()
+def _build_test_package(settings) -> ReportPackage:
+    now = settings.get_time()
     current_time = now.strftime("%Y-%m-%d %H:%M:%S")
     item = HotlistItem(
         news_item_id="notification-smoke-test",
@@ -47,8 +47,8 @@ def _build_test_package(ctx: AppContext) -> ReportPackage:
             mode="daily",
             generated_at=current_time,
             report_type="通知测试报告",
-            timezone=ctx.timezone,
-            display_mode=ctx.display_mode,
+            timezone=settings.app.timezone,
+            display_mode=settings.render.display_mode,
             selection_strategy="keyword",
             insight_strategy="noop",
         ),
@@ -100,23 +100,26 @@ def run_test_notification(config: Dict) -> bool:
         }
     )
 
-    test_ctx = AppContext(test_config)
+    runtime = build_runtime(test_config)
+    settings = runtime.settings
     try:
-        if not test_config.get("GENERIC_WEBHOOK_URL"):
+        if not settings.delivery.generic_webhook_url:
             logger.error("未配置 Generic Webhook，无法执行通知测试")
             return False
 
-        proxy_url = test_config.get("DEFAULT_PROXY", "") if test_config.get("USE_PROXY") else None
+        proxy_url = settings.crawler.default_proxy_url if settings.crawler.proxy_enabled else None
         if proxy_url:
             logger.info("[代理] 已启用通知测试代理")
 
-        report_package = _build_test_package(test_ctx)
+        report_package = _build_test_package(settings)
 
         logger.info("=" * 60)
         logger.info("通知发送测试")
         logger.info("=" * 60)
 
-        render_result = test_ctx.run_render_stage(
+        render_result = run_render_stage(
+            runtime.container,
+            runtime.render_builder,
             report_package,
             emit_html=True,
             emit_notification=True,
@@ -126,7 +129,9 @@ def run_test_notification(config: Dict) -> bool:
         if html_file_path:
             logger.info("[输出] HTML 报告: %s", html_file_path)
 
-        delivery_result = test_ctx.run_delivery_stage(
+        delivery_result = run_delivery_stage(
+            runtime.container,
+            runtime.delivery_builder,
             render_result.payloads,
             proxy_url=proxy_url,
         )
@@ -149,4 +154,4 @@ def run_test_notification(config: Dict) -> bool:
         logger.info("结果: %s/%s 个渠道发送成功", success_count, len(channel_results))
         return success_count > 0
     finally:
-        test_ctx.cleanup()
+        runtime.cleanup()

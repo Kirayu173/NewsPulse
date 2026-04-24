@@ -4,25 +4,26 @@
 from typing import Dict
 
 from newspulse import __version__
-from newspulse.context import AppContext
+from newspulse.runtime import build_runtime
 
 
 def handle_status_commands(config: Dict) -> None:
     """处理状态查看命令并显示当前调度状态。"""
-    ctx = AppContext(config)
+    runtime = build_runtime(config)
+    settings = runtime.settings
 
     try:
         print("=" * 60)
         print(f"NewsPulse v{__version__} 调度状态")
         print("=" * 60)
 
-        scheduler = ctx.create_scheduler()
+        scheduler = runtime.container.scheduler()
         schedule = scheduler.resolve()
 
-        now = ctx.get_time()
-        date_str = ctx.format_date()
+        now = settings.get_time()
+        date_str = settings.format_date()
 
-        print(f"\n当前时间: {now.strftime('%Y-%m-%d %H:%M:%S')} ({ctx.timezone})")
+        print(f"\n当前时间: {now.strftime('%Y-%m-%d %H:%M:%S')} ({settings.app.timezone})")
         print(f"当前日期: {date_str}")
 
         print("\n调度信息:")
@@ -53,4 +54,4 @@ def handle_status_commands(config: Dict) -> None:
                 print("  推送通知: 不限次数")
         print("\n" + "=" * 60)
     finally:
-        ctx.cleanup()
+        runtime.cleanup()

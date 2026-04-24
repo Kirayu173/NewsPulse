@@ -9,10 +9,17 @@ from pathlib import Path
 from typing import Dict, Optional, Sequence
 
 from newspulse import __version__
-from newspulse.context import AppContext
 from newspulse.core import load_config
 from newspulse.core.scheduler import ResolvedSchedule
 from newspulse.crawler import CrawlBatchResult, DataFetcher
+from newspulse.runtime import (
+    assemble_report_package,
+    build_runtime,
+    run_delivery_stage,
+    run_insight_stage,
+    run_render_stage,
+    run_selection_stage,
+)
 from newspulse.runner.runtime import (
     ModeStrategy,
     WorkflowExecutionPlan,
@@ -52,13 +59,15 @@ class NewsRunner:
             ),
         )
 
-        self.ctx = AppContext(config)
-        self.request_interval = self.ctx.request_interval_ms
-        self.report_mode = self.ctx.default_report_mode
+        self.runtime = build_runtime(config)
+        self.settings = self.runtime.settings
+        self.container = self.runtime.container
+        self.request_interval = self.settings.crawler.request_interval_ms
+        self.report_mode = self.settings.app.default_report_mode
         self.frequency_file: Optional[str] = None
         self.filter_method: Optional[str] = None
         self.interests_file: Optional[str] = None
-        self.rank_threshold = self.ctx.rank_threshold
+        self.rank_threshold = self.settings.selection.rank_threshold
         self._initialize_environment()
         self.update_info = None
         self.proxy_url = None
@@ -74,13 +83,13 @@ class NewsRunner:
         self.is_docker_container = environment.is_docker_container
 
     def _init_storage_manager(self) -> None:
-        self.storage_manager = self.ctx.get_storage_manager()
+        self.storage_manager = self.container.storage()
         logger.info(
             "%s",
             build_log_message("runtime.storage_ready", backend=self.storage_manager.backend_name),
         )
 
-        retention_days = self.ctx.storage_retention_days
+        retention_days = self.settings.storage.retention_days
         if retention_days > 0:
             logger.info(
                 "%s",
@@ -91,8 +100,8 @@ class NewsRunner:
         return not self.is_github_actions and not self.is_docker_container
 
     def _setup_proxy(self) -> None:
-        if not self.is_github_actions and self.ctx.proxy_enabled:
-            self.proxy_url = self.ctx.default_proxy_url
+        if not self.is_github_actions and self.settings.crawler.proxy_enabled:
+            self.proxy_url = self.settings.crawler.default_proxy_url
             logger.info("%s", build_log_message("runtime.proxy_enabled", proxy_url=self.proxy_url))
         elif not self.is_github_actions:
             logger.info("%s", build_log_message("runtime.proxy_disabled"))
@@ -101,7 +110,7 @@ class NewsRunner:
 
     def _set_update_info_from_config(self) -> None:
         try:
-            version_url = self.ctx.config.get("VERSION_CHECK_URL", "")
+            version_url = self.settings.app.version_check_url
             if not version_url:
                 return
             from newspulse.cli.versioning import _fetch_remote_version, _parse_version
@@ -122,7 +131,7 @@ class NewsRunner:
         return resolve_mode_strategy(self.report_mode)
 
     def _has_notification_configured(self) -> bool:
-        return bool(self.ctx.generic_webhook_url)
+        return bool(self.settings.delivery.generic_webhook_url)
 
     def _has_valid_content(self, report_package: ReportPackage) -> bool:
         if not report_package.integrity.valid:
@@ -160,7 +169,7 @@ class NewsRunner:
         report_type: str,
         schedule: ResolvedSchedule,
     ) -> bool:
-        if not self.ctx.notification_enabled:
+        if not self.settings.delivery.enabled:
             logger.info(
                 "%s",
                 build_log_message("delivery.skipped", reason="notifications_disabled", report_type=report_type),
@@ -195,8 +204,8 @@ class NewsRunner:
             return False
 
         if schedule.once_push and schedule.period_key:
-            scheduler = self.ctx.create_scheduler()
-            date_str = self.ctx.format_date()
+            scheduler = self.container.scheduler()
+            date_str = self.settings.format_date()
             if scheduler.already_executed(schedule.period_key, "push", date_str):
                 logger.info(
                     "%s",
@@ -227,29 +236,34 @@ class NewsRunner:
             logger.info("%s", build_log_message("delivery.skipped", reason="no_payloads"))
             return False
 
-        result = self.ctx.run_delivery_stage(payloads, proxy_url=self.proxy_url)
+        result = run_delivery_stage(
+            self.container,
+            self.runtime.delivery_builder,
+            payloads,
+            proxy_url=self.proxy_url,
+        )
         if not getattr(result, "channel_results", None):
             logger.warning("%s", build_log_message("delivery.failed", reason="no_channel_results"))
             return False
 
         if result.success and schedule.once_push and schedule.period_key:
-            scheduler = self.ctx.create_scheduler()
-            scheduler.record_execution(schedule.period_key, "push", self.ctx.format_date())
+            scheduler = self.container.scheduler()
+            scheduler.record_execution(schedule.period_key, "push", self.settings.format_date())
 
         return result.success
 
     def _initialize_and_check_config(self) -> None:
-        now = self.ctx.get_time()
+        now = self.settings.get_time()
         logger.info(
             "%s",
             build_log_message("runtime.clock_ready", time=now.strftime("%Y-%m-%d %H:%M:%S")),
         )
 
-        if not self.ctx.crawler_enabled:
+        if not self.settings.crawler.enabled:
             logger.info("%s", build_log_message("runtime.crawler_disabled"))
             return
 
-        if not self.ctx.notification_enabled:
+        if not self.settings.delivery.enabled:
             logger.info("%s", build_log_message("runtime.notifications_disabled"))
         elif not self._has_notification_configured():
             logger.warning("%s", build_log_message("runtime.notifications_missing"))
@@ -267,7 +281,7 @@ class NewsRunner:
         )
 
     def _crawl_data(self) -> CrawlBatchResult:
-        source_specs = self.ctx.crawl_source_specs
+        source_specs = self.settings.crawler.crawl_source_specs
 
         logger.info(
             "%s",
@@ -277,12 +291,12 @@ class NewsRunner:
                 request_interval_ms=self.request_interval,
             ),
         )
-        self.ctx.get_data_dir().mkdir(parents=True, exist_ok=True)
+        self.settings.storage.data_dir.mkdir(parents=True, exist_ok=True)
 
         crawl_batch = self.data_fetcher.crawl(source_specs, self.request_interval)
 
-        crawl_time = self.ctx.format_time()
-        crawl_date = self.ctx.format_date()
+        crawl_time = self.settings.format_time()
+        crawl_date = self.settings.format_date()
         normalized_batch = normalize_crawl_batch(crawl_batch, crawl_time, crawl_date)
 
         if self.storage_manager.save_normalized_crawl_batch(normalized_batch):
@@ -316,7 +330,7 @@ class NewsRunner:
             report_mode=effective_mode,
             mode_strategy=active_mode_strategy,
             frequency_file=schedule.frequency_file,
-            filter_method=schedule.filter_method or self.ctx.filter_method,
+            filter_method=schedule.filter_method or self.settings.selection.strategy,
             interests_file=schedule.interests_file,
         )
 
@@ -327,7 +341,10 @@ class NewsRunner:
         self.interests_file = plan.interests_file
 
     def _run_workflow_stages(self, plan: WorkflowExecutionPlan) -> ReportPackage:
-        snapshot, selection = self.ctx.run_selection_stage(
+        snapshot, selection = run_selection_stage(
+            self.settings,
+            self.container,
+            self.runtime.selection_builder,
             mode=plan.report_mode,
             strategy=plan.filter_method,
             frequency_file=plan.frequency_file,
@@ -335,7 +352,11 @@ class NewsRunner:
         )
         self._log_selection_result(selection)
 
-        insight = self.ctx.run_insight_stage(
+        insight = run_insight_stage(
+            self.settings,
+            self.container,
+            self.runtime.selection_builder,
+            self.runtime.insight_builder,
             report_mode=plan.report_mode,
             snapshot=snapshot,
             selection=selection,
@@ -344,20 +365,22 @@ class NewsRunner:
             interests_file=plan.interests_file,
             schedule=plan.schedule,
         )
-        return self.ctx.assemble_report_package(snapshot, selection, insight)
+        return assemble_report_package(self.container, snapshot, selection, insight)
 
     def _render_report(self, plan: WorkflowExecutionPlan, report_package: ReportPackage):
-        emit_html = bool(self.ctx.storage_formats.get("HTML", True))
+        emit_html = self.settings.storage.enable_html
         emit_notification = plan.mode_strategy.should_send_notification and self._should_emit_notification(
             report_package,
             plan.mode_strategy.report_type,
             plan.schedule,
         )
-        render_result = self.ctx.run_render_stage(
+        render_result = run_render_stage(
+            self.container,
+            self.runtime.render_builder,
             report_package,
             emit_html=emit_html,
             emit_notification=emit_notification,
-            update_info=self.update_info if self.ctx.show_version_update else None,
+            update_info=self.update_info if self.settings.app.show_version_update else None,
         )
         return emit_notification, render_result
 
@@ -366,7 +389,7 @@ class NewsRunner:
             return
 
         logger.info("%s", build_log_message("render.html_ready", path=html_file))
-        latest_file = self.ctx.get_data_dir() / "html" / "latest" / f"{self.report_mode}.html"
+        latest_file = self.settings.storage.data_dir / "html" / "latest" / f"{self.report_mode}.html"
         logger.info("%s", build_log_message("render.html_latest", path=latest_file))
 
         if self._should_open_browser():
@@ -381,7 +404,7 @@ class NewsRunner:
         mode_strategy: ModeStrategy | None = None,
         schedule: Optional[ResolvedSchedule] = None,
     ) -> Optional[str]:
-        resolved_schedule = schedule or self.ctx.create_scheduler().resolve()
+        resolved_schedule = schedule or self.container.scheduler().resolve()
         plan = self._resolve_execution_plan(resolved_schedule, mode_strategy=mode_strategy)
         self._apply_execution_plan(plan)
 
@@ -398,10 +421,10 @@ class NewsRunner:
     def run(self) -> None:
         try:
             self._initialize_and_check_config()
-            if not self.ctx.crawler_enabled:
+            if not self.settings.crawler.enabled:
                 return
 
-            schedule = self.ctx.create_scheduler().resolve()
+            schedule = self.container.scheduler().resolve()
             if not schedule.collect:
                 logger.info("%s", build_log_message("schedule.collect_skipped"))
                 return
@@ -411,7 +434,7 @@ class NewsRunner:
             self._execute_mode_strategy(mode_strategy, schedule=schedule)
         except Exception:
             logger.exception("%s", build_log_message("runner.failed"))
-            if self.ctx.debug_enabled:
+            if self.settings.app.debug_enabled:
                 raise
         finally:
-            self.ctx.cleanup()
+            self.runtime.cleanup()

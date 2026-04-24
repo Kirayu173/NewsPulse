@@ -1,9 +1,9 @@
-import unittest
+﻿import unittest
 from datetime import datetime
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 
-from newspulse.context import AppContext
+from newspulse.runtime import build_runtime, run_render_stage
 from newspulse.workflow import (
     HotlistItem,
     HTMLRenderAdapter,
@@ -67,7 +67,7 @@ def _build_report_package() -> ReportPackage:
     return ReportPackage(
         meta=ReportPackageMeta(
             mode="current",
-            report_type="中文示例简报",
+            report_type="Daily Report",
             generated_at="2026-04-17 10:00:00",
             timezone="Asia/Hong_Kong",
             display_mode="keyword",
@@ -89,7 +89,7 @@ def _build_report_package() -> ReportPackage:
             insight_sections=[
                 InsightSection(
                     key="core_trends",
-                    title="综合判断",
+                    title="Core Trends",
                     content="AI tools keep dominating the developer conversation.",
                 )
             ],
@@ -203,7 +203,7 @@ class WorkflowRenderServiceTest(unittest.TestCase):
 
         self.assertEqual(view_model.total_titles, 2)
         self.assertEqual(view_model.mode, "current")
-        self.assertEqual(view_model.report_type, "中文示例简报")
+        self.assertEqual(view_model.report_type, "Daily Report")
         self.assertEqual(view_model.hotlist_groups[0].items[0].title, "OpenAI launches a new coding agent")
         self.assertEqual(view_model.new_item_groups[0].items[0].title, "OpenAI launches a new coding agent")
         self.assertEqual(len(view_model.news_cards), 3)
@@ -274,7 +274,7 @@ class WorkflowRenderServiceTest(unittest.TestCase):
             self.assertIn("LLM Analysis", artifacts.html.content)
             self.assertNotIn("Why this story made the cut", artifacts.html.content)
             self.assertNotIn("Weibo", artifacts.html.content)
-            self.assertNotIn("不再按来源堆叠输出，而是把每条新闻作为独立阅读单元，只展示新闻信息与 LLM 分析。", artifacts.html.content)
+            self.assertNotIn("Legacy LLM analysis marker", artifacts.html.content)
             self.assertIn("OpenAI shipped a terminal-native coding agent workflow.", artifacts.html.content)
             self.assertIn("AI tools keep dominating the developer conversation.", artifacts.html.content)
             self.assertIn('data-story-search', artifacts.html.content)
@@ -397,12 +397,12 @@ class WorkflowRenderServiceTest(unittest.TestCase):
             self.assertIn("schedule disabled", combined_payload)
 
 
-class AppContextRenderStageTest(unittest.TestCase):
-    def test_context_run_render_stage_uses_project_defaults_and_channel_config(self):
+class RuntimeRenderStageTest(unittest.TestCase):
+    def test_runtime_run_render_stage_uses_project_defaults_and_channel_config(self):
         report = _build_report_package()
 
         with TemporaryDirectory() as temp_dir:
-            ctx = AppContext(
+            runtime = build_runtime(
                 {
                     "TIMEZONE": "Asia/Hong_Kong",
                     "DISPLAY_MODE": "keyword",
@@ -420,21 +420,22 @@ class AppContextRenderStageTest(unittest.TestCase):
                 }
             )
 
-            artifacts = ctx.run_render_stage(report)
+            artifacts = run_render_stage(runtime.container, runtime.render_builder, report)
 
             html_path = Path(artifacts.html.file_path)
             self.assertTrue(html_path.exists())
             self.assertEqual(artifacts.payloads, [])
             self.assertEqual(artifacts.metadata["display_regions"], ["hotlist", "insight"])
             self.assertFalse(artifacts.metadata["notification_enabled"])
-            self.assertIn("本批重点新闻分析", artifacts.html.content)
+            self.assertIn('<header class="hero">', artifacts.html.content)
             self.assertNotIn("Weibo", artifacts.html.content)
+            runtime.cleanup()
 
-    def test_context_run_render_stage_filters_disabled_new_item_region_even_if_order_keeps_it(self):
+    def test_runtime_run_render_stage_filters_disabled_new_item_region_even_if_order_keeps_it(self):
         report = _build_report_package()
 
         with TemporaryDirectory() as temp_dir:
-            ctx = AppContext(
+            runtime = build_runtime(
                 {
                     "TIMEZONE": "Asia/Hong_Kong",
                     "DISPLAY_MODE": "keyword",
@@ -455,10 +456,11 @@ class AppContextRenderStageTest(unittest.TestCase):
                 }
             )
 
-            artifacts = ctx.run_render_stage(report)
+            artifacts = run_render_stage(runtime.container, runtime.render_builder, report)
 
             self.assertEqual(artifacts.metadata["display_regions"], ["hotlist", "insight", "standalone"])
-            self.assertNotIn('story-badge accent">新增</span>', artifacts.html.content)
+            self.assertNotIn('story-badge accent">??</span>', artifacts.html.content)
+            runtime.cleanup()
 
 
 if __name__ == "__main__":

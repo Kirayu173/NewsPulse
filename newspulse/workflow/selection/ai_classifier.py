@@ -7,7 +7,6 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from newspulse.workflow.selection.context_builder import build_selection_context
 from newspulse.workflow.selection.models import AIBatchNewsItem, AIQualityDecision
-from newspulse.workflow.shared.ai_runtime.codec import decode_json_response
 from newspulse.workflow.shared.ai_runtime.errors import AIRuntimeError
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate
 from newspulse.workflow.shared.contracts import HotlistItem
@@ -150,7 +149,7 @@ class AIBatchClassifier:
                 "news_list": _format_news_list(batch_items),
             },
         )
-        response = self.client.chat(
+        response = self.client.generate_json(
             self.classify_prompt.build_messages(user_prompt),
             **self.request_overrides,
         )
@@ -202,10 +201,10 @@ class AIBatchClassifier:
 
     def _parse_classify_response(
         self,
-        response: str,
+        response: Any,
         batch_items: Sequence[AIBatchNewsItem],
     ) -> list[AIQualityDecision]:
-        payload = decode_json_response(response)
+        payload = getattr(response, "json_payload", None)
         if not isinstance(payload, list):
             return []
 

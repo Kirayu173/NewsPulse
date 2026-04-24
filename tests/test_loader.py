@@ -1,19 +1,33 @@
 import os
+import shutil
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from unittest.mock import patch
+from uuid import uuid4
 
 from newspulse.core.config_paths import resolve_ai_interests_path
 from newspulse.core.loader import load_config
 from newspulse.workflow.selection.frequency import load_keyword_rule_set
 from tests.helpers.io import write_text
 
+TEST_TMPDIR = Path(".tmp-test") / "loader"
+TEST_TMPDIR.mkdir(parents=True, exist_ok=True)
+
+
+@contextmanager
+def workspace_tmpdir():
+    path = TEST_TMPDIR / uuid4().hex
+    path.mkdir(parents=True, exist_ok=False)
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
+
 
 class LoaderConfigRootTest(unittest.TestCase):
     def test_load_config_reads_unified_ai_env_from_project_root(self):
-        with TemporaryDirectory() as tmp:
-            project = Path(tmp)
+        with workspace_tmpdir() as project:
             config_dir = project / "config"
             config_dir.mkdir(parents=True)
             (project / ".env").write_text(
@@ -52,15 +66,14 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["AI"]["MODEL"], "glm-4.6v")
 
     def test_load_config_reads_unified_ai_env_settings(self):
-        with TemporaryDirectory() as tmp:
-            project = Path(tmp)
+        with workspace_tmpdir() as project:
             config_dir = project / "config"
             config_dir.mkdir(parents=True)
             (project / ".env").write_text(
                 "AI_API_KEY=dotenv-key\n"
                 "AI_BASE_URL=https://dotenv.example/v1\n"
                 "AI_MODEL=glm-4.6v\n"
-                "AI_DRIVER=openai\n",
+                "AI_PROVIDER_FAMILY=openai\n",
                 encoding="utf-8",
             )
             write_text(
@@ -76,7 +89,7 @@ class LoaderConfigRootTest(unittest.TestCase):
                     model: deepseek/deepseek-chat
                     api_key: ""
                     api_base: ""
-                    driver: auto
+                    provider_family: auto
                 """,
             )
 
@@ -87,11 +100,46 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["AI"]["API_KEY"], "dotenv-key")
             self.assertEqual(config["AI"]["API_BASE"], "https://dotenv.example/v1")
             self.assertEqual(config["AI"]["MODEL"], "glm-4.6v")
-            self.assertEqual(config["AI"]["DRIVER"], "openai")
+            self.assertEqual(config["AI"]["PROVIDER_FAMILY"], "openai")
+
+    def test_load_config_reads_provider_native_sdk_env_settings(self):
+        with workspace_tmpdir() as project:
+            config_dir = project / "config"
+            config_dir.mkdir(parents=True)
+            (project / ".env").write_text(
+                "AI_MODEL=MiniMax-M2.7\n"
+                "ANTHROPIC_API_KEY=dotenv-key\n"
+                "ANTHROPIC_BASE_URL=https://api.minimaxi.com/anthropic\n",
+                encoding="utf-8",
+            )
+            write_text(
+                config_dir / "config.yaml",
+                """
+                app:
+                  timezone: Asia/Shanghai
+                schedule:
+                  enabled: false
+                  preset: always_on
+                ai:
+                  runtime:
+                    model: ''
+                    api_key: ''
+                    api_base: ''
+                    provider_family: auto
+                """,
+            )
+
+            with patch("newspulse.core.config_paths.get_project_root", return_value=project):
+                with patch.dict(os.environ, {}, clear=True):
+                    config = load_config()
+
+            self.assertEqual(config["AI"]["MODEL"], "MiniMax-M2.7")
+            self.assertEqual(config["AI"]["API_KEY"], "dotenv-key")
+            self.assertEqual(config["AI"]["API_BASE"], "https://api.minimaxi.com/anthropic")
+            self.assertEqual(config["AI"]["PROVIDER_FAMILY"], "auto")
 
     def test_load_config_uses_project_config_root_and_ignores_parent_env(self):
-        with TemporaryDirectory() as tmp:
-            workspace = Path(tmp)
+        with workspace_tmpdir() as workspace:
             project = workspace / "project"
             config_dir = project / "config"
             config_dir.mkdir(parents=True)
@@ -129,8 +177,7 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["_PATHS"]["CONFIG_PATH"], str(config_dir / "config.yaml"))
 
     def test_load_config_resolves_relative_config_path_from_project_root(self):
-        with TemporaryDirectory() as tmp:
-            project = Path(tmp)
+        with workspace_tmpdir() as project:
             config_dir = project / "configs" / "dev"
             write_text(
                 config_dir / "config.yaml",
@@ -176,8 +223,7 @@ class LoaderConfigRootTest(unittest.TestCase):
             )
 
     def test_load_config_builds_independent_ai_runtime_configs(self):
-        with TemporaryDirectory() as tmp:
-            workspace = Path(tmp)
+        with workspace_tmpdir() as workspace:
             config_dir = workspace / "config"
             config_file = config_dir / "config.yaml"
             write_text(
@@ -220,8 +266,7 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["AI"]["NUM_RETRIES"], 1)
 
     def test_load_config_reads_logging_settings_from_advanced_section(self):
-        with TemporaryDirectory() as tmp:
-            workspace = Path(tmp)
+        with workspace_tmpdir() as workspace:
             config_dir = workspace / "config"
             config_file = config_dir / "config.yaml"
             write_text(
@@ -247,8 +292,7 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertTrue(config["LOG_JSON"])
 
     def test_load_config_accepts_storage_retention_days_env_alias(self):
-        with TemporaryDirectory() as tmp:
-            workspace = Path(tmp)
+        with workspace_tmpdir() as workspace:
             config_dir = workspace / "config"
             config_file = config_dir / "config.yaml"
             write_text(
@@ -271,8 +315,7 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["STORAGE"]["LOCAL"]["RETENTION_DAYS"], 14)
 
     def test_load_config_supports_workflow_stage_sections_and_ai_operations(self):
-        with TemporaryDirectory() as tmp:
-            workspace = Path(tmp)
+        with workspace_tmpdir() as workspace:
             config_dir = workspace / "config"
             config_file = config_dir / "config.yaml"
             write_text(config_dir / "ai_analysis_prompt.txt", "[user]\nanalysis")
@@ -377,10 +420,16 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["FILTER"]["FREQUENCY_FILE"], "topics.txt")
             self.assertEqual(config["AI_ANALYSIS"]["STRATEGY"], "ai")
             self.assertEqual(config["AI_ANALYSIS"]["MAX_ITEMS"], 9)
-            self.assertEqual(config["AI_ANALYSIS"]["PROMPT_FILE"], str(config_dir / "ai_analysis_prompt.txt"))
+            self.assertEqual(
+                config["AI_ANALYSIS"]["PROMPT_FILE"],
+                str((config_dir / "ai_analysis_prompt.txt").resolve()),
+            )
             self.assertEqual(config["AI_ANALYSIS"]["RUNTIME_CACHE"]["TTL_SECONDS"], 60)
             self.assertFalse(config["AI_ANALYSIS"]["RUNTIME_CACHE"]["ENABLED"])
-            self.assertEqual(config["AI_FILTER"]["PROMPT_FILE"], str(config_dir / "ai_filter" / "prompt.txt"))
+            self.assertEqual(
+                config["AI_FILTER"]["PROMPT_FILE"],
+                str((config_dir / "ai_filter" / "prompt.txt").resolve()),
+            )
             self.assertEqual(config["AI_FILTER"]["EXTRA_PARAMS"], {"top_p": 0.9})
             self.assertEqual(config["AI_FILTER"]["RUNTIME_CACHE"]["MAX_ENTRIES"], 128)
             self.assertFalse(config["AI_FILTER"]["FALLBACK_TO_KEYWORD"])
@@ -390,15 +439,14 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["AI"]["MODEL"], "openai/base-model")
             self.assertEqual(config["AI_FILTER_MODEL"]["MODEL"], "openai/selection-model")
             self.assertEqual(config["AI_FILTER_MODEL"]["TIMEOUT"], 222)
-            self.assertEqual(config["AI_FILTER_MODEL"]["DRIVER"], "auto")
+            self.assertEqual(config["AI_FILTER_MODEL"]["PROVIDER_FAMILY"], "auto")
             self.assertEqual(config["AI_ANALYSIS_MODEL"]["API_KEY"], "insight-key")
             self.assertEqual(config["AI_ANALYSIS_MODEL"]["TEMPERATURE"], 0.8)
 
 
 class FrequencyWordsPathTest(unittest.TestCase):
     def test_load_keyword_rule_set_resolves_custom_short_name_from_config_root(self):
-        with TemporaryDirectory() as tmp:
-            project = Path(tmp)
+        with workspace_tmpdir() as project:
             config_dir = project / "config"
             write_text(
                 config_dir / "custom" / "keyword" / "weekly.txt",
@@ -416,8 +464,7 @@ class FrequencyWordsPathTest(unittest.TestCase):
             self.assertEqual(rule_set.global_filters, ())
 
     def test_resolve_ai_interests_path_uses_default_root_file(self):
-        with TemporaryDirectory() as tmp:
-            project = Path(tmp)
+        with workspace_tmpdir() as project:
             config_dir = project / "config"
             write_text(config_dir / "ai_interests.txt", "AI agents")
 

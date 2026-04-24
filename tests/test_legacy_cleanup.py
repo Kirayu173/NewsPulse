@@ -17,6 +17,10 @@ class LegacyCleanupTest(unittest.TestCase):
         with self.assertRaises(ModuleNotFoundError):
             importlib.import_module("newspulse.pipeline")
 
+    def test_context_module_has_been_removed_after_runtime_split(self):
+        with self.assertRaises(ModuleNotFoundError):
+            importlib.import_module("newspulse.context")
+
     def test_storage_package_no_longer_exports_sqlite_mixin_shim(self):
         self.assertFalse(hasattr(storage_pkg, "SQLiteStorageMixin"))
         self.assertNotIn("force_new", inspect.signature(storage_pkg.get_storage_manager).parameters)
@@ -56,12 +60,12 @@ class LegacyCleanupTest(unittest.TestCase):
 
         self.assertNotIn("api_url", inspect.signature(DataFetcher.__init__).parameters)
 
-    def test_render_defaults_no_longer_use_ai_analysis_region_name(self):
-        from newspulse.context import AppContext
+    def test_render_defaults_keep_native_region_names(self):
+        from newspulse.runtime import build_runtime
         from newspulse.workflow.shared.options import RenderOptions
 
         self.assertEqual(RenderOptions().display_regions, ["hotlist", "new_items", "standalone", "insight"])
-        self.assertEqual(AppContext({}).region_order, ["hotlist", "new_items", "standalone", "insight"])
+        self.assertEqual(list(build_runtime({}).settings.render.region_order), ["hotlist", "new_items", "standalone", "insight"])
 
     def test_core_package_no_longer_exports_workflow_domain_helpers(self):
         import newspulse.core as core_pkg

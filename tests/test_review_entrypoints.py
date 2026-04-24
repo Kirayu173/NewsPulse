@@ -1,9 +1,9 @@
-import os
+﻿import os
 import shutil
 import unittest
 import uuid
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 from unittest.mock import patch
 
 from newspulse.crawler.models import CrawlBatchResult, SourceFetchResult
@@ -24,7 +24,7 @@ class _FakeDataFetcher:
             sources=[
                 SourceFetchResult(
                     source_id="thepaper",
-                    source_name="澎湃新闻",
+                    source_name="婢庢箖鏂伴椈",
                     resolved_source_id="thepaper",
                     items=[
                         SourceItem(
@@ -56,7 +56,7 @@ class ReviewEntrypointSmokeTest(unittest.TestCase):
               enabled: true
               sources:
                 - id: thepaper
-                  name: 澎湃新闻
+                  name: 婢庢箖鏂伴椈
             report:
               mode: current
               display_mode: keyword

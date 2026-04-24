@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
 from typing import Any, Iterable, Mapping, Sequence
+
+from tests.helpers.runtime import embedding_result, json_result
 
 
 def default_quality_rules() -> list[dict[str, Any]]:
@@ -46,7 +47,7 @@ class DeterministicQualityAIClient:
             }
         )
 
-    def chat(self, messages, **kwargs):
+    def generate_json(self, messages, **kwargs):
         self.classify_calls += 1
         user_content = messages[-1]["content"]
         results = []
@@ -57,7 +58,7 @@ class DeterministicQualityAIClient:
             lowered = line.lower()
             decision = self._match_rule(lowered)
             results.append({"id": prompt_id, **decision})
-        return json.dumps(results)
+        return json_result(results)
 
     def _match_rule(self, lowered_line: str) -> dict[str, Any]:
         for rule in self.rules:
@@ -103,7 +104,7 @@ class FakeEmbeddingClient:
     def is_enabled(self):
         return True
 
-    def embed_texts(self, texts, **kwargs):
+    def generate_embeddings(self, texts, **kwargs):
         vectors = []
         for text in texts:
             lowered = str(text).lower()
@@ -113,4 +114,7 @@ class FakeEmbeddingClient:
                     vector = candidate
                     break
             vectors.append(list(vector))
-        return vectors
+        return embedding_result(vectors, model=self.config.model)
+
+    def embed_texts(self, texts, **kwargs):
+        return self.generate_embeddings(texts, **kwargs)

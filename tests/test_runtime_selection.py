@@ -3,7 +3,7 @@ import unittest
 import uuid
 from pathlib import Path
 
-from newspulse.context import AppContext
+from newspulse.runtime import RuntimeProviders, build_runtime, run_selection_stage
 from newspulse.storage import get_storage_manager
 from newspulse.storage.base import NewsData, NewsItem
 from newspulse.workflow.selection.ai import AISelectionStrategy
@@ -93,10 +93,10 @@ def _build_config(config_root: Path, output_dir: Path) -> dict:
     }
 
 
-def _seed_hotlist(ctx: AppContext) -> None:
-    date_str = ctx.format_date()
+def _seed_hotlist(runtime) -> None:
+    date_str = runtime.settings.format_date()
     crawl_time = f"{date_str} 10:00:00"
-    ctx.get_storage_manager().save_news_data(
+    runtime.container.storage().save_news_data(
         NewsData(
             date=date_str,
             crawl_time=crawl_time,
@@ -163,11 +163,11 @@ def _seed_hotlist(ctx: AppContext) -> None:
 
 
 class FailingAIClient:
-    def chat(self, messages, **kwargs):
+    def generate_json(self, messages, **kwargs):
         raise RuntimeError("boom")
 
 
-class AppContextSelectionStageTest(unittest.TestCase):
+class RuntimeSelectionStageTest(unittest.TestCase):
     def _create_workspace_tmpdir(self) -> Path:
         root = Path(".tmp-test") / "context-selection"
         root.mkdir(parents=True, exist_ok=True)
@@ -175,7 +175,7 @@ class AppContextSelectionStageTest(unittest.TestCase):
         path.mkdir(parents=True, exist_ok=False)
         return path
 
-    def _create_context(self, root: Path) -> AppContext:
+    def _create_runtime(self, root: Path):
         config_root = root / "config"
         output_dir = root / "output"
         _write_selection_configs(config_root)
@@ -209,15 +209,17 @@ class AppContextSelectionStageTest(unittest.TestCase):
             @priority: 1
             """,
         )
-        ctx = AppContext(_build_config(config_root, output_dir))
-        ctx._storage_manager = get_storage_manager(
+        storage = get_storage_manager(
             backend_type="local",
             data_dir=str(output_dir),
             enable_txt=False,
             enable_html=False,
-            timezone=ctx.timezone,
+            timezone="Asia/Shanghai",
         )
-        return ctx
+        return build_runtime(
+            _build_config(config_root, output_dir),
+            providers=RuntimeProviders(storage_factory=lambda settings: storage),
+        )
 
     def _make_quality_client(self) -> DeterministicQualityAIClient:
         return DeterministicQualityAIClient(
@@ -266,38 +268,45 @@ class AppContextSelectionStageTest(unittest.TestCase):
             default_vector=(1.0, 1.0, 1.0),
         )
 
-    def _build_ai_selection_service(self, ctx: AppContext, client) -> SelectionService:
+    def _build_ai_selection_service(self, runtime, client) -> SelectionService:
+        settings = runtime.settings
         ai_strategy = AISelectionStrategy(
-            storage_manager=ctx.get_storage_manager(),
+            storage_manager=runtime.container.storage(),
             client=client,
             embedding_client=self._make_embedding_client(),
-            filter_config=ctx.ai_filter_config,
-            config_root=ctx.config_root,
+            filter_config=settings.selection.filter_config,
+            config_root=settings.paths.config_root,
             sleep_func=lambda _: None,
         )
         return SelectionService(
-            config_root=str(ctx.config_root),
-            rank_threshold=ctx.rank_threshold,
-            weight_config=ctx.weight_config,
-            max_news_per_keyword=ctx.config.get("MAX_NEWS_PER_KEYWORD", 0),
-            sort_by_position_first=ctx.config.get("SORT_BY_POSITION_FIRST", False),
+            config_root=str(settings.paths.config_root),
+            rank_threshold=settings.selection.rank_threshold,
+            weight_config=settings.selection.weight_config,
+            max_news_per_keyword=settings.selection.max_news_per_keyword,
+            sort_by_position_first=settings.selection.sort_by_position_first,
             ai_strategy=ai_strategy,
         )
 
     def test_keyword_and_ai_selection_stage_both_return_selection_result(self):
         tmpdir = self._create_workspace_tmpdir()
-        ctx = self._create_context(tmpdir)
+        runtime = self._create_runtime(tmpdir)
         try:
-            _seed_hotlist(ctx)
+            _seed_hotlist(runtime)
 
-            _, keyword_selection = ctx.run_selection_stage(
+            _, keyword_selection = run_selection_stage(
+                runtime.settings,
+                runtime.container,
+                runtime.selection_builder,
                 mode="current",
                 strategy="keyword",
                 frequency_file="topics.txt",
             )
 
-            ai_service = self._build_ai_selection_service(ctx, self._make_quality_client())
-            _, ai_selection = ctx.run_selection_stage(
+            ai_service = self._build_ai_selection_service(runtime, self._make_quality_client())
+            _, ai_selection = run_selection_stage(
+                runtime.settings,
+                runtime.container,
+                runtime.selection_builder,
                 mode="current",
                 strategy="ai",
                 frequency_file="topics.txt",
@@ -313,18 +322,21 @@ class AppContextSelectionStageTest(unittest.TestCase):
             self.assertEqual(ai_selection.total_selected, 2)
             self.assertEqual(ai_selection.diagnostics["rule_rejected_count"], 1)
         finally:
-            ctx.cleanup()
+            runtime.cleanup()
             shutil.rmtree(tmpdir, ignore_errors=True)
 
     def test_run_selection_stage_emits_funnel_diagnostics(self):
         tmpdir = self._create_workspace_tmpdir()
-        ctx = self._create_context(tmpdir)
+        runtime = self._create_runtime(tmpdir)
         try:
-            _seed_hotlist(ctx)
+            _seed_hotlist(runtime)
             client = self._make_quality_client()
-            ai_service = self._build_ai_selection_service(ctx, client)
+            ai_service = self._build_ai_selection_service(runtime, client)
 
-            _, result = ctx.run_selection_stage(
+            _, result = run_selection_stage(
+                runtime.settings,
+                runtime.container,
+                runtime.selection_builder,
                 mode="current",
                 strategy="ai",
                 frequency_file="topics.txt",
@@ -339,23 +351,29 @@ class AppContextSelectionStageTest(unittest.TestCase):
             self.assertEqual(result.diagnostics["llm_decision_count"], 2)
             self.assertGreater(client.classify_calls, 0)
         finally:
-            ctx.cleanup()
+            runtime.cleanup()
             shutil.rmtree(tmpdir, ignore_errors=True)
 
     def test_run_selection_stage_supports_switching_interests_files(self):
         tmpdir = self._create_workspace_tmpdir()
-        ctx = self._create_context(tmpdir)
+        runtime = self._create_runtime(tmpdir)
         try:
-            _seed_hotlist(ctx)
-            ai_service = self._build_ai_selection_service(ctx, self._make_quality_client())
-            _, first_result = ctx.run_selection_stage(
+            _seed_hotlist(runtime)
+            ai_service = self._build_ai_selection_service(runtime, self._make_quality_client())
+            _, first_result = run_selection_stage(
+                runtime.settings,
+                runtime.container,
+                runtime.selection_builder,
                 mode="current",
                 strategy="ai",
                 frequency_file="topics.txt",
                 interests_file="ai.txt",
                 selection_service=ai_service,
             )
-            _, second_result = ctx.run_selection_stage(
+            _, second_result = run_selection_stage(
+                runtime.settings,
+                runtime.container,
+                runtime.selection_builder,
                 mode="current",
                 strategy="ai",
                 frequency_file="topics.txt",
@@ -369,17 +387,20 @@ class AppContextSelectionStageTest(unittest.TestCase):
             self.assertEqual(second_result.diagnostics["focus_labels"], ["Startups"])
             self.assertEqual(second_result.total_selected, 1)
         finally:
-            ctx.cleanup()
+            runtime.cleanup()
             shutil.rmtree(tmpdir, ignore_errors=True)
 
     def test_run_selection_stage_falls_back_to_keyword_when_ai_fails(self):
         tmpdir = self._create_workspace_tmpdir()
-        ctx = self._create_context(tmpdir)
+        runtime = self._create_runtime(tmpdir)
         try:
-            _seed_hotlist(ctx)
-            failing_service = self._build_ai_selection_service(ctx, FailingAIClient())
+            _seed_hotlist(runtime)
+            failing_service = self._build_ai_selection_service(runtime, FailingAIClient())
 
-            _, result = ctx.run_selection_stage(
+            _, result = run_selection_stage(
+                runtime.settings,
+                runtime.container,
+                runtime.selection_builder,
                 mode="current",
                 strategy="ai",
                 frequency_file="topics.txt",
@@ -392,7 +413,7 @@ class AppContextSelectionStageTest(unittest.TestCase):
             self.assertEqual(result.diagnostics["fallback_strategy"], "keyword")
             self.assertIn("ValueError", result.diagnostics["fallback_reason"])
         finally:
-            ctx.cleanup()
+            runtime.cleanup()
             shutil.rmtree(tmpdir, ignore_errors=True)
 
 

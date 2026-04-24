@@ -92,8 +92,8 @@ class SemanticSelectionLayer:
         item_texts = [context.embedding_text for context in item_contexts]
         topic_texts = [topic.to_query_text() for topic in topics]
         try:
-            item_vectors = self.embedding_client.embed_texts(item_texts)
-            topic_vectors = self.embedding_client.embed_texts(topic_texts)
+            item_vectors = _coerce_vectors(self.embedding_client.embed_texts(item_texts))
+            topic_vectors = _coerce_vectors(self.embedding_client.embed_texts(topic_texts))
         except Exception as exc:
             return SemanticSelectionResult(
                 topics=tuple(topics),
@@ -200,3 +200,8 @@ def _cosine_similarity(left: Iterable[float], right: Iterable[float]) -> float:
     if left_norm <= 0 or right_norm <= 0:
         return 0.0
     return numerator / (left_norm * right_norm)
+
+
+def _coerce_vectors(value: Any) -> list[list[float]]:
+    vectors = getattr(value, "vectors", value)
+    return [[float(component) for component in row] for row in vectors]

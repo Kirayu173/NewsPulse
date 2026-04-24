@@ -1,5 +1,5 @@
-import unittest
-from tempfile import TemporaryDirectory
+﻿import unittest
+from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 
 from newspulse.storage.manager import StorageManager
 

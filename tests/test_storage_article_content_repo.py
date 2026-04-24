@@ -1,5 +1,5 @@
-import unittest
-from tempfile import TemporaryDirectory
+﻿import unittest
+from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 
 from newspulse.storage import ArticleContentRecord, SQLiteRuntime
 from newspulse.storage.repos import ArticleContentRepository
@@ -14,7 +14,7 @@ class ArticleContentRepositoryTest(unittest.TestCase):
                 normalized_url='https://example.com/post',
                 source_type='article',
                 source_id='thepaper',
-                source_name='澎湃新闻',
+                source_name='婢庢箖鏂伴椈',
                 source_kind='article',
                 original_url='https://example.com/post?utm_source=x',
                 final_url='https://example.com/post',

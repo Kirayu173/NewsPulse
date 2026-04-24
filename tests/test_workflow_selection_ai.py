@@ -1,4 +1,3 @@
-import json
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -12,9 +11,11 @@ from newspulse.workflow.selection.ai_classifier import _format_news_list
 from newspulse.workflow.selection.models import AIBatchNewsItem
 from newspulse.workflow.shared.contracts import HotlistItem
 from newspulse.workflow.selection.service import SelectionService
+from newspulse.workflow.shared.ai_runtime.errors import AIResponseDecodeError
 from newspulse.workflow.shared.options import SelectionAIOptions, SelectionOptions, SelectionSemanticOptions, SnapshotOptions
 from newspulse.workflow.snapshot.service import SnapshotService
 from tests.helpers.io import write_text
+from tests.helpers.runtime import json_result
 from tests.helpers.selection import DeterministicQualityAIClient, FakeEmbeddingClient
 
 TEST_TMPDIR = Path("tmp_test_work")
@@ -130,7 +131,7 @@ class SplitFallbackAIClient:
     def __init__(self):
         self.calls = []
 
-    def chat(self, messages, **kwargs):
+    def generate_json(self, messages, **kwargs):
         user_content = messages[-1]["content"]
         lines = [line for line in user_content.splitlines() if line[:1].isdigit() and ". [" in line]
         self.calls.append(len(lines))
@@ -138,7 +139,7 @@ class SplitFallbackAIClient:
             raise RuntimeError("split me")
 
         prompt_id = int(lines[0].split(".", 1)[0])
-        return json.dumps(
+        return json_result(
             [{"id": prompt_id, "keep": True, "score": 0.9, "reasons": ["ok"], "evidence": "ok"}]
         )
 
@@ -147,15 +148,15 @@ class PartialResponseAIClient:
     def __init__(self):
         self.calls = []
 
-    def chat(self, messages, **kwargs):
+    def generate_json(self, messages, **kwargs):
         user_content = messages[-1]["content"]
         lines = [line for line in user_content.splitlines() if line[:1].isdigit() and ". [" in line]
         self.calls.append(len(lines))
         if not lines:
-            return "[]"
+            return json_result([])
 
         first_prompt_id = int(lines[0].split(".", 1)[0])
-        return json.dumps(
+        return json_result(
             [
                 {
                     "id": first_prompt_id,
@@ -169,8 +170,8 @@ class PartialResponseAIClient:
 
 
 class EmptyResponseAIClient:
-    def chat(self, messages, **kwargs):
-        return ""
+    def generate_json(self, messages, **kwargs):
+        raise AIResponseDecodeError("AI response does not contain JSON")
 
 
 class DummyStorage:
@@ -422,8 +423,8 @@ class AISelectionStrategyTest(unittest.TestCase):
 
     def test_ai_strategy_rejects_items_below_llm_threshold(self):
         class LowScoreClient:
-            def chat(self, messages, **kwargs):
-                return json.dumps(
+            def generate_json(self, messages, **kwargs):
+                return json_result(
                     [{"id": 1, "keep": True, "score": 0.5, "reasons": ["信息密度不足"], "evidence": "low"}]
                 )
 

@@ -1,11 +1,26 @@
 import os
+import shutil
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from unittest.mock import patch
+from uuid import uuid4
 
 from newspulse.core.preflight import run_preflight
 from tests.helpers.io import write_text
+
+TEST_TMPDIR = Path(".tmp-test") / "preflight"
+TEST_TMPDIR.mkdir(parents=True, exist_ok=True)
+
+
+@contextmanager
+def workspace_tmpdir():
+    path = TEST_TMPDIR / uuid4().hex
+    path.mkdir(parents=True, exist_ok=False)
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
 
 
 def _write_timeline(config_dir: Path) -> None:
@@ -140,8 +155,7 @@ def _write_config(
 
 class PreflightTest(unittest.TestCase):
     def test_run_preflight_passes_with_valid_keyword_config(self):
-        with TemporaryDirectory() as tmp:
-            root = Path(tmp)
+        with workspace_tmpdir() as root:
             config_path = _write_config(
                 root / "config",
                 output_dir=root / "output",
@@ -153,7 +167,7 @@ class PreflightTest(unittest.TestCase):
             self.assertTrue(report.ok)
             self.assertEqual(report.fail_count, 0)
             self.assertEqual(report.warn_count, 0)
-            self.assertEqual(report.config_path, str(config_path))
+            self.assertEqual(report.config_path, str(config_path.resolve()))
             self.assertEqual(
                 next(check.status for check in report.checks if check.item == "Config file"),
                 "pass",
@@ -177,8 +191,7 @@ class PreflightTest(unittest.TestCase):
         self.assertEqual(report.checks[1].status, "fail")
 
     def test_run_preflight_warns_when_semantic_embedding_model_is_missing(self):
-        with TemporaryDirectory() as tmp:
-            root = Path(tmp)
+        with workspace_tmpdir() as root:
             config_path = _write_config(
                 root / "config",
                 output_dir=root / "output",
@@ -201,8 +214,7 @@ class PreflightTest(unittest.TestCase):
             )
 
     def test_run_preflight_reports_resolved_ai_runtime_details(self):
-        with TemporaryDirectory() as tmp:
-            root = Path(tmp)
+        with workspace_tmpdir() as root:
             config_path = _write_config(
                 root / "config",
                 output_dir=root / "output",
@@ -213,12 +225,11 @@ class PreflightTest(unittest.TestCase):
                 report = run_preflight(str(config_path), mode="doctor")
 
             detail = next(check.detail for check in report.checks if check.item == "AI selection runtime")
-            self.assertIn("driver=openai", detail)
+            self.assertIn("provider_family=openai", detail)
             self.assertIn("model=openai/filter-model", detail)
 
     def test_run_preflight_warns_when_notification_channel_is_missing(self):
-        with TemporaryDirectory() as tmp:
-            root = Path(tmp)
+        with workspace_tmpdir() as root:
             config_path = _write_config(
                 root / "config",
                 output_dir=root / "output",

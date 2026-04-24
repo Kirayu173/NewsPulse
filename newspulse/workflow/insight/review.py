@@ -15,15 +15,14 @@ from pathlib import Path
 from typing import Any, Sequence
 from zoneinfo import ZoneInfo
 
-from newspulse.context import AppContext
 from newspulse.core import load_config
 from newspulse.crawler.fetcher import DataFetcher
+from newspulse.runtime import build_runtime, run_insight_stage
 from newspulse.storage import normalize_crawl_batch
 from newspulse.utils.time import DEFAULT_TIMEZONE
 from newspulse.workflow.shared.options import SnapshotOptions
 from newspulse.workflow.shared.review_helpers import (
     ReviewOutboxWriter as _ReviewOutboxWriter,
-    build_source_specs as _build_source_specs,
 )
 
 def export_insight_outbox(
@@ -251,11 +250,12 @@ def run_insight_review(
         review_config['STORAGE']['LOCAL']['DATA_DIR'] = str(resolved_storage_dir)
         review_config['STORAGE']['LOCAL']['RETENTION_DAYS'] = 0
 
-        ctx = AppContext(review_config)
+        runtime = build_runtime(review_config)
         try:
-            source_specs = _build_source_specs(config['PLATFORMS'])
-            request_interval_ms = int(config['REQUEST_INTERVAL'])
-            proxy_url = config['DEFAULT_PROXY'] if config.get('USE_PROXY') else None
+            settings = runtime.settings
+            source_specs = settings.crawler.crawl_source_specs
+            request_interval_ms = settings.crawler.request_interval_ms
+            proxy_url = settings.crawler.default_proxy_url if settings.crawler.proxy_enabled else None
 
             crawl_batch = DataFetcher(proxy_url=proxy_url).crawl(
                 source_specs,
@@ -270,32 +270,36 @@ def run_insight_review(
                 crawl_date=crawl_date,
             )
 
-            storage = ctx.get_storage_manager()
+            storage = runtime.container.storage()
             save_success = storage.save_normalized_crawl_batch(normalized_batch)
             if not save_success:
                 raise RuntimeError('failed to save normalized crawl batch')
 
-            snapshot_service = ctx.create_snapshot_service()
-            selection_service = ctx.create_selection_service()
+            snapshot_service = runtime.container.snapshot_service()
+            selection_service = runtime.container.selection_service()
             snapshot = snapshot_service.build(SnapshotOptions(mode=mode))
             selection = selection_service.run(
                 snapshot,
-                ctx.build_selection_options(
-                    strategy=ctx.filter_method,
+                runtime.selection_builder.build(
+                    strategy=settings.selection.strategy,
                     frequency_file=frequency_file,
                     interests_file=interests_file,
                 ),
             )
-            insight = ctx.run_insight_stage(
+            insight = run_insight_stage(
+                settings,
+                runtime.container,
+                runtime.selection_builder,
+                runtime.insight_builder,
                 report_mode=mode,
                 snapshot=snapshot,
                 selection=selection,
-                strategy=ctx.filter_method,
+                strategy=settings.selection.strategy,
                 frequency_file=frequency_file,
                 interests_file=interests_file,
             )
         finally:
-            ctx.cleanup()
+            runtime.cleanup()
 
     return export_insight_outbox(
         outbox_dir=outbox_dir,

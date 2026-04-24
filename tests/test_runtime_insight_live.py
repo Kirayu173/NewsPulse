@@ -2,8 +2,8 @@ import os
 import unittest
 from pathlib import Path
 
-from newspulse.context import AppContext
 from newspulse.core.loader import load_config
+from newspulse.runtime import build_runtime, run_insight_stage
 from newspulse.workflow.shared.contracts import (
     HotlistItem,
     HotlistSnapshot,
@@ -25,7 +25,7 @@ def _load_dotenv(path: Path) -> None:
         os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
-class LiveAppContextInsightStageTest(unittest.TestCase):
+class LiveRuntimeInsightStageTest(unittest.TestCase):
     def test_run_insight_stage_uses_real_model(self):
         project_root = Path(__file__).resolve().parents[1]
         _load_dotenv(project_root / ".env")
@@ -36,7 +36,7 @@ class LiveAppContextInsightStageTest(unittest.TestCase):
         config["AI_ANALYSIS"]["ENABLED"] = True
         config["AI_ANALYSIS"]["MODE"] = "current"
         config["AI_ANALYSIS"]["MAX_ITEMS"] = 2
-        ctx = AppContext(config)
+        runtime = build_runtime(config)
 
         snapshot = HotlistSnapshot(
             mode="current",
@@ -94,18 +94,25 @@ class LiveAppContextInsightStageTest(unittest.TestCase):
             total_selected=2,
         )
 
-        insight = ctx.run_insight_stage(
-            report_mode="current",
-            snapshot=snapshot,
-            selection=selection,
-            strategy="keyword",
-        )
+        try:
+            insight = run_insight_stage(
+                runtime.settings,
+                runtime.container,
+                runtime.selection_builder,
+                runtime.insight_builder,
+                report_mode="current",
+                snapshot=snapshot,
+                selection=selection,
+                strategy="keyword",
+            )
 
-        self.assertTrue(insight.enabled)
-        self.assertEqual(insight.strategy, "ai")
-        self.assertEqual(insight.diagnostics["report_mode"], "current")
-        self.assertTrue(insight.raw_response.strip())
-        self.assertTrue(any(section.content for section in insight.sections))
+            self.assertTrue(insight.enabled)
+            self.assertEqual(insight.strategy, "ai")
+            self.assertEqual(insight.diagnostics["report_mode"], "current")
+            self.assertTrue(insight.raw_response.strip())
+            self.assertTrue(any(section.content for section in insight.sections))
+        finally:
+            runtime.cleanup()
 
 
 if __name__ == "__main__":

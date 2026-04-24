@@ -1,13 +1,13 @@
 import unittest
-from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from newspulse.context import AppContext, ServiceFactory
+from newspulse.runtime import RuntimeProviders, build_runtime
 
 
-class AppContextTest(unittest.TestCase):
+class RuntimeSettingsTest(unittest.TestCase):
     def test_ai_runtime_configs_use_module_specific_entries(self):
-        ctx = AppContext(
+        runtime = build_runtime(
             {
                 "AI": {"MODEL": "openai/base", "TIMEOUT": 120},
                 "AI_ANALYSIS_MODEL": {"MODEL": "openai/analysis", "TIMEOUT": 180},
@@ -15,12 +15,12 @@ class AppContextTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(ctx.ai_analysis_model_config["MODEL"], "openai/analysis")
-        self.assertEqual(ctx.ai_filter_model_config["MODEL"], "openai/filter")
-        self.assertEqual(ctx.ai_filter_model_config["TIMEOUT"], 360)
+        self.assertEqual(runtime.settings.insight.ai_runtime_config["MODEL"], "openai/analysis")
+        self.assertEqual(runtime.settings.selection.ai_runtime_config["MODEL"], "openai/filter")
+        self.assertEqual(runtime.settings.selection.ai_runtime_config["TIMEOUT"], 360)
 
     def test_ai_filter_embedding_model_config_uses_same_provider_runtime(self):
-        ctx = AppContext(
+        runtime = build_runtime(
             {
                 "AI_FILTER_MODEL": {
                     "MODEL": "openai/filter-model",
@@ -31,23 +31,23 @@ class AppContextTest(unittest.TestCase):
             }
         )
 
-        with patch.dict("os.environ", {"AI_EMBEDDING_MODEL": "embedding-3", "AI_EMBEDDING_DRIVER": "openai"}, clear=False):
-            config = ctx.ai_filter_embedding_model_config
+        with patch.dict("os.environ", {"AI_EMBEDDING_MODEL": "embedding-3", "AI_EMBEDDING_PROVIDER_FAMILY": "openai"}, clear=False):
+            config = runtime.settings.selection.embedding_runtime_config
 
         self.assertEqual(config["MODEL"], "openai/embedding-3")
         self.assertEqual(config["API_KEY"], "filter-key")
         self.assertEqual(config["API_BASE"], "https://provider.example/v1")
         self.assertEqual(config["TIMEOUT"], 480)
-        self.assertEqual(config["DRIVER"], "openai")
+        self.assertEqual(config["PROVIDER_FAMILY"], "openai")
 
     def test_ai_filter_embedding_model_config_prefers_embedding_specific_credentials(self):
-        ctx = AppContext(
+        runtime = build_runtime(
             {
                 "AI_FILTER_MODEL": {
                     "MODEL": "anthropic/MiniMax-M2.7",
                     "API_KEY": "chat-key",
                     "API_BASE": "https://api.minimaxi.com/anthropic",
-                    "DRIVER": "anthropic",
+                    "PROVIDER_FAMILY": "anthropic",
                     "TIMEOUT": 240,
                 }
             }
@@ -59,19 +59,48 @@ class AppContextTest(unittest.TestCase):
                 "AI_EMBEDDING_MODEL": "text-embedding-3-small",
                 "AI_EMBEDDING_API_KEY": "embedding-key",
                 "AI_EMBEDDING_BASE_URL": "https://embedding.example/v1",
-                "AI_EMBEDDING_DRIVER": "openai",
+                "AI_EMBEDDING_PROVIDER_FAMILY": "openai",
             },
             clear=False,
         ):
-            config = ctx.ai_filter_embedding_model_config
+            config = runtime.settings.selection.embedding_runtime_config
 
         self.assertEqual(config["MODEL"], "openai/text-embedding-3-small")
         self.assertEqual(config["API_KEY"], "embedding-key")
         self.assertEqual(config["API_BASE"], "https://embedding.example/v1")
-        self.assertEqual(config["DRIVER"], "openai")
+        self.assertEqual(config["PROVIDER_FAMILY"], "openai")
 
-    def test_build_selection_options_uses_loader_frequency_file(self):
-        ctx = AppContext(
+    def test_ai_filter_embedding_model_config_uses_openai_native_env_fallback(self):
+        runtime = build_runtime(
+            {
+                "AI_FILTER_MODEL": {
+                    "MODEL": "openai/filter-model",
+                    "API_KEY": "",
+                    "API_BASE": "",
+                    "PROVIDER_FAMILY": "openai",
+                    "TIMEOUT": 180,
+                }
+            }
+        )
+
+        with patch.dict(
+            "os.environ",
+            {
+                "AI_EMBEDDING_MODEL": "text-embedding-3-small",
+                "OPENAI_API_KEY": "openai-embedding-key",
+                "OPENAI_BASE_URL": "https://embedding.example/v1",
+            },
+            clear=False,
+        ):
+            config = runtime.settings.selection.embedding_runtime_config
+
+        self.assertEqual(config["MODEL"], "openai/text-embedding-3-small")
+        self.assertEqual(config["API_KEY"], "openai-embedding-key")
+        self.assertEqual(config["API_BASE"], "https://embedding.example/v1")
+        self.assertEqual(config["PROVIDER_FAMILY"], "openai")
+
+    def test_selection_builder_uses_loader_frequency_file(self):
+        runtime = build_runtime(
             {
                 "FILTER": {
                     "METHOD": "ai",
@@ -88,7 +117,7 @@ class AppContextTest(unittest.TestCase):
             }
         )
 
-        options = ctx.build_selection_options()
+        options = runtime.selection_builder.build()
 
         self.assertEqual(options.strategy, "ai")
         self.assertEqual(options.frequency_file, "topics.txt")
@@ -97,8 +126,8 @@ class AppContextTest(unittest.TestCase):
         self.assertEqual(options.ai.min_score, 0.75)
         self.assertFalse(options.ai.fallback_to_keyword)
 
-    def test_build_selection_options_prefers_workflow_selection_config(self):
-        ctx = AppContext(
+    def test_selection_builder_prefers_workflow_selection_config(self):
+        runtime = build_runtime(
             {
                 "WORKFLOW": {
                     "SELECTION": {
@@ -135,7 +164,7 @@ class AppContextTest(unittest.TestCase):
             }
         )
 
-        options = ctx.build_selection_options()
+        options = runtime.selection_builder.build()
 
         self.assertEqual(options.strategy, "ai")
         self.assertEqual(options.frequency_file, "workflow-topics.txt")
@@ -149,8 +178,8 @@ class AppContextTest(unittest.TestCase):
         self.assertEqual(options.semantic.min_score, 0.63)
         self.assertEqual(options.semantic.direct_threshold, 0.86)
 
-    def test_build_insight_options_honors_configured_strategy(self):
-        ctx = AppContext(
+    def test_insight_builder_honors_configured_strategy(self):
+        runtime = build_runtime(
             {
                 "AI_ANALYSIS": {
                     "ENABLED": True,
@@ -161,15 +190,15 @@ class AppContextTest(unittest.TestCase):
             }
         )
 
-        options = ctx.build_insight_options(report_mode="daily")
+        options = runtime.insight_builder.build(report_mode="daily")
 
         self.assertTrue(options.enabled)
         self.assertEqual(options.strategy, "noop")
         self.assertEqual(options.mode, "daily")
         self.assertEqual(options.max_items, 6)
 
-    def test_build_insight_options_prefers_workflow_insight_config(self):
-        ctx = AppContext(
+    def test_insight_builder_prefers_workflow_insight_config(self):
+        runtime = build_runtime(
             {
                 "WORKFLOW": {
                     "INSIGHT": {
@@ -188,7 +217,7 @@ class AppContextTest(unittest.TestCase):
             }
         )
 
-        options = ctx.build_insight_options(report_mode="daily")
+        options = runtime.insight_builder.build(report_mode="daily")
 
         self.assertTrue(options.enabled)
         self.assertEqual(options.strategy, "ai")
@@ -197,7 +226,7 @@ class AppContextTest(unittest.TestCase):
         self.assertEqual(options.max_items, 12)
 
     def test_region_order_filters_disabled_regions_even_if_region_order_lists_them(self):
-        ctx = AppContext(
+        runtime = build_runtime(
             {
                 "DISPLAY": {
                     "REGION_ORDER": ["hotlist", "new_items", "standalone", "insight"],
@@ -211,10 +240,10 @@ class AppContextTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(ctx.region_order, ["hotlist", "standalone"])
+        self.assertEqual(list(runtime.settings.render.region_order), ["hotlist", "standalone"])
 
-    def test_native_workflow_and_raw_ai_sections_drive_derived_stage_configs(self):
-        ctx = AppContext(
+    def test_runtime_settings_normalize_native_workflow_and_raw_ai_sections(self):
+        runtime = build_runtime(
             {
                 "workflow": {
                     "selection": {
@@ -278,40 +307,27 @@ class AppContextTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(ctx.filter_method, "ai")
-        self.assertEqual(ctx.ai_filter_config["PROMPT_FILE"], "selection_prompt.txt")
-        self.assertEqual(ctx.ai_filter_config["TIMEOUT"], 480)
-        self.assertEqual(ctx.ai_filter_model_config["MODEL"], "openai/selection-model")
-        self.assertEqual(ctx.ai_filter_model_config["API_KEY"], "base-key")
-        self.assertEqual(ctx.ai_filter_model_config["TIMEOUT"], 480)
-        self.assertEqual(ctx.selection_stage_config["SEMANTIC"]["TOP_K"], 6)
-        self.assertEqual(ctx.selection_stage_config["SEMANTIC"]["DIRECT_THRESHOLD"], 0.82)
+        settings = runtime.settings
+        self.assertEqual(settings.selection.strategy, "ai")
+        self.assertEqual(settings.selection.filter_config["PROMPT_FILE"], "selection_prompt.txt")
+        self.assertEqual(settings.selection.filter_config["TIMEOUT"], 480)
+        self.assertEqual(settings.selection.ai_runtime_config["MODEL"], "openai/selection-model")
+        self.assertEqual(settings.selection.ai_runtime_config["API_KEY"], "base-key")
+        self.assertEqual(settings.selection.ai_runtime_config["TIMEOUT"], 480)
+        self.assertEqual(settings.selection.semantic.top_k, 6)
+        self.assertEqual(settings.selection.semantic.direct_threshold, 0.82)
 
-        self.assertEqual(ctx.ai_analysis_config["PROMPT_FILE"], "insight_prompt.txt")
-        self.assertEqual(ctx.ai_analysis_config["MAX_ITEMS"], 8)
-        self.assertTrue(ctx.ai_analysis_config["CONTENT"]["ASYNC_ENABLED"])
-        self.assertEqual(ctx.ai_analysis_config["CONTENT"]["MAX_CONCURRENCY"], 5)
-        self.assertEqual(ctx.ai_analysis_config["CONTENT"]["REQUEST_TIMEOUT"], 18)
-        self.assertEqual(ctx.ai_analysis_model_config["MODEL"], "openai/base")
-        self.assertEqual(ctx.ai_analysis_model_config["API_KEY"], "insight-key")
-        self.assertEqual(ctx.ai_analysis_model_config["TEMPERATURE"], 0.2)
+        self.assertEqual(settings.insight.analysis_config["PROMPT_FILE"], "insight_prompt.txt")
+        self.assertEqual(settings.insight.analysis_config["MAX_ITEMS"], 8)
+        self.assertTrue(settings.insight.analysis_config["CONTENT"]["ASYNC_ENABLED"])
+        self.assertEqual(settings.insight.analysis_config["CONTENT"]["MAX_CONCURRENCY"], 5)
+        self.assertEqual(settings.insight.analysis_config["CONTENT"]["REQUEST_TIMEOUT"], 18)
+        self.assertEqual(settings.insight.ai_runtime_config["MODEL"], "openai/base")
+        self.assertEqual(settings.insight.ai_runtime_config["API_KEY"], "insight-key")
+        self.assertEqual(settings.insight.ai_runtime_config["TEMPERATURE"], 0.2)
 
-    def test_context_no_longer_exposes_removed_localization_or_legacy_report_helpers(self):
-        self.assertFalse(hasattr(AppContext, "build_localization_options"))
-        self.assertFalse(hasattr(AppContext, "create_localization_service"))
-        self.assertFalse(hasattr(AppContext, "run_localization_stage"))
-        self.assertFalse(hasattr(AppContext, "load_frequency_words"))
-        self.assertFalse(hasattr(AppContext, "matches_word_groups"))
-        self.assertFalse(hasattr(AppContext, "count_frequency"))
-        self.assertFalse(hasattr(AppContext, "prepare_report"))
-        self.assertFalse(hasattr(AppContext, "generate_html"))
-        self.assertFalse(hasattr(AppContext, "render_html"))
-        self.assertFalse(hasattr(AppContext, "split_content"))
-        self.assertFalse(hasattr(AppContext, "create_notification_dispatcher"))
-        self.assertFalse(hasattr(AppContext, "convert_selection_to_report_data"))
-
-    def test_context_normalizes_legacy_storage_and_platform_sections(self):
-        ctx = AppContext(
+    def test_runtime_settings_normalize_legacy_storage_and_platform_sections(self):
+        runtime = build_runtime(
             {
                 "storage": {
                     "formats": {"html": False, "txt": True},
@@ -326,22 +342,26 @@ class AppContextTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(ctx.storage_backend_type, "local")
-        self.assertEqual(ctx.storage_retention_days, 9)
-        self.assertEqual(ctx.get_data_dir(), Path("custom-output"))
-        self.assertFalse(ctx.storage_formats["HTML"])
-        self.assertEqual([spec.source_id for spec in ctx.crawl_source_specs], ["hackernews", "github-trending-today"])
-        self.assertEqual(ctx.platform_name_map["hackernews"], "Hacker News")
+        settings = runtime.settings
+        self.assertEqual(settings.storage.backend_type, "local")
+        self.assertEqual(settings.storage.retention_days, 9)
+        self.assertEqual(settings.storage.data_dir.as_posix(), "custom-output")
+        self.assertFalse(settings.storage.enable_html)
+        self.assertEqual([spec.source_id for spec in settings.crawler.crawl_source_specs], ["hackernews", "github-trending-today"])
+        self.assertEqual(settings.crawler.platform_name_map["hackernews"], "Hacker News")
 
-    def test_create_service_methods_delegate_to_service_factory(self):
-        with patch.object(ServiceFactory, "create_snapshot_service", return_value="snapshot-service") as mocked:
-            ctx = AppContext({"PLATFORMS": [], "DISPLAY": {"STANDALONE": {}}, "STORAGE": {"LOCAL": {"DATA_DIR": "output"}}})
+    def test_container_allows_provider_override(self):
+        dummy_storage = SimpleNamespace(cleanup_old_data=lambda: None, cleanup=lambda: None)
+        runtime = build_runtime(
+            {"PLATFORMS": [], "DISPLAY": {"STANDALONE": {}}, "STORAGE": {"LOCAL": {"DATA_DIR": "output"}}},
+            providers=RuntimeProviders(
+                storage_factory=lambda settings: dummy_storage,
+                snapshot_service_factory=lambda settings, storage: "snapshot-service",
+            ),
+        )
 
-            self.assertIsInstance(ctx.service_factory, ServiceFactory)
-            self.assertIs(ctx.service_factory, ctx.service_factory)
-            self.assertEqual(ctx.create_snapshot_service(), "snapshot-service")
-
-        mocked.assert_called_once()
+        self.assertIs(runtime.container.storage(), dummy_storage)
+        self.assertEqual(runtime.container.snapshot_service(), "snapshot-service")
 
 
 if __name__ == "__main__":

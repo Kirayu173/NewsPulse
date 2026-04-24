@@ -1,7 +1,7 @@
 import unittest
 
 import newspulse.notification as notification_pkg
-from newspulse.context import AppContext
+from newspulse.runtime import build_runtime, run_delivery_stage
 from newspulse.workflow import DeliveryPayload, DeliveryService, GenericWebhookDeliveryAdapter
 from newspulse.workflow.shared.options import DeliveryOptions
 
@@ -71,8 +71,8 @@ class WorkflowDeliveryServiceTest(unittest.TestCase):
         self.assertEqual(sender.calls, [])
 
 
-class AppContextDeliveryStageTest(unittest.TestCase):
-    def test_context_run_delivery_stage_uses_project_defaults(self):
+class RuntimeDeliveryStageTest(unittest.TestCase):
+    def test_runtime_run_delivery_stage_uses_project_defaults(self):
         captured = {}
 
         class FakeDeliveryService:
@@ -81,7 +81,7 @@ class AppContextDeliveryStageTest(unittest.TestCase):
                 captured["options"] = options
                 return {"ok": True}
 
-        ctx = AppContext(
+        runtime = build_runtime(
             {
                 "ENABLE_NOTIFICATION": True,
                 "GENERIC_WEBHOOK_URL": "https://example.com/webhook",
@@ -89,7 +89,13 @@ class AppContextDeliveryStageTest(unittest.TestCase):
         )
         payloads = [DeliveryPayload(channel="generic_webhook", title="Daily Report", content="Content A")]
 
-        result = ctx.run_delivery_stage(payloads, dry_run=True, delivery_service=FakeDeliveryService())
+        result = run_delivery_stage(
+            runtime.container,
+            runtime.delivery_builder,
+            payloads,
+            dry_run=True,
+            delivery_service=FakeDeliveryService(),
+        )
 
         self.assertEqual(result, {"ok": True})
         self.assertEqual(len(captured["payloads"]), 1)

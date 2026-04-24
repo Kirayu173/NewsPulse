@@ -9,7 +9,6 @@ from typing import Any
 
 from newspulse.workflow.insight.models import InsightItemAnalysis, InsightNewsContext, ReducedContentBundle
 from newspulse.workflow.shared.ai_runtime.client import AIRuntimeClient
-from newspulse.workflow.shared.ai_runtime.codec import decode_json_response
 from newspulse.workflow.shared.ai_runtime.errors import AIResponseDecodeError
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate, load_prompt_template
 from newspulse.workflow.shared.ai_runtime.request_config import build_request_overrides
@@ -26,7 +25,6 @@ class InsightItemAnalyzer:
         config_root: str | Path | None = None,
         client: AIRuntimeClient | Any | None = None,
         prompt_template: PromptTemplate | None = None,
-        completion_func: Any | None = None,
         request_overrides: Mapping[str, Any] | None = None,
     ):
         self.analysis_config = dict(analysis_config or {})
@@ -34,7 +32,7 @@ class InsightItemAnalyzer:
         if client is None:
             if ai_runtime_config is None:
                 raise ValueError('AI runtime config is required when no client is provided')
-            client = AIRuntimeClient(ai_runtime_config, completion_func=completion_func)
+            client = AIRuntimeClient(ai_runtime_config)
         self.client = client
         self.prompt_template = prompt_template or load_prompt_template(
             self.analysis_config.get('ITEM_PROMPT_FILE', 'ai_insight_item_prompt.txt'),
@@ -69,14 +67,14 @@ class InsightItemAnalyzer:
             reduced_text=context.source_context.summary or context.title,
         )
         user_prompt = self._render_prompt(context, bundle)
-        raw_response = ''
+        raw_response = ""
         try:
-            raw_response = self.client.chat(
+            response = self.client.generate_json(
                 self.prompt_template.build_messages(user_prompt),
                 **self.request_overrides,
             )
-            payload = decode_json_response(raw_response)
-            return _coerce_analysis(payload, context, bundle, raw_response=raw_response)
+            raw_response = response.text
+            return _coerce_analysis(response.json_payload, context, bundle, raw_response=raw_response)
         except Exception as exc:
             return InsightItemAnalysis(
                 news_item_id=context.news_item_id,

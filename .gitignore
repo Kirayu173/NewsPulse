@@ -6,6 +6,7 @@ __pycache__/
 *.py[cod]
 
 # Local outputs and scratch data
+.worktrees/
 output/
 outbox/
 logs/
@@ -15,6 +16,7 @@ logs/
 .tmp-test-local-manual/
 .tmp-test-work/
 .tmp-tests/
+.tmp/
 .tmp-codex-tests/
 .tmp-codex-run/
 tmp_test_work/

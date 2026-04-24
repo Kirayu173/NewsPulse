@@ -18,6 +18,7 @@ from newspulse.workflow.selection.semantic import SemanticSelectionLayer
 from newspulse.workflow.shared.ai_runtime.client import AIRuntimeClient, AIRuntimeConfig, CachedAIRuntimeClient
 from newspulse.workflow.shared.ai_runtime.embedding import EmbeddingRuntimeClient
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate, load_prompt_template
+from newspulse.workflow.shared.ai_runtime.provider_env import resolve_embedding_env_defaults
 from newspulse.workflow.shared.ai_runtime.request_config import build_request_overrides, resolve_runtime_cache_config
 from newspulse.workflow.shared.contracts import SelectionResult
 from newspulse.workflow.shared.options import SelectionOptions
@@ -39,7 +40,6 @@ class AISelectionStrategy:
         embedding_client: EmbeddingRuntimeClient | Any | None = None,
         semantic_selector: SemanticSelectionLayer | None = None,
         keyword_strategy: KeywordSelectionStrategy | None = None,
-        completion_func: Callable[..., Any] | None = None,
         sleep_func: Callable[[float], None] | None = None,
         classify_prompt: PromptTemplate | None = None,
     ):
@@ -53,7 +53,7 @@ class AISelectionStrategy:
         if client is None:
             if ai_runtime_config is None:
                 raise ValueError("AI runtime config is required when no client is provided")
-            client = AIRuntimeClient(ai_runtime_config, completion_func=completion_func)
+            client = AIRuntimeClient(ai_runtime_config)
         self.client = self._wrap_runtime_cache(client)
 
         self.classify_prompt = classify_prompt or load_prompt_template(
@@ -294,14 +294,16 @@ def build_embedding_runtime_config(
     """Derive a same-provider embedding runtime config from the filter LLM config."""
 
     base = dict(ai_runtime_config or {})
-    driver = str(
-        os.environ.get("AI_EMBEDDING_DRIVER")
-        or base.get("DRIVER", "auto")
-        or "auto"
-    ).strip() or "auto"
+    env_defaults = resolve_embedding_env_defaults(
+        provider_family=base.get("PROVIDER_FAMILY", "openai"),
+        api_base=base.get("API_BASE", ""),
+        model=embedding_model or base.get("MODEL", ""),
+    )
     model = str(
         embedding_model
         or os.environ.get("AI_EMBEDDING_MODEL")
+        or os.environ.get("EMB_MODEL")
+        or env_defaults.get("MODEL", "")
         or ""
     ).strip()
     if not model:
@@ -309,19 +311,21 @@ def build_embedding_runtime_config(
     api_base = str(
         os.environ.get("AI_EMBEDDING_API_BASE")
         or os.environ.get("AI_EMBEDDING_BASE_URL")
+        or env_defaults.get("API_BASE", "")
         or base.get("API_BASE", "")
         or ""
     )
     api_key = str(
         os.environ.get("AI_EMBEDDING_API_KEY")
+        or env_defaults.get("API_KEY", "")
         or base.get("API_KEY", "")
         or ""
     )
     derived = {
-        "MODEL": AIRuntimeConfig.normalize_model(model, api_base, driver),
+        "MODEL": AIRuntimeConfig.normalize_model(model, api_base, "openai"),
         "API_KEY": api_key,
         "API_BASE": api_base,
-        "DRIVER": driver,
+        "PROVIDER_FAMILY": "openai",
         "TIMEOUT": base.get("TIMEOUT", 120),
     }
     extra_params = base.get("EXTRA_PARAMS")

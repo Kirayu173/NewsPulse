@@ -10,7 +10,7 @@ from newspulse.workflow.shared.ai_runtime.errors import AIResponseDecodeError
 
 
 def coerce_text_content(content: Any) -> str:
-    """Normalize LiteLLM message content into a plain string."""
+    """Normalize provider message content into a plain text string."""
 
     if content is None:
         return ""
@@ -22,15 +22,19 @@ def coerce_text_content(content: Any) -> str:
             if isinstance(item, dict):
                 normalized.append(str(item.get("text", item.get("content", item))))
             else:
-                normalized.append(str(item))
+                normalized.append(str(getattr(item, "text", item)))
         return "\n".join(part for part in normalized if part)
+    if hasattr(content, "text"):
+        return str(getattr(content, "text", "") or "")
     return str(content)
 
 
-def extract_json_block(response_text: str) -> str:
+def extract_json_block(response_text: Any) -> str:
     """Extract the most likely JSON block from a raw AI response."""
 
-    text = (response_text or "").strip()
+    if hasattr(response_text, "text") and not isinstance(response_text, str):
+        response_text = getattr(response_text, "text", "")
+    text = (str(response_text or "")).strip()
     if not text:
         return ""
 
@@ -64,10 +68,14 @@ def extract_json_block(response_text: str) -> str:
 
 
 def decode_json_response(response_text: Any, *, repair: bool = True) -> Any:
-    """Decode structured JSON data from a raw AI response."""
+    """Decode structured JSON data from a raw AI response or AI result."""
 
+    if hasattr(response_text, "json_payload") and getattr(response_text, "json_payload") is not None:
+        return getattr(response_text, "json_payload")
     if isinstance(response_text, (dict, list)):
         return response_text
+    if hasattr(response_text, "text") and not isinstance(response_text, str):
+        response_text = getattr(response_text, "text", "")
     if not isinstance(response_text, str):
         raise AIResponseDecodeError(
             "AI response is not JSON-decodable text",

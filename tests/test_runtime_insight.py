@@ -1,8 +1,8 @@
-import unittest
-from tempfile import TemporaryDirectory
+﻿import unittest
+from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 from types import SimpleNamespace
 
-from newspulse.context import AppContext
+from newspulse.runtime import RuntimeProviders, build_runtime, run_insight_stage
 from newspulse.storage import get_storage_manager
 from newspulse.workflow.shared.contracts import HotlistItem, HotlistSnapshot, InsightResult, InsightSection, SelectionResult
 
@@ -21,8 +21,8 @@ class RecordingInsightService:
         )
 
 
-class AppContextInsightStageTest(unittest.TestCase):
-    def _build_context(self, tmp: str, *, ai_mode: str = 'follow_report') -> AppContext:
+class RuntimeInsightStageTest(unittest.TestCase):
+    def _build_runtime(self, tmp: str, *, ai_mode: str = 'follow_report'):
         root = str(tmp)
         config = {
             'TIMEZONE': 'Asia/Shanghai',
@@ -60,15 +60,17 @@ class AppContextInsightStageTest(unittest.TestCase):
             'DEBUG': False,
             '_PATHS': {'CONFIG_ROOT': 'config'},
         }
-        ctx = AppContext(config)
-        ctx._storage_manager = get_storage_manager(
+        storage = get_storage_manager(
             backend_type='local',
             data_dir=root,
             enable_txt=False,
             enable_html=False,
-            timezone=ctx.timezone,
+            timezone='Asia/Shanghai',
         )
-        return ctx
+        return build_runtime(
+            config,
+            providers=RuntimeProviders(storage_factory=lambda settings: storage),
+        )
 
     def _snapshot_and_selection(self):
         item = HotlistItem(
@@ -84,9 +86,9 @@ class AppContextInsightStageTest(unittest.TestCase):
 
     def test_build_insight_options_resolves_mode_in_context_layer(self):
         with TemporaryDirectory() as tmp:
-            ctx = self._build_context(tmp, ai_mode='daily')
+            runtime = self._build_runtime(tmp, ai_mode='daily')
             try:
-                options = ctx.build_insight_options(report_mode='current')
+                options = runtime.insight_builder.build(report_mode='current')
 
                 self.assertTrue(options.enabled)
                 self.assertEqual(options.strategy, 'ai')
@@ -94,16 +96,19 @@ class AppContextInsightStageTest(unittest.TestCase):
                 self.assertEqual(options.max_items, 7)
                 self.assertTrue(options.metadata['mode_resolved_by_context'])
             finally:
-                ctx.cleanup()
+                runtime.cleanup()
 
     def test_run_insight_stage_uses_provided_snapshot_and_selection_without_hidden_reselection(self):
         with TemporaryDirectory() as tmp:
-            ctx = self._build_context(tmp, ai_mode='daily')
+            runtime = self._build_runtime(tmp, ai_mode='daily')
             snapshot, selection = self._snapshot_and_selection()
             recorder = RecordingInsightService()
-            ctx.run_selection_stage = lambda **kwargs: (_ for _ in ()).throw(AssertionError('run_selection_stage should not be called'))
             try:
-                insight = ctx.run_insight_stage(
+                insight = run_insight_stage(
+                    runtime.settings,
+                    runtime.container,
+                    runtime.selection_builder,
+                    runtime.insight_builder,
                     report_mode='current',
                     snapshot=snapshot,
                     selection=selection,
@@ -116,15 +121,19 @@ class AppContextInsightStageTest(unittest.TestCase):
                 self.assertIs(recorder.calls[0][0], snapshot)
                 self.assertIs(recorder.calls[0][1], selection)
             finally:
-                ctx.cleanup()
+                runtime.cleanup()
 
     def test_run_insight_stage_respects_schedule_switches_and_once_recording(self):
         with TemporaryDirectory() as tmp:
-            ctx = self._build_context(tmp)
+            runtime = self._build_runtime(tmp)
             snapshot, selection = self._snapshot_and_selection()
             recorder = RecordingInsightService()
             try:
-                disabled = ctx.run_insight_stage(
+                disabled = run_insight_stage(
+                    runtime.settings,
+                    runtime.container,
+                    runtime.selection_builder,
+                    runtime.insight_builder,
                     report_mode='current',
                     snapshot=snapshot,
                     selection=selection,
@@ -134,7 +143,11 @@ class AppContextInsightStageTest(unittest.TestCase):
                 self.assertTrue(disabled.diagnostics['skipped'])
 
                 schedule = SimpleNamespace(analyze=True, once_analyze=True, period_key='morning', period_name='Morning')
-                result = ctx.run_insight_stage(
+                result = run_insight_stage(
+                    runtime.settings,
+                    runtime.container,
+                    runtime.selection_builder,
+                    runtime.insight_builder,
                     report_mode='current',
                     snapshot=snapshot,
                     selection=selection,
@@ -143,9 +156,9 @@ class AppContextInsightStageTest(unittest.TestCase):
                 )
 
                 self.assertTrue(result.enabled)
-                self.assertTrue(ctx.get_storage_manager().has_period_executed(ctx.format_date(), 'morning', 'analyze'))
+                self.assertTrue(runtime.container.storage().has_period_executed(runtime.settings.format_date(), 'morning', 'analyze'))
             finally:
-                ctx.cleanup()
+                runtime.cleanup()
 
 
 if __name__ == '__main__':

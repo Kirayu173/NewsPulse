@@ -1,9 +1,18 @@
-import json
+import shutil
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from uuid import uuid4
 
-from newspulse.context import AppContext
+from newspulse.runtime import (
+    RuntimeProviders,
+    assemble_report_package,
+    build_runtime,
+    run_delivery_stage,
+    run_insight_stage,
+    run_render_stage,
+    run_selection_stage,
+)
 from newspulse.storage import get_storage_manager
 from newspulse.storage.base import NewsData, NewsItem
 from newspulse.workflow.delivery import DeliveryService, GenericWebhookDeliveryAdapter
@@ -15,11 +24,25 @@ from newspulse.workflow.selection.service import SelectionService
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate
 from newspulse.workflow.shared.contracts import InsightSection
 from tests.helpers.io import write_text
+from tests.helpers.runtime import json_result
 from tests.helpers.selection import FakeEmbeddingClient
 
+TEST_TMPDIR = Path(".tmp-test") / "workflow-end-to-end"
+TEST_TMPDIR.mkdir(parents=True, exist_ok=True)
 
-def _today_at(ctx: AppContext, time_text: str) -> str:
-    return f"{ctx.format_date()} {time_text}"
+
+@contextmanager
+def workspace_tmpdir():
+    path = TEST_TMPDIR / uuid4().hex
+    path.mkdir(parents=True, exist_ok=False)
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
+
+
+def _today_at(runtime, time_text: str) -> str:
+    return f"{runtime.settings.format_date()} {time_text}"
 
 
 def _write_config_files(config_root: Path) -> None:
@@ -148,7 +171,7 @@ def _build_config(
 
 
 class RoutingAISelectionClient:
-    def chat(self, messages, **kwargs):
+    def generate_json(self, messages, **kwargs):
         user_content = messages[-1]["content"]
         results = []
         for line in user_content.splitlines():
@@ -189,7 +212,7 @@ class RoutingAISelectionClient:
                         "matched_topics": [],
                     }
                 )
-        return json.dumps(results)
+        return json_result(results)
 
 
 class StubInsightFetcher:
@@ -278,39 +301,39 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
             ]
         )
 
-    def _create_context(
+    def _create_runtime(
         self,
         tmp: str,
         *,
         selection_strategy: str = "keyword",
         ai_analysis_enabled: bool = False,
-    ) -> AppContext:
+    ):
         root = Path(tmp)
         config_root = root / "config"
         output_dir = root / "output"
         _write_config_files(config_root)
-        ctx = AppContext(
+        storage = get_storage_manager(
+            backend_type="local",
+            data_dir=str(output_dir),
+            enable_txt=False,
+            enable_html=True,
+            timezone="Asia/Shanghai",
+        )
+        return build_runtime(
             _build_config(
                 config_root,
                 output_dir,
                 selection_strategy=selection_strategy,
                 ai_analysis_enabled=ai_analysis_enabled,
-            )
+            ),
+            providers=RuntimeProviders(storage_factory=lambda settings: storage),
         )
-        ctx._storage_manager = get_storage_manager(
-            backend_type="local",
-            data_dir=str(output_dir),
-            enable_txt=False,
-            enable_html=True,
-            timezone=ctx.timezone,
-        )
-        return ctx
 
-    def _seed_hotlist(self, ctx: AppContext) -> None:
-        ctx.get_storage_manager().save_news_data(
+    def _seed_hotlist(self, runtime) -> None:
+        runtime.container.storage().save_news_data(
             NewsData(
-                date=ctx.format_date(),
-                crawl_time=_today_at(ctx, "10:00:00"),
+                date=runtime.settings.format_date(),
+                crawl_time=_today_at(runtime, "10:00:00"),
                 items={
                     "hackernews": [
                         NewsItem(
@@ -320,10 +343,10 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                             rank=1,
                             url="https://example.com/openai",
                             mobile_url="https://m.example.com/openai",
-                            crawl_time=_today_at(ctx, "10:00:00"),
+                            crawl_time=_today_at(runtime, "10:00:00"),
                             ranks=[1],
-                            first_time=_today_at(ctx, "10:00:00"),
-                            last_time=_today_at(ctx, "10:00:00"),
+                            first_time=_today_at(runtime, "10:00:00"),
+                            last_time=_today_at(runtime, "10:00:00"),
                             count=1,
                             rank_timeline=[{"time": "10:00", "rank": 1}],
                         ),
@@ -334,10 +357,10 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                             rank=3,
                             url="https://example.com/nba",
                             mobile_url="https://m.example.com/nba",
-                            crawl_time=_today_at(ctx, "10:00:00"),
+                            crawl_time=_today_at(runtime, "10:00:00"),
                             ranks=[3],
-                            first_time=_today_at(ctx, "10:00:00"),
-                            last_time=_today_at(ctx, "10:00:00"),
+                            first_time=_today_at(runtime, "10:00:00"),
+                            last_time=_today_at(runtime, "10:00:00"),
                             count=1,
                             rank_timeline=[{"time": "10:00", "rank": 3}],
                         ),
@@ -350,10 +373,10 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                             rank=2,
                             url="https://example.com/startup",
                             mobile_url="https://m.example.com/startup",
-                            crawl_time=_today_at(ctx, "10:00:00"),
+                            crawl_time=_today_at(runtime, "10:00:00"),
                             ranks=[2],
-                            first_time=_today_at(ctx, "10:00:00"),
-                            last_time=_today_at(ctx, "10:00:00"),
+                            first_time=_today_at(runtime, "10:00:00"),
+                            last_time=_today_at(runtime, "10:00:00"),
                             count=1,
                             rank_timeline=[{"time": "10:00", "rank": 2}],
                         )
@@ -364,7 +387,8 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
             )
         )
 
-    def _build_ai_selection_service(self, ctx: AppContext) -> SelectionService:
+    def _build_ai_selection_service(self, runtime) -> SelectionService:
+        settings = runtime.settings
         classify_prompt = PromptTemplate(
             path=Path("selection-classify.txt"),
             user_prompt=(
@@ -375,28 +399,28 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
             ),
         )
         ai_strategy = AISelectionStrategy(
-            storage_manager=ctx.get_storage_manager(),
+            storage_manager=runtime.container.storage(),
             client=RoutingAISelectionClient(),
             embedding_client=self._build_embedding_client(),
-            filter_config=ctx.ai_filter_config,
-            config_root=ctx.config_root,
+            filter_config=settings.selection.filter_config,
+            config_root=settings.paths.config_root,
             sleep_func=lambda _: None,
             classify_prompt=classify_prompt,
         )
         return SelectionService(
-            config_root=str(ctx.config_root),
-            rank_threshold=ctx.rank_threshold,
-            weight_config=ctx.weight_config,
-            max_news_per_keyword=ctx.config.get("MAX_NEWS_PER_KEYWORD", 0),
-            sort_by_position_first=ctx.config.get("SORT_BY_POSITION_FIRST", False),
+            config_root=str(settings.paths.config_root),
+            rank_threshold=settings.selection.rank_threshold,
+            weight_config=settings.selection.weight_config,
+            max_news_per_keyword=settings.selection.max_news_per_keyword,
+            sort_by_position_first=settings.selection.sort_by_position_first,
             ai_strategy=ai_strategy,
         )
 
-    def _build_ai_insight_service(self, ctx: AppContext) -> InsightService:
+    def _build_ai_insight_service(self, runtime) -> InsightService:
         return InsightService(
             ai_strategy=AIInsightStrategy(
                 client=object(),
-                analysis_config=ctx.config["AI_ANALYSIS"],
+                analysis_config=runtime.settings.insight.analysis_config,
                 content_fetcher=StubInsightFetcher(),
                 content_reducer=StubInsightReducer(),
                 item_analyzer=StubInsightAnalyzer(),
@@ -404,28 +428,35 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
             )
         )
 
-    def _build_delivery_service(self, ctx: AppContext, sender: RecordingSender) -> DeliveryService:
+    def _build_delivery_service(self, runtime, sender: RecordingSender) -> DeliveryService:
         return DeliveryService(
-            generic_webhook_adapter=GenericWebhookDeliveryAdapter(ctx.config, sender_func=sender)
+            generic_webhook_adapter=GenericWebhookDeliveryAdapter(runtime.settings.delivery.as_adapter_config(), sender_func=sender)
         )
 
     def _run_pipeline(
         self,
-        ctx: AppContext,
+        runtime,
         *,
         selection_strategy: str,
         selection_service: SelectionService | None = None,
         insight_service: InsightService | None = None,
         delivery_service: DeliveryService | None = None,
     ):
-        snapshot, selection = ctx.run_selection_stage(
+        snapshot, selection = run_selection_stage(
+            runtime.settings,
+            runtime.container,
+            runtime.selection_builder,
             mode="daily",
             strategy=selection_strategy,
             frequency_file="topics.txt",
             interests_file="interests.txt" if selection_strategy == "ai" else None,
             selection_service=selection_service,
         )
-        insight = ctx.run_insight_stage(
+        insight = run_insight_stage(
+            runtime.settings,
+            runtime.container,
+            runtime.selection_builder,
+            runtime.insight_builder,
             report_mode="daily",
             snapshot=snapshot,
             selection=selection,
@@ -434,21 +465,21 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
             interests_file="interests.txt" if selection_strategy == "ai" else None,
             insight_service=insight_service,
         )
-        report_package = ctx.assemble_report_package(snapshot, selection, insight)
-        render_result = ctx.run_render_stage(report_package, emit_html=True, emit_notification=True)
-        delivery_result = ctx.run_delivery_stage(render_result.payloads, delivery_service=delivery_service)
+        report_package = assemble_report_package(runtime.container, snapshot, selection, insight)
+        render_result = run_render_stage(runtime.container, runtime.render_builder, report_package, emit_html=True, emit_notification=True)
+        delivery_result = run_delivery_stage(runtime.container, runtime.delivery_builder, render_result.payloads, delivery_service=delivery_service)
         return snapshot, selection, insight, report_package, render_result, delivery_result
 
     def test_end_to_end_runs_with_all_ai_disabled(self):
-        with TemporaryDirectory() as tmp:
-            ctx = self._create_context(tmp)
+        with workspace_tmpdir() as tmp:
+            runtime = self._create_runtime(tmp)
             sender = RecordingSender()
             try:
-                self._seed_hotlist(ctx)
+                self._seed_hotlist(runtime)
                 _, selection, insight, report_package, render_result, delivery_result = self._run_pipeline(
-                    ctx,
+                    runtime,
                     selection_strategy="keyword",
-                    delivery_service=self._build_delivery_service(ctx, sender),
+                    delivery_service=self._build_delivery_service(runtime, sender),
                 )
 
                 joined_payload = "\n".join(payload.content for payload in render_result.payloads)
@@ -470,19 +501,19 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                 self.assertTrue(delivery_result.success)
                 self.assertTrue(sender.calls)
             finally:
-                ctx.cleanup()
+                runtime.cleanup()
 
     def test_end_to_end_supports_ai_selection_only(self):
-        with TemporaryDirectory() as tmp:
-            ctx = self._create_context(tmp, selection_strategy="ai")
+        with workspace_tmpdir() as tmp:
+            runtime = self._create_runtime(tmp, selection_strategy="ai")
             sender = RecordingSender()
             try:
-                self._seed_hotlist(ctx)
+                self._seed_hotlist(runtime)
                 _, selection, insight, report_package, render_result, _ = self._run_pipeline(
-                    ctx,
+                    runtime,
                     selection_strategy="ai",
-                    selection_service=self._build_ai_selection_service(ctx),
-                    delivery_service=self._build_delivery_service(ctx, sender),
+                    selection_service=self._build_ai_selection_service(runtime),
+                    delivery_service=self._build_delivery_service(runtime, sender),
                 )
 
                 joined_payload = "\n".join(payload.content for payload in render_result.payloads)
@@ -497,20 +528,20 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                 )
                 self.assertNotIn("AI tools keep dominating the developer conversation.", joined_payload)
             finally:
-                ctx.cleanup()
+                runtime.cleanup()
 
     def test_end_to_end_supports_ai_selection_and_insight(self):
-        with TemporaryDirectory() as tmp:
-            ctx = self._create_context(tmp, selection_strategy="ai", ai_analysis_enabled=True)
+        with workspace_tmpdir() as tmp:
+            runtime = self._create_runtime(tmp, selection_strategy="ai", ai_analysis_enabled=True)
             sender = RecordingSender()
             try:
-                self._seed_hotlist(ctx)
+                self._seed_hotlist(runtime)
                 _, selection, insight, report_package, render_result, delivery_result = self._run_pipeline(
-                    ctx,
+                    runtime,
                     selection_strategy="ai",
-                    selection_service=self._build_ai_selection_service(ctx),
-                    insight_service=self._build_ai_insight_service(ctx),
-                    delivery_service=self._build_delivery_service(ctx, sender),
+                    selection_service=self._build_ai_selection_service(runtime),
+                    insight_service=self._build_ai_insight_service(runtime),
+                    delivery_service=self._build_delivery_service(runtime, sender),
                 )
 
                 joined_payload = "\n".join(payload.content for payload in render_result.payloads)
@@ -529,7 +560,7 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                 self.assertIn("OpenAI launches a new coding agent", delivered_content)
                 self.assertIn("AI tools keep dominating the developer conversation.", delivered_content)
             finally:
-                ctx.cleanup()
+                runtime.cleanup()
 
 
 if __name__ == "__main__":

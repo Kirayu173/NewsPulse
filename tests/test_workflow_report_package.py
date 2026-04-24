@@ -1,6 +1,6 @@
 import unittest
 
-from newspulse.context import AppContext
+from newspulse.runtime import assemble_report_package, build_runtime
 from newspulse.workflow.report import ReportPackageAssembler
 from newspulse.workflow.shared.contracts import (
     HotlistItem,
@@ -172,10 +172,10 @@ class ReportPackageAssemblerTest(unittest.TestCase):
         self.assertTrue(any("missing-item" in error for error in package.integrity.errors))
 
 
-class AppContextReportPackageTest(unittest.TestCase):
-    def test_context_assembles_report_package_with_project_defaults(self):
+class RuntimeReportPackageTest(unittest.TestCase):
+    def test_runtime_assembles_report_package_with_project_defaults(self):
         snapshot, selection, insight = _build_stage_outputs(include_new_items=True)
-        ctx = AppContext(
+        runtime = build_runtime(
             {
                 "TIMEZONE": "Asia/Hong_Kong",
                 "DISPLAY_MODE": "platform",
@@ -185,8 +185,8 @@ class AppContextReportPackageTest(unittest.TestCase):
             }
         )
 
-        assembler = ctx.create_report_assembler()
-        package = ctx.assemble_report_package(snapshot, selection, insight)
+        assembler = runtime.container.report_assembler()
+        package = assemble_report_package(runtime.container, snapshot, selection, insight)
 
         self.assertIsInstance(assembler, ReportPackageAssembler)
         self.assertEqual(package.meta.timezone, "Asia/Hong_Kong")

@@ -15,9 +15,9 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
-from newspulse.context import AppContext
 from newspulse.core import load_config
 from newspulse.crawler.fetcher import DataFetcher
+from newspulse.runtime import build_runtime
 from newspulse.storage import normalize_crawl_batch
 from newspulse.utils.time import DEFAULT_TIMEZONE
 from newspulse.workflow.selection.context_builder import build_selection_context
@@ -25,7 +25,6 @@ from newspulse.workflow.shared.contracts import HotlistItem, HotlistSnapshot, Se
 from newspulse.workflow.shared.options import SnapshotOptions
 from newspulse.workflow.shared.review_helpers import (
     ReviewOutboxWriter as _ReviewOutboxWriter,
-    build_source_specs as _build_source_specs,
 )
 
 def _snapshot_summary(snapshot: HotlistSnapshot) -> dict[str, object]:
@@ -671,13 +670,14 @@ def run_selection_review(
         review_config["STORAGE"]["LOCAL"]["DATA_DIR"] = str(resolved_storage_dir)
         review_config["STORAGE"]["LOCAL"]["RETENTION_DAYS"] = 0
 
-        ctx = AppContext(review_config)
+        runtime = build_runtime(review_config)
         ai_selection: SelectionResult | None = None
         ai_skip_reason = ""
         try:
-            source_specs = _build_source_specs(config["PLATFORMS"])
-            request_interval_ms = int(config["REQUEST_INTERVAL"])
-            proxy_url = config["DEFAULT_PROXY"] if config.get("USE_PROXY") else None
+            settings = runtime.settings
+            source_specs = settings.crawler.crawl_source_specs
+            request_interval_ms = settings.crawler.request_interval_ms
+            proxy_url = settings.crawler.default_proxy_url if settings.crawler.proxy_enabled else None
 
             crawl_batch = DataFetcher(proxy_url=proxy_url).crawl(
                 source_specs,
@@ -692,29 +692,29 @@ def run_selection_review(
                 crawl_date=crawl_date,
             )
 
-            storage = ctx.get_storage_manager()
+            storage = runtime.container.storage()
             save_success = storage.save_normalized_crawl_batch(normalized_batch)
             if not save_success:
                 raise RuntimeError("failed to save normalized crawl batch")
 
-            snapshot_service = ctx.create_snapshot_service()
-            selection_service = ctx.create_selection_service()
+            snapshot_service = runtime.container.snapshot_service()
+            selection_service = runtime.container.selection_service()
             snapshot = snapshot_service.build(SnapshotOptions(mode=mode))
             keyword_selection = selection_service.run(
                 snapshot,
-                ctx.build_selection_options(
+                runtime.selection_builder.build(
                     strategy="keyword",
                     frequency_file=frequency_file,
                     interests_file=interests_file,
                 ),
             )
 
-            ai_options = ctx.build_selection_options(
+            ai_options = runtime.selection_builder.build(
                 strategy="ai",
                 frequency_file=frequency_file,
                 interests_file=interests_file,
             )
-            api_key = str(ctx.ai_filter_model_config.get("API_KEY", "") or "").strip()
+            api_key = str(settings.selection.ai_runtime_config.get("API_KEY", "") or "").strip()
             if not api_key:
                 ai_skip_reason = "AI filter runtime API_KEY is empty"
             else:
@@ -723,7 +723,7 @@ def run_selection_review(
                 except Exception as exc:
                     ai_skip_reason = f"{type(exc).__name__}: {exc}"
         finally:
-            ctx.cleanup()
+            runtime.cleanup()
 
     return export_selection_outbox(
         outbox_dir=outbox_dir,

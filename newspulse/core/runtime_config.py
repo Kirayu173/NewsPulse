@@ -54,7 +54,7 @@ def normalize_ai_runtime_mapping(mapping: Dict[str, Any]) -> Dict[str, Any]:
         ("MODEL", "MODEL", "model"),
         ("API_KEY", "API_KEY", "api_key"),
         ("API_BASE", "API_BASE", "api_base"),
-        ("DRIVER", "DRIVER", "driver"),
+        ("PROVIDER_FAMILY", "PROVIDER_FAMILY", "provider_family"),
         ("TIMEOUT", "TIMEOUT", "timeout"),
         ("TEMPERATURE", "TEMPERATURE", "temperature"),
         ("MAX_TOKENS", "MAX_TOKENS", "max_tokens"),
@@ -63,10 +63,6 @@ def normalize_ai_runtime_mapping(mapping: Dict[str, Any]) -> Dict[str, Any]:
         value = mapping_get(mapping, *source_keys)
         if value not in (None, ""):
             normalized[target_key] = value
-
-    fallback_models = mapping_get(mapping, "FALLBACK_MODELS", "fallback_models")
-    if fallback_models is not None:
-        normalized["FALLBACK_MODELS"] = fallback_models
 
     extra_params = mapping_get(mapping, "EXTRA_PARAMS", "extra_params")
     if isinstance(extra_params, dict):

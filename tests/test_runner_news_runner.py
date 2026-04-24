@@ -1,6 +1,7 @@
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from newspulse.crawler import CrawlBatchResult, CrawlSourceSpec, SourceFetchFailure, SourceFetchResult
 from newspulse.crawler.sources.base import SourceItem
@@ -70,74 +71,6 @@ class FakeScheduler:
         self.recorded.append((period_key, action, date_str))
 
 
-class FakeContext:
-    def __init__(self, snapshot, selection, scheduler, render_result):
-        self.snapshot = snapshot
-        self.selection = selection
-        self.scheduler = scheduler
-        self.render_result = render_result
-        self.filter_method = "keyword"
-        self.insight = InsightResult(enabled=True, strategy="ai")
-        self.report_package = ReportPackage(
-            meta=ReportPackageMeta(mode=snapshot.mode, report_type="测试报告"),
-            content=ReportContent(
-                hotlist_groups=selection.groups,
-                selected_items=selection.selected_items,
-                new_items=selection.selected_new_items,
-                standalone_sections=snapshot.standalone_sections,
-                insight_sections=[],
-            ),
-            integrity=ReportIntegrity(valid=True),
-            diagnostics={"insight": {"enabled": True, "strategy": "ai", "diagnostics": {}}, "failed_sources": []},
-        )
-        self.calls = []
-        self.notification_enabled = True
-        self.generic_webhook_url = "https://example.com/webhook"
-        self.show_version_update = True
-        self.storage_formats = {"HTML": True}
-        self.crawler_enabled = True
-        self.debug_enabled = False
-        self.config = {
-            "ENABLE_NOTIFICATION": True,
-            "GENERIC_WEBHOOK_URL": "https://example.com/webhook",
-            "SHOW_VERSION_UPDATE": True,
-            "STORAGE": {
-                "FORMATS": {
-                    "HTML": True,
-                }
-            },
-        }
-
-    def create_scheduler(self):
-        return self.scheduler
-
-    def run_selection_stage(self, **kwargs):
-        self.calls.append(("selection", kwargs))
-        return self.snapshot, self.selection
-
-    def run_insight_stage(self, **kwargs):
-        self.calls.append(("insight", kwargs))
-        return self.insight
-
-    def assemble_report_package(self, snapshot, selection, insight):
-        self.calls.append(("report", snapshot, selection, insight))
-        return self.report_package
-
-    def run_render_stage(self, report, **kwargs):
-        self.calls.append(("render", report, kwargs))
-        return self.render_result
-
-    def run_delivery_stage(self, payloads, **kwargs):
-        self.calls.append(("deliver", list(payloads), kwargs))
-        return SimpleNamespace(success=True, channel_results=[{"channel": "generic_webhook"}])
-
-    def format_date(self):
-        return "2026-04-17"
-
-    def get_data_dir(self):
-        return Path("output")
-
-
 class FakeStorageManager:
     def __init__(self):
         self.backend_name = "fake"
@@ -164,9 +97,29 @@ class FakeFetcher:
 
 
 class NewsRunnerWorkflowStageTest(unittest.TestCase):
-    def _build_runner(self, ctx) -> NewsRunner:
+    def _build_runner(self, scheduler, render_result) -> NewsRunner:
         runner = NewsRunner.__new__(NewsRunner)
-        runner.ctx = ctx
+        runner.runtime = SimpleNamespace(
+            selection_builder=object(),
+            insight_builder=object(),
+            render_builder=object(),
+            delivery_builder=object(),
+            cleanup=lambda: None,
+        )
+        runner.settings = SimpleNamespace(
+            crawler=SimpleNamespace(enabled=True, crawl_source_specs=[], proxy_enabled=False, default_proxy_url=""),
+            storage=SimpleNamespace(enable_html=True, data_dir=Path("output"), retention_days=7),
+            selection=SimpleNamespace(strategy="keyword", rank_threshold=5),
+            delivery=SimpleNamespace(enabled=True, generic_webhook_url="https://example.com/webhook"),
+            app=SimpleNamespace(show_version_update=True, debug_enabled=False),
+            format_date=lambda: "2026-04-17",
+            format_time=lambda: "2026-04-17 10:30:00",
+            get_time=lambda: None,
+        )
+        runner.container = SimpleNamespace(
+            scheduler=lambda: scheduler,
+            storage=lambda: FakeStorageManager(),
+        )
         runner.report_mode = "daily"
         runner.frequency_file = None
         runner.filter_method = None
@@ -175,6 +128,9 @@ class NewsRunnerWorkflowStageTest(unittest.TestCase):
         runner.proxy_url = "http://127.0.0.1:1080"
         runner.is_github_actions = True
         runner.is_docker_container = False
+        runner.data_fetcher = FakeFetcher(CrawlBatchResult())
+        runner.storage_manager = FakeStorageManager()
+        runner._render_result = render_result
         return runner
 
     def test_crawl_data_uses_native_batch_contract(self):
@@ -203,12 +159,14 @@ class NewsRunnerWorkflowStageTest(unittest.TestCase):
         )
 
         runner = NewsRunner.__new__(NewsRunner)
-        runner.ctx = SimpleNamespace(
-            crawl_source_specs=[
-                CrawlSourceSpec(source_id="hackernews", source_name="Hacker News"),
-                CrawlSourceSpec(source_id="thepaper", source_name="The Paper"),
-            ],
-            get_data_dir=lambda: Path("output"),
+        runner.settings = SimpleNamespace(
+            crawler=SimpleNamespace(
+                crawl_source_specs=[
+                    CrawlSourceSpec(source_id="hackernews", source_name="Hacker News"),
+                    CrawlSourceSpec(source_id="thepaper", source_name="The Paper"),
+                ]
+            ),
+            storage=SimpleNamespace(data_dir=Path("output")),
             format_time=lambda: "2026-04-17 10:30:00",
             format_date=lambda: "2026-04-17",
         )
@@ -239,12 +197,10 @@ class NewsRunnerWorkflowStageTest(unittest.TestCase):
         self.assertEqual(alpha.ranks, [1, 2])
         self.assertEqual(runner.storage_manager.txt_snapshot_data, saved_batch)
 
-    def test_init_storage_manager_only_depends_on_context_contract(self):
+    def test_init_storage_manager_only_depends_on_runtime_contract(self):
         runner = NewsRunner.__new__(NewsRunner)
-        runner.ctx = SimpleNamespace(
-            get_storage_manager=lambda: FakeStorageManager(),
-            storage_retention_days=7,
-        )
+        runner.container = SimpleNamespace(storage=lambda: FakeStorageManager())
+        runner.settings = SimpleNamespace(storage=SimpleNamespace(retention_days=7))
 
         runner._init_storage_manager()
 
@@ -267,22 +223,44 @@ class NewsRunnerWorkflowStageTest(unittest.TestCase):
             html=HTMLArtifact(file_path="output/html/2026-04-17/103000.html", content="<html></html>"),
             payloads=[DeliveryPayload(channel="generic_webhook", title="测试推送", content="payload")],
         )
-        ctx = FakeContext(snapshot, selection, scheduler, render_result)
-        runner = self._build_runner(ctx)
+        runner = self._build_runner(scheduler, render_result)
+        report_package = ReportPackage(
+            meta=ReportPackageMeta(mode=snapshot.mode, report_type="测试报告"),
+            content=ReportContent(
+                hotlist_groups=selection.groups,
+                selected_items=selection.selected_items,
+                new_items=selection.selected_new_items,
+                standalone_sections=snapshot.standalone_sections,
+                insight_sections=[],
+            ),
+            integrity=ReportIntegrity(valid=True),
+            diagnostics={"insight": {"enabled": True, "strategy": "ai", "diagnostics": {}}, "failed_sources": []},
+        )
+        insight = InsightResult(enabled=True, strategy="ai")
 
-        html_file = runner._execute_mode_strategy(runner._get_mode_strategy(), schedule=schedule)
+        with (
+            patch("newspulse.runner.news_runner.run_selection_stage", return_value=(snapshot, selection)) as run_selection,
+            patch("newspulse.runner.news_runner.run_insight_stage", return_value=insight) as run_insight,
+            patch("newspulse.runner.news_runner.assemble_report_package", return_value=report_package) as assemble_report,
+            patch("newspulse.runner.news_runner.run_render_stage", return_value=render_result) as run_render,
+            patch(
+                "newspulse.runner.news_runner.run_delivery_stage",
+                return_value=SimpleNamespace(success=True, channel_results=[{"channel": "generic_webhook"}]),
+            ) as run_delivery,
+        ):
+            html_file = runner._execute_mode_strategy(runner._get_mode_strategy(), schedule=schedule)
 
         self.assertEqual(html_file, "output/html/2026-04-17/103000.html")
-        self.assertEqual([call[0] for call in ctx.calls], ["selection", "insight", "report", "render", "deliver"])
-        self.assertEqual(ctx.calls[0][1]["mode"], "current")
-        self.assertEqual(ctx.calls[0][1]["strategy"], "ai")
-        self.assertEqual(ctx.calls[1][1]["snapshot"], snapshot)
-        self.assertEqual(ctx.calls[1][1]["selection"], selection)
-        self.assertTrue(ctx.calls[3][2]["emit_html"])
-        self.assertTrue(ctx.calls[3][2]["emit_notification"])
-        self.assertEqual(ctx.calls[3][2]["update_info"]["remote_version"], "1.1.0")
-        self.assertEqual(ctx.calls[4][2]["proxy_url"], "http://127.0.0.1:1080")
+        self.assertEqual(run_selection.call_args.kwargs["mode"], "current")
+        self.assertEqual(run_selection.call_args.kwargs["strategy"], "ai")
+        self.assertIs(run_insight.call_args.kwargs["snapshot"], snapshot)
+        self.assertIs(run_insight.call_args.kwargs["selection"], selection)
+        self.assertTrue(run_render.call_args.kwargs["emit_html"])
+        self.assertTrue(run_render.call_args.kwargs["emit_notification"])
+        self.assertEqual(run_render.call_args.kwargs["update_info"]["remote_version"], "1.1.0")
+        self.assertEqual(run_delivery.call_args.kwargs["proxy_url"], "http://127.0.0.1:1080")
         self.assertEqual(scheduler.recorded, [("morning", "push", "2026-04-17")])
+        assemble_report.assert_called_once()
 
     def test_execute_mode_strategy_skips_delivery_when_no_notifiable_content(self):
         snapshot, selection = _build_snapshot(mode="current", total_selected=0)
@@ -301,13 +279,30 @@ class NewsRunnerWorkflowStageTest(unittest.TestCase):
             html=HTMLArtifact(file_path="output/html/2026-04-17/103000.html", content="<html></html>"),
             payloads=[],
         )
-        ctx = FakeContext(snapshot, selection, scheduler, render_result)
-        runner = self._build_runner(ctx)
+        runner = self._build_runner(scheduler, render_result)
+        report_package = ReportPackage(
+            meta=ReportPackageMeta(mode=snapshot.mode, report_type="测试报告"),
+            content=ReportContent(
+                hotlist_groups=selection.groups,
+                selected_items=selection.selected_items,
+                new_items=selection.selected_new_items,
+                standalone_sections=snapshot.standalone_sections,
+                insight_sections=[],
+            ),
+            integrity=ReportIntegrity(valid=True),
+        )
 
-        runner._execute_mode_strategy(runner._get_mode_strategy(), schedule=schedule)
+        with (
+            patch("newspulse.runner.news_runner.run_selection_stage", return_value=(snapshot, selection)),
+            patch("newspulse.runner.news_runner.run_insight_stage", return_value=InsightResult(enabled=True, strategy="ai")),
+            patch("newspulse.runner.news_runner.assemble_report_package", return_value=report_package),
+            patch("newspulse.runner.news_runner.run_render_stage", return_value=render_result) as run_render,
+            patch("newspulse.runner.news_runner.run_delivery_stage") as run_delivery,
+        ):
+            runner._execute_mode_strategy(runner._get_mode_strategy(), schedule=schedule)
 
-        self.assertEqual([call[0] for call in ctx.calls], ["selection", "insight", "report", "render"])
-        self.assertFalse(ctx.calls[3][2]["emit_notification"])
+        self.assertFalse(run_render.call_args.kwargs["emit_notification"])
+        self.assertFalse(run_delivery.called)
         self.assertEqual(scheduler.already_calls, [])
         self.assertEqual(scheduler.recorded, [])
 
@@ -328,18 +323,36 @@ class NewsRunnerWorkflowStageTest(unittest.TestCase):
             html=HTMLArtifact(file_path="output/html/2026-04-17/103000.html", content="<html></html>"),
             payloads=[DeliveryPayload(channel="generic_webhook", title="实时报告", content="payload")],
         )
-        ctx = FakeContext(snapshot, selection, scheduler, render_result)
-        ctx.report_package.integrity = ReportIntegrity(valid=False, errors=["snapshot linkage missing"])
-        runner = self._build_runner(ctx)
+        runner = self._build_runner(scheduler, render_result)
+        report_package = ReportPackage(
+            meta=ReportPackageMeta(mode=snapshot.mode, report_type="测试报告"),
+            content=ReportContent(
+                hotlist_groups=selection.groups,
+                selected_items=selection.selected_items,
+                new_items=selection.selected_new_items,
+                standalone_sections=snapshot.standalone_sections,
+                insight_sections=[],
+            ),
+            integrity=ReportIntegrity(valid=False, errors=["snapshot linkage missing"]),
+        )
 
-        runner._execute_mode_strategy(runner._get_mode_strategy(), schedule=schedule)
+        with (
+            patch("newspulse.runner.news_runner.run_selection_stage", return_value=(snapshot, selection)),
+            patch("newspulse.runner.news_runner.run_insight_stage", return_value=InsightResult(enabled=True, strategy="ai")),
+            patch("newspulse.runner.news_runner.assemble_report_package", return_value=report_package),
+            patch("newspulse.runner.news_runner.run_render_stage", return_value=render_result) as run_render,
+            patch("newspulse.runner.news_runner.run_delivery_stage") as run_delivery,
+        ):
+            runner._execute_mode_strategy(runner._get_mode_strategy(), schedule=schedule)
 
-        self.assertEqual([call[0] for call in ctx.calls], ["selection", "insight", "report", "render"])
-        self.assertFalse(ctx.calls[3][2]["emit_notification"])
+        self.assertFalse(run_render.call_args.kwargs["emit_notification"])
+        self.assertFalse(run_delivery.called)
         self.assertEqual(scheduler.recorded, [])
 
     def test_daily_notifiable_content_requires_selection_filtered_new_items(self):
-        runner = self._build_runner(SimpleNamespace())
+        runner = NewsRunner.__new__(NewsRunner)
+        itemless_settings = SimpleNamespace()
+        runner.settings = itemless_settings
         report_package = ReportPackage(
             meta=ReportPackageMeta(mode="daily", report_type="日报"),
             content=ReportContent(
@@ -355,7 +368,7 @@ class NewsRunnerWorkflowStageTest(unittest.TestCase):
         self.assertFalse(runner._has_valid_content(report_package))
 
     def test_has_valid_content_requires_valid_report_package(self):
-        runner = self._build_runner(SimpleNamespace())
+        runner = NewsRunner.__new__(NewsRunner)
         item = HotlistItem(
             news_item_id="1",
             source_id="hackernews",

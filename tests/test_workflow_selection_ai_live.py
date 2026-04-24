@@ -1,8 +1,8 @@
-import os
+﻿import os
 import unittest
 from datetime import datetime
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 from zoneinfo import ZoneInfo
 
 from newspulse.core.loader import load_config

@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any, Iterable, Literal
 
 from newspulse import __version__
-from newspulse.context import AppContext
 from newspulse.core.config_paths import (
     get_config_layout,
     resolve_ai_interests_path,
@@ -19,6 +18,7 @@ from newspulse.core.config_paths import (
     resolve_timeline_path,
 )
 from newspulse.core.loader import load_config
+from newspulse.runtime import ApplicationRuntime, build_runtime
 from newspulse.workflow.shared.ai_runtime.client import AIRuntimeClient
 from newspulse.workflow.shared.ai_runtime.embedding import EmbeddingRuntimeClient, EmbeddingRuntimeConfig
 from newspulse.workflow.shared.ai_runtime.errors import AIConfigError
@@ -136,16 +136,16 @@ def run_preflight(
     report.config = config
     report.add("pass", "Config load", f"loaded: {layout.config_path}")
 
-    ctx = AppContext(config)
+    runtime = build_runtime(config)
     try:
-        _check_schedule(report, ctx)
-        _check_selection_inputs(report, ctx)
-        _check_ai_runtime(report, ctx)
-        _check_notification(report, ctx)
-        _check_storage(report, ctx)
-        _check_output_dir(report, config)
+        _check_schedule(report, runtime)
+        _check_selection_inputs(report, runtime)
+        _check_ai_runtime(report, runtime)
+        _check_notification(report, runtime)
+        _check_storage(report, runtime)
+        _check_output_dir(report, runtime.settings.storage.data_dir)
     finally:
-        ctx.cleanup()
+        runtime.cleanup()
 
     timeline_path = resolve_timeline_path(config_root=layout.config_root)
     if timeline_path.exists():
@@ -200,9 +200,9 @@ def _load_required_python_version() -> tuple[int, int, int]:
         return fallback
 
 
-def _check_schedule(report: PreflightReport, ctx: AppContext) -> None:
+def _check_schedule(report: PreflightReport, runtime: ApplicationRuntime) -> None:
     try:
-        schedule = ctx.create_scheduler().resolve()
+        schedule = runtime.container.scheduler().resolve()
         report.add(
             "pass",
             "Schedule",
@@ -217,20 +217,17 @@ def _check_schedule(report: PreflightReport, ctx: AppContext) -> None:
         )
 
 
-def _check_selection_inputs(report: PreflightReport, ctx: AppContext) -> None:
-    strategy = ctx.filter_method
-    selection_config = ctx.selection_stage_config
-    selection_ai = selection_config.get("AI", {}) if isinstance(selection_config, dict) else {}
+def _check_selection_inputs(report: PreflightReport, runtime: ApplicationRuntime) -> None:
+    settings = runtime.settings
+    strategy = settings.selection.strategy
     frequency_required = strategy == "keyword" or (
-        strategy == "ai" and bool(selection_ai.get("FALLBACK_TO_KEYWORD", True))
+        strategy == "ai" and settings.selection.ai.fallback_to_keyword
     )
 
     if frequency_required:
-        filter_config = ctx.config.get("FILTER", {})
-        frequency_file = filter_config.get("FREQUENCY_FILE") if isinstance(filter_config, dict) else None
         frequency_path = resolve_frequency_words_path(
-            frequency_file,
-            config_root=ctx.config_root,
+            settings.selection.frequency_file,
+            config_root=settings.paths.config_root,
         )
         if frequency_path.exists():
             report.add("pass", "Frequency words", f"found: {frequency_path}")
@@ -245,8 +242,10 @@ def _check_selection_inputs(report: PreflightReport, ctx: AppContext) -> None:
         report.add("skip", "Frequency words", "not required because keyword fallback is disabled")
 
     if strategy == "ai":
-        interests_file = selection_ai.get("INTERESTS_FILE") if isinstance(selection_ai, dict) else None
-        interests_path = resolve_ai_interests_path(interests_file, config_root=ctx.config_root)
+        interests_path = resolve_ai_interests_path(
+            settings.selection.ai.interests_file,
+            config_root=settings.paths.config_root,
+        )
         if interests_path.exists():
             report.add("pass", "AI interests", f"found: {interests_path}")
         else:
@@ -260,29 +259,26 @@ def _check_selection_inputs(report: PreflightReport, ctx: AppContext) -> None:
         report.add("skip", "AI interests", "not required because AI selection is disabled")
 
 
-def _check_ai_runtime(report: PreflightReport, ctx: AppContext) -> None:
-    strategy = ctx.filter_method
-    insight_config = ctx.ai_analysis_config
-    selection_config = ctx.selection_stage_config
-    insight_enabled = bool(insight_config.get("ENABLED", False)) and str(insight_config.get("STRATEGY", "noop") or "noop") == "ai"
-    selection_ai_enabled = strategy == "ai"
-    semantic_config = selection_config.get("SEMANTIC", {}) if isinstance(selection_config, dict) else {}
-    semantic_enabled = selection_ai_enabled and bool(semantic_config.get("ENABLED", True))
+def _check_ai_runtime(report: PreflightReport, runtime: ApplicationRuntime) -> None:
+    settings = runtime.settings
+    selection_ai_enabled = settings.selection.strategy == "ai"
+    semantic_enabled = selection_ai_enabled and settings.selection.semantic.enabled
+    insight_enabled = settings.insight.enabled and settings.insight.strategy == "ai"
 
     if selection_ai_enabled:
         _check_runtime_mapping(
             report,
             item="AI selection runtime",
-            config=ctx.ai_filter_model_config,
+            config=settings.selection.ai_runtime_config,
             hint="Check the selection runtime fields in `.env` or `config/config.yaml`, especially model, API key, and base URL.",
         )
         _check_prompt_files(
             report,
             item="AI selection prompts",
             paths=[
-                ctx.ai_filter_config.get("PROMPT_FILE"),
-                ctx.ai_filter_config.get("EXTRACT_PROMPT_FILE"),
-                ctx.ai_filter_config.get("UPDATE_TAGS_PROMPT_FILE"),
+                settings.selection.filter_config.get("PROMPT_FILE"),
+                settings.selection.filter_config.get("EXTRACT_PROMPT_FILE"),
+                settings.selection.filter_config.get("UPDATE_TAGS_PROMPT_FILE"),
             ],
             hint="Make sure the selection prompt files under `config/ai_filter/` exist and are readable.",
         )
@@ -294,7 +290,7 @@ def _check_ai_runtime(report: PreflightReport, ctx: AppContext) -> None:
         _check_embedding_runtime(
             report,
             item="Semantic embedding",
-            config=ctx.ai_filter_embedding_model_config,
+            config=settings.selection.embedding_runtime_config,
             hint="Set `AI_EMBEDDING_MODEL` / `AI_EMBEDDING_API_KEY` / `AI_EMBEDDING_BASE_URL` in `.env`.",
         )
     else:
@@ -304,15 +300,15 @@ def _check_ai_runtime(report: PreflightReport, ctx: AppContext) -> None:
         _check_runtime_mapping(
             report,
             item="AI insight runtime",
-            config=ctx.ai_analysis_model_config,
+            config=settings.insight.ai_runtime_config,
             hint="Check the insight runtime fields in `.env` or `config/config.yaml`, especially model, API key, and base URL.",
         )
         _check_prompt_files(
             report,
             item="AI insight prompts",
             paths=[
-                ctx.ai_analysis_config.get("PROMPT_FILE"),
-                ctx.ai_analysis_config.get("ITEM_PROMPT_FILE"),
+                settings.insight.analysis_config.get("PROMPT_FILE"),
+                settings.insight.analysis_config.get("ITEM_PROMPT_FILE"),
             ],
             hint="Make sure the insight prompt files under `config/` exist and are readable.",
         )
@@ -366,11 +362,12 @@ def _check_prompt_files(
     report.add("pass", item, f"found: {', '.join(existing)}")
 
 
-def _check_notification(report: PreflightReport, ctx: AppContext) -> None:
-    if not ctx.notification_enabled:
+def _check_notification(report: PreflightReport, runtime: ApplicationRuntime) -> None:
+    settings = runtime.settings
+    if not settings.delivery.enabled:
         report.add("skip", "Notification", "not required because notifications are disabled")
         return
-    if ctx.generic_webhook_url:
+    if settings.delivery.generic_webhook_url:
         report.add("pass", "Notification", "configured: Generic Webhook")
         return
     report.add(
@@ -381,12 +378,13 @@ def _check_notification(report: PreflightReport, ctx: AppContext) -> None:
     )
 
 
-def _check_storage(report: PreflightReport, ctx: AppContext) -> None:
+def _check_storage(report: PreflightReport, runtime: ApplicationRuntime) -> None:
+    settings = runtime.settings
     try:
-        storage_manager = ctx.get_storage_manager()
+        storage_manager = runtime.container.storage()
         detail = f"backend: {storage_manager.backend_name}"
-        if ctx.storage_retention_days > 0:
-            detail += f", retention_days: {ctx.storage_retention_days}"
+        if settings.storage.retention_days > 0:
+            detail += f", retention_days: {settings.storage.retention_days}"
         report.add("pass", "Storage", detail)
     except Exception as exc:
         report.add(
@@ -397,9 +395,8 @@ def _check_storage(report: PreflightReport, ctx: AppContext) -> None:
         )
 
 
-def _check_output_dir(report: PreflightReport, config: dict[str, Any]) -> None:
+def _check_output_dir(report: PreflightReport, output_dir: Path) -> None:
     try:
-        output_dir = _resolve_output_dir(config)
         output_dir.mkdir(parents=True, exist_ok=True)
         probe_file = output_dir / ".preflight_write_probe"
         probe_file.write_text("ok", encoding="utf-8")
@@ -412,9 +409,3 @@ def _check_output_dir(report: PreflightReport, config: dict[str, Any]) -> None:
             f"write failed: {exc}",
             hint="Check whether `storage.local.data_dir` points to a writable directory.",
         )
-
-
-def _resolve_output_dir(config: dict[str, Any]) -> Path:
-    storage = config.get("STORAGE", {}) if isinstance(config, dict) else {}
-    local = storage.get("LOCAL", {}) if isinstance(storage, dict) else {}
-    return Path(local.get("DATA_DIR", "output") or "output")

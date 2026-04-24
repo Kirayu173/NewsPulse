@@ -21,7 +21,7 @@ class AIRuntimeResolverTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(runtime["driver"], "anthropic")
+        self.assertEqual(runtime["provider_family"], "anthropic")
         self.assertEqual(runtime["model"], "anthropic/MiniMax-M2.7")
         self.assertEqual(runtime["request_model"], "MiniMax-M2.7")
         self.assertEqual(runtime["api_style"], "anthropic")
@@ -35,15 +35,15 @@ class AIRuntimeResolverTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(runtime["driver"], "openai")
+        self.assertEqual(runtime["provider_family"], "openai")
         self.assertEqual(runtime["model"], "openai/glm-4.6v")
         self.assertEqual(runtime["request_model"], "glm-4.6v")
         self.assertEqual(runtime["api_style"], "openai")
 
-    def test_resolve_chat_runtime_keeps_provider_model_for_litellm(self):
+    def test_resolve_chat_runtime_preserves_vendor_prefixed_openai_models(self):
         runtime = resolve_chat_runtime({"MODEL": "deepseek/deepseek-chat", "API_KEY": "test-key"})
 
-        self.assertEqual(runtime["driver"], "litellm")
+        self.assertEqual(runtime["provider_family"], "openai")
         self.assertEqual(runtime["model"], "deepseek/deepseek-chat")
         self.assertEqual(runtime["request_model"], "deepseek/deepseek-chat")
 
@@ -56,7 +56,7 @@ class AIRuntimeResolverTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(runtime["driver"], "openai")
+        self.assertEqual(runtime["provider_family"], "openai")
         self.assertEqual(runtime["model"], "openai/text-embedding-3-small")
         self.assertEqual(runtime["request_model"], "text-embedding-3-small")
         self.assertTrue(runtime["enabled"])
@@ -64,7 +64,7 @@ class AIRuntimeResolverTest(unittest.TestCase):
     def test_resolve_embedding_runtime_is_disabled_without_model(self):
         runtime = resolve_embedding_runtime({"API_KEY": "test-key"})
 
-        self.assertEqual(runtime["driver"], "litellm")
+        self.assertEqual(runtime["provider_family"], "openai")
         self.assertEqual(runtime["model"], "")
         self.assertEqual(runtime["request_model"], "")
         self.assertFalse(runtime["enabled"])

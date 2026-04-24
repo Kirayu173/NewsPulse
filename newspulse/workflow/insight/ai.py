@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Mapping
 
 from newspulse.workflow.insight.aggregate import InsightAggregateGenerator
 from newspulse.workflow.insight.content_fetcher import InsightContentFetcher
@@ -31,7 +31,6 @@ class AIInsightStrategy:
         storage_manager: Any | None = None,
         proxy_url: str | None = None,
         client: AIRuntimeClient | Any | None = None,
-        completion_func: Callable[..., Any] | None = None,
         prompt_template: PromptTemplate | None = None,
         item_prompt_template: PromptTemplate | None = None,
         input_builder: InsightInputBuilder | None = None,
@@ -46,7 +45,7 @@ class AIInsightStrategy:
         if shared_client is None:
             if ai_runtime_config is None:
                 raise ValueError('AI runtime config is required when no client is provided')
-            shared_client = AIRuntimeClient(ai_runtime_config, completion_func=completion_func)
+            shared_client = AIRuntimeClient(ai_runtime_config)
         shared_client = self._wrap_runtime_cache(shared_client)
         self.shared_client = shared_client
 
@@ -74,7 +73,6 @@ class AIInsightStrategy:
             config_root=self.config_root,
             client=shared_client,
             prompt_template=item_prompt_template,
-            completion_func=completion_func,
         )
         self.aggregate_generator = aggregate_generator or InsightAggregateGenerator(
             ai_runtime_config=ai_runtime_config,
@@ -82,7 +80,6 @@ class AIInsightStrategy:
             config_root=self.config_root,
             client=shared_client,
             prompt_template=prompt_template,
-            completion_func=completion_func,
         )
 
     def run(self, snapshot: Any, selection: Any, options: InsightOptions) -> InsightResult:
