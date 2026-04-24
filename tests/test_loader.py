@@ -6,21 +6,20 @@ from unittest.mock import patch
 
 from newspulse.core.config_paths import resolve_ai_interests_path
 from newspulse.core.loader import load_config
-from newspulse.workflow.selection.frequency import load_frequency_words
+from newspulse.workflow.selection.frequency import load_keyword_rule_set
 from tests.helpers.io import write_text
 
 
 class LoaderConfigRootTest(unittest.TestCase):
-    def test_load_config_reads_dotenv_from_project_root(self):
+    def test_load_config_reads_unified_ai_env_from_project_root(self):
         with TemporaryDirectory() as tmp:
             project = Path(tmp)
             config_dir = project / "config"
             config_dir.mkdir(parents=True)
             (project / ".env").write_text(
-                "API_KEY=dotenv-key\n"
-                "BASE_URL=https://dotenv.example/v1\n"
-                "MODEL=glm-4.6v\n"
-                "EMB_MODEL=embedding-3\n",
+                "AI_API_KEY=dotenv-key\n"
+                "AI_BASE_URL=https://dotenv.example/v1\n"
+                "AI_MODEL=glm-4.6v\n",
                 encoding="utf-8",
             )
             write_text(
@@ -52,7 +51,7 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["AI"]["API_BASE"], "https://dotenv.example/v1")
             self.assertEqual(config["AI"]["MODEL"], "glm-4.6v")
 
-    def test_load_config_reads_unified_ai_env_aliases(self):
+    def test_load_config_reads_unified_ai_env_settings(self):
         with TemporaryDirectory() as tmp:
             project = Path(tmp)
             config_dir = project / "config"
@@ -98,9 +97,9 @@ class LoaderConfigRootTest(unittest.TestCase):
             config_dir.mkdir(parents=True)
 
             (workspace / ".env").write_text(
-                "API_KEY=parent-key\n"
-                "BASE_URL=https://parent.example/v1\n"
-                "MODEL=openai/parent-model\n",
+                "AI_API_KEY=parent-key\n"
+                "AI_BASE_URL=https://parent.example/v1\n"
+                "AI_MODEL=openai/parent-model\n",
                 encoding="utf-8",
             )
             write_text(
@@ -397,7 +396,7 @@ class LoaderConfigRootTest(unittest.TestCase):
 
 
 class FrequencyWordsPathTest(unittest.TestCase):
-    def test_load_frequency_words_resolves_custom_short_name_from_config_root(self):
+    def test_load_keyword_rule_set_resolves_custom_short_name_from_config_root(self):
         with TemporaryDirectory() as tmp:
             project = Path(tmp)
             config_dir = project / "config"
@@ -409,15 +408,12 @@ class FrequencyWordsPathTest(unittest.TestCase):
                 """,
             )
 
-            word_groups, filter_words, global_filters = load_frequency_words(
-                "weekly.txt",
-                config_root=config_dir,
-            )
+            rule_set = load_keyword_rule_set("weekly.txt", config_root=config_dir)
 
-            self.assertEqual(len(word_groups), 1)
-            self.assertEqual(word_groups[0]["group_key"], "AI")
-            self.assertEqual(filter_words, [])
-            self.assertEqual(global_filters, [])
+            self.assertEqual(len(rule_set.groups), 1)
+            self.assertEqual(rule_set.groups[0].group_key, "AI")
+            self.assertEqual(rule_set.filter_tokens, ())
+            self.assertEqual(rule_set.global_filters, ())
 
     def test_resolve_ai_interests_path_uses_default_root_file(self):
         with TemporaryDirectory() as tmp:

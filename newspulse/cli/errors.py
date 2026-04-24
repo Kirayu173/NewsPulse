@@ -48,8 +48,8 @@ def build_cli_error_guidance(exc: Exception) -> CLIErrorGuidance:
             title="AI 配置不完整",
             detail=str(exc),
             fixes=(
-                "检查仓库根目录 `.env` 中的 `AI_MODEL` / `AI_API_KEY` / `AI_BASE_URL`，旧字段 `MODEL` / `API_KEY` / `BASE_URL` 也仍兼容。",
-                "如需固定接入方式，再补充 `AI_DRIVER`；如启用了 semantic recall，再检查 `AI_EMBEDDING_MODEL` 或旧字段 `EMB_MODEL`。",
+                "检查仓库根目录 `.env` 中的 `AI_MODEL` / `AI_API_KEY` / `AI_BASE_URL`。",
+                "如需固定接入方式，再补充 `AI_DRIVER`；如启用了 semantic recall，再检查 `AI_EMBEDDING_MODEL` / `AI_EMBEDDING_API_KEY` / `AI_EMBEDDING_BASE_URL`。",
                 "运行 `newspulse doctor` 确认具体缺失项。",
             ),
         )
@@ -128,7 +128,7 @@ def print_cli_error(exc: Exception, *, stream=None) -> None:
 
     target = stream or sys.stderr
     guidance = build_cli_error_guidance(exc)
-    print(f"❌ {guidance.title}", file=target)
+    print(f"错误: {guidance.title}", file=target)
     print(f"原因: {guidance.detail}", file=target)
     if guidance.references:
         print("相关位置:", file=target)

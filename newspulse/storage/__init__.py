@@ -1,4 +1,4 @@
-﻿# coding=utf-8
+# coding=utf-8
 """Storage package exports for the hotlist-only runtime."""
 
 from newspulse.storage.base import (

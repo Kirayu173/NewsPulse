@@ -27,11 +27,8 @@ class DataFetcher:
     def __init__(
         self,
         proxy_url: Optional[str] = None,
-        api_url: Optional[str] = None,
     ):
-        # `api_url` is kept only for constructor compatibility.
         self.proxy_url = proxy_url
-        self.api_url = api_url or "builtin"
         self.client = SourceClient(proxy_url=proxy_url)
 
     def fetch_source(

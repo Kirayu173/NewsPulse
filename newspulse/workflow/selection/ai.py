@@ -296,28 +296,24 @@ def build_embedding_runtime_config(
     base = dict(ai_runtime_config or {})
     driver = str(
         os.environ.get("AI_EMBEDDING_DRIVER")
-        or os.environ.get("EMBEDDING_DRIVER")
         or base.get("DRIVER", "auto")
         or "auto"
     ).strip() or "auto"
     model = str(
         embedding_model
         or os.environ.get("AI_EMBEDDING_MODEL")
-        or os.environ.get("EMBEDDING_MODEL")
-        or os.environ.get("EMB_MODEL", "")
+        or ""
     ).strip()
     if not model:
         return {}
     api_base = str(
         os.environ.get("AI_EMBEDDING_API_BASE")
         or os.environ.get("AI_EMBEDDING_BASE_URL")
-        or os.environ.get("EMBEDDING_BASE_URL")
         or base.get("API_BASE", "")
         or ""
     )
     api_key = str(
         os.environ.get("AI_EMBEDDING_API_KEY")
-        or os.environ.get("EMBEDDING_API_KEY")
         or base.get("API_KEY", "")
         or ""
     )

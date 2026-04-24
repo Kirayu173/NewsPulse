@@ -123,7 +123,7 @@ class SelectionPipelineProjector:
 
         qualified_items.sort(key=lambda item: ((item.current_rank or 9999), item.title.lower()))
         rejected_items = _dedupe_rejections(rejected_items, snapshot_items)
-        groups = self._build_compat_groups(qualified_items)
+        groups = self._build_selection_groups(qualified_items)
 
         return SelectionResult(
             strategy="ai",
@@ -146,7 +146,7 @@ class SelectionPipelineProjector:
         )
 
     @staticmethod
-    def _build_compat_groups(items: Sequence[HotlistItem]) -> list[SelectionGroup]:
+    def _build_selection_groups(items: Sequence[HotlistItem]) -> list[SelectionGroup]:
         if not items:
             return []
         return [

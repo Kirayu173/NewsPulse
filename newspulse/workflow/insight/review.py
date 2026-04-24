@@ -1,4 +1,4 @@
-﻿# coding=utf-8
+# coding=utf-8
 """Stage-5 review exporter for the native insight workflow."""
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-﻿# coding=utf-8
+# coding=utf-8
 """Shared SQLite runtime for local storage repositories."""
 
 import sqlite3

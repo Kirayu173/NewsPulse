@@ -47,16 +47,6 @@ def _parse_token(word: str) -> KeywordToken:
         display_name=display_name,
     )
 
-
-def _token_to_legacy_dict(token: KeywordToken) -> dict[str, object]:
-    return {
-        "word": token.text,
-        "is_regex": token.is_regex,
-        "pattern": token.pattern,
-        "display_name": token.display_name or None,
-    }
-
-
 def _word_matches(word_config: Union[str, dict, KeywordToken], title_lower: str) -> bool:
     """Return True when the configured token matches the lowercase title."""
 
@@ -180,66 +170,3 @@ def load_keyword_rule_set(
         global_filters=tuple(global_filters),
         source_path=str(frequency_path),
     )
-
-
-def load_frequency_words(
-    frequency_file: Optional[str] = None,
-    config_root: Optional[Union[str, Path]] = None,
-):
-    """Compatibility wrapper returning the legacy frequency words shape."""
-
-    rule_set = load_keyword_rule_set(
-        frequency_file=frequency_file,
-        config_root=config_root,
-    )
-    return (
-        [
-            {
-                "required": [_token_to_legacy_dict(token) for token in group.required_tokens],
-                "normal": [_token_to_legacy_dict(token) for token in group.normal_tokens],
-                "group_key": group.group_key,
-                "display_name": group.label,
-                "max_count": group.max_items,
-            }
-            for group in rule_set.groups
-        ],
-        [_token_to_legacy_dict(token) for token in rule_set.filter_tokens],
-        list(rule_set.global_filters),
-    )
-
-
-def matches_word_groups(
-    title: str,
-    word_groups,
-    filter_words,
-    global_filters: Optional[list[str]] = None,
-) -> bool:
-    """Return True when a title matches the provided word-group rules."""
-
-    if not isinstance(title, str):
-        title = str(title) if title is not None else ""
-    if not title.strip():
-        return False
-
-    title_lower = title.lower()
-    if global_filters and any(global_word.lower() in title_lower for global_word in global_filters):
-        return False
-
-    if not word_groups:
-        return True
-
-    for filter_item in filter_words:
-        if _word_matches(filter_item, title_lower):
-            return False
-
-    for group in word_groups:
-        required_words = group.get("required", []) if isinstance(group, dict) else []
-        normal_words = group.get("normal", []) if isinstance(group, dict) else []
-
-        if required_words and not all(_word_matches(word, title_lower) for word in required_words):
-            continue
-        if normal_words and not any(_word_matches(word, title_lower) for word in normal_words):
-            continue
-        return True
-
-    return False

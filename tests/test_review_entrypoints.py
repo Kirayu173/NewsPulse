@@ -169,7 +169,7 @@ class ReviewEntrypointSmokeTest(unittest.TestCase):
         try:
             with (
                 patch("newspulse.workflow.selection.review.DataFetcher", _FakeDataFetcher),
-                patch.dict(os.environ, {"API_KEY": "", "AI_API_KEY": ""}, clear=False),
+                patch.dict(os.environ, {"AI_API_KEY": ""}, clear=False),
             ):
                 summary = run_selection_review(config_path=config_path, outbox_dir=outbox)
 

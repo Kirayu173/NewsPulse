@@ -295,7 +295,7 @@ def _check_ai_runtime(report: PreflightReport, ctx: AppContext) -> None:
             report,
             item="Semantic embedding",
             config=ctx.ai_filter_embedding_model_config,
-            hint="Set `AI_EMBEDDING_MODEL` / `AI_EMBEDDING_API_KEY` / `AI_EMBEDDING_BASE_URL` in `.env`, or keep using legacy `EMB_MODEL`.",
+            hint="Set `AI_EMBEDDING_MODEL` / `AI_EMBEDDING_API_KEY` / `AI_EMBEDDING_BASE_URL` in `.env`.",
         )
     else:
         report.add("skip", "Semantic embedding", "not required because semantic recall is disabled")
@@ -323,11 +323,12 @@ def _check_ai_runtime(report: PreflightReport, ctx: AppContext) -> None:
 
 def _check_runtime_mapping(report: PreflightReport, *, item: str, config: dict[str, Any], hint: str) -> None:
     client = AIRuntimeClient(config)
-    valid, message = client.validate_config()
-    if valid:
+    try:
+        client.config.validate()
+    except AIConfigError as exc:
+        report.add("fail", item, str(exc), hint=hint)
+    else:
         report.add("pass", item, client.runtime_summary())
-        return
-    report.add("fail", item, message, hint=hint)
 
 
 def _check_embedding_runtime(report: PreflightReport, *, item: str, config: dict[str, Any], hint: str) -> None:

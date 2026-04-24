@@ -61,7 +61,7 @@ class KeywordSelectionStrategy:
         }
         diagnostics.update(dict(filter_result.diagnostics))
 
-        groups = self._build_compat_groups(qualified_items)
+        groups = self._build_selection_groups(qualified_items)
         return SelectionResult(
             strategy="keyword",
             qualified_items=qualified_items,
@@ -165,7 +165,7 @@ class KeywordSelectionStrategy:
         )
 
     @staticmethod
-    def _build_compat_groups(items: Sequence[HotlistItem]) -> list[SelectionGroup]:
+    def _build_selection_groups(items: Sequence[HotlistItem]) -> list[SelectionGroup]:
         if not items:
             return []
         return [

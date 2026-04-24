@@ -46,20 +46,6 @@ class KeywordRuleSet:
     source_path: str = ""
 
 
-@dataclass
-class KeywordGroupBucket:
-    """Accumulated matched items for a keyword selection group."""
-
-    definition: KeywordRuleGroup
-    matched_items: list[HotlistItem] = field(default_factory=list)
-
-    @property
-    def total_matched(self) -> int:
-        """Return the total matched item count before output capping."""
-
-        return len(self.matched_items)
-
-
 @dataclass(frozen=True)
 class AIActiveTag:
     """Active AI tag row loaded from the compatibility storage tables."""
@@ -84,17 +70,6 @@ class AIBatchNewsItem:
     summary: str = ""
     context_lines: tuple[str, ...] = ()
     rendered_context: str = ""
-    persisted_news_id: int | None = None
-
-
-@dataclass(frozen=True)
-class AIClassificationResult:
-    """Normalized AI classification output for one selected news item."""
-
-    news_item_id: str
-    tag_id: int
-    relevance_score: float
-    source_type: str = "hotlist"
     persisted_news_id: int | None = None
 
 

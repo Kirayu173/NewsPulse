@@ -1,4 +1,4 @@
-﻿# coding=utf-8
+# coding=utf-8
 """
 Storage backend base classes and shared news data models.
 """

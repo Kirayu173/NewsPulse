@@ -7,7 +7,6 @@ import math
 from typing import Any, Iterable, Protocol, Sequence
 
 from newspulse.workflow.selection.models import (
-    AIActiveTag,
     SelectionCandidate,
     SelectionTopic,
     SemanticSelectionResult,
@@ -37,26 +36,6 @@ class NoopSelectionReranker:
         candidates: Sequence[SelectionCandidate],
     ) -> list[SelectionCandidate]:
         return list(candidates)
-
-
-def build_topics_from_active_tags(active_tags: Sequence[AIActiveTag]) -> list[SelectionTopic]:
-    """Build a typed topic catalog from active AI tags."""
-
-    topics: list[SelectionTopic] = []
-    for tag in active_tags:
-        label = str(tag.tag or "").strip()
-        if not label:
-            continue
-        topics.append(
-            SelectionTopic(
-                topic_id=tag.id,
-                label=label,
-                description=str(tag.description or "").strip(),
-                priority=tag.priority,
-                source="ai_tag",
-            )
-        )
-    return topics
 
 
 class SemanticSelectionLayer:

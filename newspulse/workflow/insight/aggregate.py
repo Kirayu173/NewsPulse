@@ -1,4 +1,4 @@
-﻿# coding=utf-8
+# coding=utf-8
 """Aggregate structured item analyses into stable insight sections."""
 
 from __future__ import annotations

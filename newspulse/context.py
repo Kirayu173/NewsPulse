@@ -67,11 +67,6 @@ class AppConfigView:
         return workflow if isinstance(workflow, dict) else {}
 
     @property
-    def raw_ai_config(self) -> Dict[str, Any]:
-        ai = self._raw_config.get("ai", {})
-        return ai if isinstance(ai, dict) else {}
-
-    @property
     def timezone(self) -> str:
         return self.config.get("TIMEZONE", DEFAULT_TIMEZONE)
 
@@ -264,11 +259,6 @@ class AppConfigView:
     @property
     def ai_filter_embedding_model_config(self) -> Dict[str, Any]:
         return build_embedding_runtime_config(self.ai_filter_model_config)
-
-    @property
-    def ai_runtime_config(self) -> Dict[str, Any]:
-        config = self.config.get("AI", {})
-        return dict(config) if isinstance(config, dict) else {}
 
     @property
     def config_root(self) -> Path:

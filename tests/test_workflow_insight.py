@@ -1,4 +1,4 @@
-﻿import unittest
+import unittest
 
 from newspulse.workflow.insight.ai import AIInsightStrategy
 from newspulse.workflow.insight.service import InsightService

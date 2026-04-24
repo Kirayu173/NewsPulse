@@ -1,4 +1,4 @@
-﻿# coding=utf-8
+# coding=utf-8
 """Shared selection context rendering helpers."""
 
 from collections.abc import Iterable

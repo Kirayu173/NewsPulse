@@ -1,4 +1,4 @@
-﻿import unittest
+import unittest
 
 from newspulse.workflow.insight.content_reducer import InsightContentReducer
 from newspulse.workflow.insight.models import InsightContentPayload, InsightNewsContext, InsightRankSignals, InsightSelectionEvidence, InsightSourceContext

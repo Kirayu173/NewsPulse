@@ -1,4 +1,4 @@
-﻿# coding=utf-8
+# coding=utf-8
 """Native wrappers around third-party content extraction libraries."""
 
 from __future__ import annotations

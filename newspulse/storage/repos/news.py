@@ -233,18 +233,9 @@ class NewsRepository(SQLiteRepositoryBase):
     def _save_normalized_crawl_batch_impl(
         self,
         batch: NormalizedCrawlBatch,
-        log_prefix: str = "[??]",
+        log_prefix: str = "[storage]",
     ) -> tuple[bool, int, int, int, int]:
-        """
-        ???????????? SQLite??????
-
-        Args:
-            batch: ?????
-            log_prefix: ????
-
-        Returns:
-            (success, new_count, updated_count, title_changed_count, off_list_count)
-        """
+        """Persist one normalized crawl batch into the SQLite stage-2 schema."""
         try:
             conn = self._get_connection(batch.date)
             cursor = conn.cursor()
@@ -275,7 +266,7 @@ class NewsRepository(SQLiteRepositoryBase):
             return True, new_count, updated_count, title_changed_count, off_list_count
 
         except Exception:
-            logger.exception("%s ????", log_prefix)
+            logger.exception("%s failed to persist crawl batch", log_prefix)
             return False, 0, 0, 0, 0
 
     def _sync_batch_platforms(

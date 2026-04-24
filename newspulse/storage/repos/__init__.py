@@ -1,4 +1,4 @@
-﻿# coding=utf-8
+# coding=utf-8
 """SQLite-backed repositories."""
 
 from newspulse.storage.repos.ai_filter import AIFilterRepository

@@ -6,10 +6,6 @@ from __future__ import annotations
 from typing import Optional
 
 from newspulse.storage.base import NewsData
-from newspulse.utils.logging import get_logger
-
-
-logger = get_logger(__name__)
 
 
 def detect_latest_new_title_map(
@@ -45,26 +41,6 @@ def detect_latest_new_title_map(
         if unmatched:
             new_title_map[source_id] = unmatched
     return new_title_map
-
-
-def detect_latest_new_title_map_from_storage(
-    storage_manager,
-    current_platform_ids: Optional[list[str]] = None,
-) -> dict[str, set[str]]:
-    """Load storage data and return new titles from the latest crawl."""
-
-    try:
-        latest_data = storage_manager.get_latest_crawl_data()
-        all_data = storage_manager.get_today_all_data()
-    except Exception:
-        logger.exception("[snapshot] failed to load storage data for incremental titles")
-        return {}
-
-    return detect_latest_new_title_map(
-        latest_data,
-        all_data,
-        current_platform_ids=current_platform_ids,
-    )
 
 
 def _collect_latest_titles(

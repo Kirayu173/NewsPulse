@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
@@ -40,7 +39,7 @@ class EmbeddingRuntimeConfig:
             pick(
                 "DRIVER",
                 "driver",
-                default=os.environ.get("AI_EMBEDDING_DRIVER", os.environ.get("EMBEDDING_DRIVER", "auto")),
+                default="auto",
             )
             or "auto"
         )
@@ -48,19 +47,7 @@ class EmbeddingRuntimeConfig:
             pick(
                 "API_BASE",
                 "api_base",
-                default=os.environ.get(
-                    "AI_EMBEDDING_API_BASE",
-                    os.environ.get(
-                        "AI_EMBEDDING_BASE_URL",
-                        os.environ.get(
-                            "EMBEDDING_BASE_URL",
-                            os.environ.get(
-                                "AI_API_BASE",
-                                os.environ.get("AI_BASE_URL", os.environ.get("BASE_URL", os.environ.get("API_BASE", ""))),
-                            ),
-                        ),
-                    ),
-                ),
+                default="",
             )
             or ""
         )
@@ -69,14 +56,7 @@ class EmbeddingRuntimeConfig:
                 pick(
                     "MODEL",
                     "model",
-                    "EMBEDDING_MODEL",
-                    "embedding_model",
-                    "EMB_MODEL",
-                    "emb_model",
-                    default=os.environ.get(
-                        "AI_EMBEDDING_MODEL",
-                        os.environ.get("EMBEDDING_MODEL", os.environ.get("EMB_MODEL", "")),
-                    ),
+                    default="",
                 )
                 or ""
             ),
@@ -89,10 +69,7 @@ class EmbeddingRuntimeConfig:
                 pick(
                     "API_KEY",
                     "api_key",
-                    default=os.environ.get(
-                        "AI_EMBEDDING_API_KEY",
-                        os.environ.get("EMBEDDING_API_KEY", os.environ.get("AI_API_KEY", os.environ.get("API_KEY", ""))),
-                    ),
+                    default="",
                 )
                 or ""
             ),
@@ -103,8 +80,6 @@ class EmbeddingRuntimeConfig:
                 pick(
                     "BATCH_SIZE",
                     "batch_size",
-                    "EMBEDDING_BATCH_SIZE",
-                    "embedding_batch_size",
                     default=64,
                 )
                 or 64

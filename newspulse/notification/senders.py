@@ -1,4 +1,4 @@
-﻿# coding=utf-8
+# coding=utf-8
 """Notification sender implementations."""
 
 from __future__ import annotations

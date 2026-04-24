@@ -1,4 +1,4 @@
-﻿# coding=utf-8
+# coding=utf-8
 """Useful-only content reduction for the insight stage."""
 
 from __future__ import annotations

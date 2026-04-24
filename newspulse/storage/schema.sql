@@ -1,4 +1,4 @@
-﻿-- News storage schema.
+-- News storage schema.
 
 CREATE TABLE IF NOT EXISTS platforms (
     id TEXT PRIMARY KEY,

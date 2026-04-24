@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Mapping
@@ -56,7 +55,7 @@ class AIRuntimeConfig:
             pick(
                 "DRIVER",
                 "driver",
-                default=os.environ.get("AI_DRIVER", os.environ.get("DRIVER", "auto")),
+                default="auto",
             )
             or "auto"
         )
@@ -64,7 +63,7 @@ class AIRuntimeConfig:
             pick(
                 "API_KEY",
                 "api_key",
-                default=os.environ.get("AI_API_KEY", os.environ.get("API_KEY", "")),
+                default="",
             )
             or ""
         )
@@ -72,10 +71,7 @@ class AIRuntimeConfig:
             pick(
                 "API_BASE",
                 "api_base",
-                default=os.environ.get(
-                    "AI_API_BASE",
-                    os.environ.get("AI_BASE_URL", os.environ.get("BASE_URL", os.environ.get("API_BASE", ""))),
-                ),
+                default="",
             )
             or ""
         )
@@ -84,7 +80,7 @@ class AIRuntimeConfig:
                 pick(
                     "MODEL",
                     "model",
-                    default=os.environ.get("AI_MODEL", os.environ.get("MODEL", "deepseek/deepseek-chat")),
+                    default="deepseek/deepseek-chat",
                 )
                 or ""
             ),
@@ -197,15 +193,6 @@ class AIRuntimeClient:
     def runtime_summary(self) -> str:
         return runtime_summary(self.resolve_runtime().__dict__)
 
-    def validate_config(self, *, require_api_key: bool = True) -> tuple[bool, str]:
-        """Return validation status in the legacy tuple format."""
-
-        try:
-            self.config.validate(require_api_key=require_api_key)
-        except AIConfigError as exc:
-            return False, str(exc)
-        return True, ""
-
     def build_completion_params(
         self,
         messages: Iterable[dict[str, Any]],
@@ -302,9 +289,6 @@ class CachedAIRuntimeClient:
     @property
     def config(self) -> AIRuntimeConfig:
         return self._client.config
-
-    def validate_config(self, *, require_api_key: bool = True) -> tuple[bool, str]:
-        return self._client.validate_config(require_api_key=require_api_key)
 
     def build_completion_params(
         self,

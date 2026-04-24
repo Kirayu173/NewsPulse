@@ -2,23 +2,20 @@ import unittest
 from unittest.mock import patch
 
 from newspulse.cli.errors import build_cli_error_guidance
-from newspulse.cli.main import build_parser, main, resolve_command
+from newspulse.cli.main import build_parser, main
 from newspulse.core.preflight import PreflightReport
 from newspulse.workflow.shared.ai_runtime.errors import PromptTemplateNotFoundError
 
 
 class CLIMainTest(unittest.TestCase):
-    def test_resolve_command_supports_subcommands_and_legacy_flags(self):
+    def test_parser_supports_default_run_and_subcommands(self):
         parser = build_parser()
 
-        self.assertEqual(resolve_command(parser.parse_args([])), "run")
-        self.assertEqual(resolve_command(parser.parse_args(["run"])), "run")
-        self.assertEqual(resolve_command(parser.parse_args(["doctor"])), "doctor")
-        self.assertEqual(resolve_command(parser.parse_args(["status"])), "status")
-        self.assertEqual(resolve_command(parser.parse_args(["test-notification"])), "test-notification")
-        self.assertEqual(resolve_command(parser.parse_args(["--doctor"])), "doctor")
-        self.assertEqual(resolve_command(parser.parse_args(["--show-schedule"])), "status")
-        self.assertEqual(resolve_command(parser.parse_args(["--test-notification"])), "test-notification")
+        self.assertEqual(parser.parse_args([]).command, None)
+        self.assertEqual(parser.parse_args(["run"]).command, "run")
+        self.assertEqual(parser.parse_args(["doctor"]).command, "doctor")
+        self.assertEqual(parser.parse_args(["status"]).command, "status")
+        self.assertEqual(parser.parse_args(["test-notification"]).command, "test-notification")
 
     def test_main_runs_doctor_subcommand(self):
         with patch("newspulse.cli.main.run_doctor", return_value=True) as run_doctor:
@@ -27,12 +24,12 @@ class CLIMainTest(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         run_doctor.assert_called_once_with()
 
-    def test_main_routes_legacy_show_schedule_flag(self):
+    def test_main_runs_status_subcommand(self):
         with (
             patch("newspulse.cli.main.load_config", return_value={"DEBUG": False}) as load_config,
             patch("newspulse.cli.main.handle_status_commands") as handle_status_commands,
         ):
-            exit_code = main(["--show-schedule"])
+            exit_code = main(["status"])
 
         self.assertEqual(exit_code, 0)
         load_config.assert_called_once_with()

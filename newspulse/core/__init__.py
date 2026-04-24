@@ -1,4 +1,4 @@
-﻿# coding=utf-8
+# coding=utf-8
 """Core runtime/bootstrap exports."""
 
 from newspulse.core.config import get_account_at_index, limit_accounts, parse_multi_account_config, validate_paired_configs

@@ -243,10 +243,10 @@ def _load_ai_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
     max_tokens_env = _get_env_int_or_none("AI_MAX_TOKENS")
     num_retries_env = _get_env_int_or_none("AI_NUM_RETRIES")
     return {
-        "MODEL": _get_env_first("AI_MODEL", "MODEL") or ai.get("model", ""),
-        "API_KEY": _get_env_first("AI_API_KEY", "API_KEY") or ai.get("api_key", ""),
-        "API_BASE": _get_env_first("AI_API_BASE", "AI_BASE_URL", "BASE_URL", "API_BASE") or ai.get("api_base", ""),
-        "DRIVER": _get_env_first("AI_DRIVER", "DRIVER") or ai.get("driver", "auto"),
+        "MODEL": _get_env_first("AI_MODEL") or ai.get("model", ""),
+        "API_KEY": _get_env_first("AI_API_KEY") or ai.get("api_key", ""),
+        "API_BASE": _get_env_first("AI_API_BASE", "AI_BASE_URL") or ai.get("api_base", ""),
+        "DRIVER": _get_env_first("AI_DRIVER") or ai.get("driver", "auto"),
         "TIMEOUT": ai.get("timeout", 120) if timeout_env is None else timeout_env,
         "TEMPERATURE": ai.get("temperature", 1.0) if temperature_env is None else temperature_env,
         "MAX_TOKENS": ai.get("max_tokens", 5000) if max_tokens_env is None else max_tokens_env,

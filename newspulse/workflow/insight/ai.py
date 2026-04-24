@@ -1,4 +1,4 @@
-﻿# coding=utf-8
+# coding=utf-8
 """AI-based native insight workflow."""
 
 from __future__ import annotations

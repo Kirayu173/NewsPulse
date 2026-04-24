@@ -56,7 +56,10 @@ class StorageManager:
     def get_backend(self) -> StorageBackend:
         if self._backend is None:
             if self.backend_type != "local":
-                logger.warning("[?????] ?????????? backend=%s???????", self.backend_type)
+                logger.warning(
+                    "[storage] unsupported backend=%s; falling back to local storage",
+                    self.backend_type,
+                )
 
             self._backend = LocalStorageBackend(
                 data_dir=self.data_dir,
@@ -64,7 +67,7 @@ class StorageManager:
                 enable_html=self.enable_html,
                 timezone=self.timezone,
             )
-            logger.info("[?????] ???????? (????: %s)", self.data_dir)
+            logger.info("[storage] initialized local storage backend (data_dir=%s)", self.data_dir)
 
         return self._backend
 
@@ -146,11 +149,7 @@ def get_storage_manager(
     enable_html: bool = True,
     local_retention_days: int = 0,
     timezone: str = DEFAULT_TIMEZONE,
-    force_new: bool = False,
 ) -> StorageManager:
-    # ``force_new`` is kept for backward compatibility, but storage lifetimes are
-    # now owned by the caller instead of a process-global singleton.
-    _ = force_new
     return StorageManagerSettings(
         backend_type=backend_type,
         data_dir=data_dir,

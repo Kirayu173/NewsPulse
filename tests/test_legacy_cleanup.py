@@ -1,4 +1,5 @@
 import importlib
+import inspect
 import unittest
 
 import newspulse.notification as notification_pkg
@@ -6,6 +7,7 @@ import newspulse.storage as storage_pkg
 import newspulse.workflow as workflow_pkg
 import newspulse.workflow.insight as insight_pkg
 import newspulse.workflow.selection as selection_pkg
+import newspulse.workflow.selection.frequency as selection_frequency
 
 
 class LegacyCleanupTest(unittest.TestCase):
@@ -17,6 +19,7 @@ class LegacyCleanupTest(unittest.TestCase):
 
     def test_storage_package_no_longer_exports_sqlite_mixin_shim(self):
         self.assertFalse(hasattr(storage_pkg, "SQLiteStorageMixin"))
+        self.assertNotIn("force_new", inspect.signature(storage_pkg.get_storage_manager).parameters)
 
     def test_notification_package_keeps_only_batch_and_sender_exports(self):
         self.assertTrue(hasattr(notification_pkg, "send_prepared_generic_webhook"))
@@ -39,12 +42,19 @@ class LegacyCleanupTest(unittest.TestCase):
         self.assertFalse(hasattr(insight_pkg, "NoopInsightStrategy"))
         self.assertFalse(hasattr(selection_pkg, "AISelectionStrategy"))
         self.assertFalse(hasattr(selection_pkg, "KeywordSelectionStrategy"))
+        self.assertFalse(hasattr(selection_frequency, "load_frequency_words"))
+        self.assertFalse(hasattr(selection_frequency, "matches_word_groups"))
         with self.assertRaises(ModuleNotFoundError):
             importlib.import_module("newspulse.workflow.localization")
         with self.assertRaises(ModuleNotFoundError):
             importlib.import_module("newspulse.workflow.insight.legacy")
         with self.assertRaises(ModuleNotFoundError):
             importlib.import_module("newspulse.workflow.selection.legacy")
+
+    def test_crawler_fetcher_no_longer_accepts_legacy_api_url_argument(self):
+        from newspulse.crawler.fetcher import DataFetcher
+
+        self.assertNotIn("api_url", inspect.signature(DataFetcher.__init__).parameters)
 
     def test_render_defaults_no_longer_use_ai_analysis_region_name(self):
         from newspulse.context import AppContext

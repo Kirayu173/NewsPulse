@@ -12,10 +12,10 @@ from newspulse.cli.common import resolve_data_dir
 from newspulse.core.preflight import PreflightCheckResult, PreflightReport, run_preflight
 
 _STATUS_ICONS = {
-    "pass": "✅",
-    "warn": "⚠️",
-    "fail": "❌",
-    "skip": "⏭️",
+    "pass": "[PASS]",
+    "warn": "[WARN]",
+    "fail": "[FAIL]",
+    "skip": "[SKIP]",
 }
 
 
@@ -28,9 +28,9 @@ def render_doctor_report(report: PreflightReport) -> None:
     for check in report.checks:
         _print_check(check)
     print("-" * 60)
-    summary = f"体检结果: ✅ {report.pass_count} 项通过  ⚠️ {report.warn_count} 项警告  ❌ {report.fail_count} 项失败"
+    summary = f"体检结果: 通过 {report.pass_count} 项  警告 {report.warn_count} 项  失败 {report.fail_count} 项"
     if report.skip_count:
-        summary += f"  ⏭️ {report.skip_count} 项跳过"
+        summary += f"  跳过 {report.skip_count} 项"
     print(summary)
     print("=" * 60)
     if report.ok:
@@ -49,7 +49,7 @@ def run_doctor(config_path: Optional[str] = None) -> bool:
 
 
 def _print_check(check: PreflightCheckResult) -> None:
-    icon = _STATUS_ICONS.get(check.status, "•")
+    icon = _STATUS_ICONS.get(check.status, "[INFO]")
     print(f"{icon} {check.item}: {check.detail}")
     if check.hint:
         print(f"   修复建议: {check.hint}")
@@ -66,4 +66,4 @@ def _save_doctor_report(report: PreflightReport) -> None:
         )
         print(f"体检报告已保存: {output_path}")
     except Exception as exc:
-        print(f"⚠️ 体检报告保存失败: {exc}")
+        print(f"体检报告保存失败: {exc}")

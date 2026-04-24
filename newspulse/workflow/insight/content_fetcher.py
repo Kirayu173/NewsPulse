@@ -1,4 +1,4 @@
-﻿# coding=utf-8
+# coding=utf-8
 """Source-aware content fetching for the insight stage."""
 
 from __future__ import annotations

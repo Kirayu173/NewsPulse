@@ -1,4 +1,4 @@
-﻿# coding=utf-8
+# coding=utf-8
 """SQLite repository for cached article or equivalent content."""
 
 from __future__ import annotations

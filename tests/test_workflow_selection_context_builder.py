@@ -1,4 +1,4 @@
-﻿import unittest
+import unittest
 
 from newspulse.workflow.selection.context_builder import build_selection_context
 from newspulse.workflow.shared.contracts import HotlistItem
