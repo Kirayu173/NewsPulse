@@ -15,6 +15,7 @@ from newspulse.workflow.insight.models import (
     InsightNewsContext,
     InsightSectionTemplate,
     build_summary,
+    resolve_section_title,
 )
 from newspulse.workflow.shared.ai_runtime.client import AIRuntimeClient
 from newspulse.workflow.shared.ai_runtime.codec import decode_json_response, extract_json_block
@@ -171,19 +172,20 @@ def _coerce_sections(
 ) -> list[InsightSection]:
     if isinstance(payload, Mapping) and isinstance(payload.get('sections'), list):
         sections = []
+        seen_keys: set[str] = set()
         for row in payload.get('sections', []):
             if not isinstance(row, Mapping):
                 continue
             key = str(row.get('key', '') or '').strip()
             content = str(row.get('content', '') or '').strip()
-            if not key or not content:
+            if not key or not content or key in seen_keys:
                 continue
             supporting_news_ids = _coerce_id_list(row.get('supporting_news_ids'))
             supporting_topics = _coerce_text_list(row.get('supporting_topics'))
             sections.append(
                 InsightSection(
                     key=key,
-                    title=str(row.get('title', key) or key).strip(),
+                    title=resolve_section_title(key, fallback=str(row.get('title', key) or key)),
                     content=content,
                     summary=str(row.get('summary', '') or build_summary(content)).strip(),
                     metadata={
@@ -194,6 +196,7 @@ def _coerce_sections(
                     },
                 )
             )
+            seen_keys.add(key)
         if sections:
             return sections
 
@@ -246,7 +249,7 @@ def _fallback_section(
     return [
         InsightSection(
             key='core_trends',
-            title='Core Trends',
+            title=resolve_section_title('core_trends'),
             content=content,
             summary=build_summary(content),
             metadata={

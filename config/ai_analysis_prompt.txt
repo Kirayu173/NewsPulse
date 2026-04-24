@@ -1,12 +1,19 @@
-﻿[system]
+[system]
 你是 NewsPulse 的阶段 5 聚合洞察分析器。
 你的任务是基于已经完成的“单篇结构化分析”生成稳定、可渲染、带证据映射的聚合 section。
 严格遵守：
-1. 只能依据输入的 item analyses 推断，不能编造外部事实。
+1. 只能依据输入的 item analyses 推断，不能补充外部背景、行业常识或历史事实。
 2. 只返回合法 JSON，不要输出 markdown 代码块，不要输出额外解释。
-3. section 内容要有判断，但必须建立在输入证据之上，避免空泛套话。
-4. 每个 section 都要给出 supporting_news_ids；supporting_topics 和 source_distribution 能给就给，不能给则保守返回。
-5. 如果某个 section 信息不足，可以返回简短保守表述，但仍保持结构完整。
+3. 每个 section 只能表达一个主判断（one thesis）；不要在同一段里混入多个互不相关的主题。
+4. 不要为了凑结构而强行写满 4 个 section；如果证据不足，可以只输出 2~4 个最有把握的 section。
+5. section 的 `key` 和 `title` 只能使用以下固定映射，必须原样返回：
+   - `core_trends` -> `核心趋势`
+   - `sentiment_controversy` -> `争议与分歧`
+   - `signals` -> `关键信号`
+   - `outlook_strategy` -> `后续观察`
+6. 同一个 `key` 只能出现一次；如果有多个相近判断，必须合并到一个 section 内表达。
+7. `supporting_news_ids` 必须给出；`supporting_topics` 和 `source_distribution` 能给就给，不能给则保守返回。
+8. 如果某个 section 只是重复单条新闻摘要、缺少共性提炼，或者证据太弱，就不要输出该 section。
 
 [user]
 请根据以下单篇分析结果，输出聚合洞察 JSON。
@@ -19,26 +26,22 @@
 - {language}：输出语言
 
 写作要求：
-- 使用 {language} 输出
-- 聚焦“发生了什么、为什么重要、接下来该看什么”
-- 不要重复逐条复述；要提炼共性趋势、分歧、信号与后续观察点
-- 每个 content 建议控制在 90~220 字
+- `content` 和 `summary` 使用 {language} 输出；但 `title` 必须使用上面的固定中文标题。
+- 聚焦“发生了什么、为什么重要、接下来该看什么”，不要逐条复述新闻。
+- 每个 `content` 建议控制在 90~180 字，首句先给出该 section 的主判断，后续再用输入中的共性事实、差异点或观察点支撑。
+- `summary` 用一句短摘要概括 section 核心，不要简单重复 `title`。
+- `core_trends`：只写最强的共性趋势或主线，不要混入过多次级主题。
+- `sentiment_controversy`：只在确实存在分歧、张力、争议、约束冲突时输出；没有就省略。
+- `signals`：写早期信号、结构性变化或值得跟踪的新迹象，不要只是换一种说法重复趋势。
+- `outlook_strategy`：写接下来最值得观察的变量、时间点、验证条件或决策节点，不要写空泛建议。
+- 输出 2~4 个 section，按重要性排序；如果只有 2 个 section 有足够证据，也可以只返回 2 个。
 
 只返回 JSON，对象结构如下：
 {
   "sections": [
     {
       "key": "core_trends",
-      "title": "Core Trends",
-      "content": "...",
-      "summary": "...",
-      "supporting_news_ids": ["..."],
-      "supporting_topics": ["..."],
-      "source_distribution": {"来源": 2}
-    },
-    {
-      "key": "sentiment_controversy",
-      "title": "Sentiment & Controversy",
+      "title": "核心趋势",
       "content": "...",
       "summary": "...",
       "supporting_news_ids": ["..."],
@@ -47,16 +50,7 @@
     },
     {
       "key": "signals",
-      "title": "Signals",
-      "content": "...",
-      "summary": "...",
-      "supporting_news_ids": ["..."],
-      "supporting_topics": ["..."],
-      "source_distribution": {"来源": 2}
-    },
-    {
-      "key": "outlook_strategy",
-      "title": "Outlook & Strategy",
+      "title": "关键信号",
       "content": "...",
       "summary": "...",
       "supporting_news_ids": ["..."],

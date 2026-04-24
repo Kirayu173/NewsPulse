@@ -134,20 +134,43 @@ class InsightSectionTemplate:
     summary_limit: int = 120
 
 
+SECTION_TITLE_BY_KEY = {
+    "core_trends": "核心趋势",
+    "sentiment_controversy": "争议与分歧",
+    "signals": "关键信号",
+    "outlook_strategy": "后续观察",
+}
+
+
 DEFAULT_SECTION_TEMPLATES = (
-    InsightSectionTemplate(key="core_trends", title="Core Trends", field_name="core_trends"),
+    InsightSectionTemplate(
+        key="core_trends",
+        title=SECTION_TITLE_BY_KEY["core_trends"],
+        field_name="core_trends",
+    ),
     InsightSectionTemplate(
         key="sentiment_controversy",
-        title="Sentiment & Controversy",
+        title=SECTION_TITLE_BY_KEY["sentiment_controversy"],
         field_name="sentiment_controversy",
     ),
-    InsightSectionTemplate(key="signals", title="Signals", field_name="signals"),
+    InsightSectionTemplate(
+        key="signals",
+        title=SECTION_TITLE_BY_KEY["signals"],
+        field_name="signals",
+    ),
     InsightSectionTemplate(
         key="outlook_strategy",
-        title="Outlook & Strategy",
+        title=SECTION_TITLE_BY_KEY["outlook_strategy"],
         field_name="outlook_strategy",
     ),
 )
+
+
+def resolve_section_title(key: str, fallback: str = "") -> str:
+    """Return the stable rendered title for a known section key."""
+
+    normalized_key = str(key or "").strip()
+    return SECTION_TITLE_BY_KEY.get(normalized_key, str(fallback or normalized_key).strip())
 
 
 def build_summary(content: str, limit: int = 120) -> str:
