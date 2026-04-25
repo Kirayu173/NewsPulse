@@ -140,7 +140,7 @@ def _build_report_package() -> ReportPackage:
                     kind="item",
                     key="item:2",
                     title="Startup launches AI productivity app",
-                    summary="Product Hunt launch with startup distribution context.",
+                    summary="主题: Startups | 入选原因: startup launch with concrete workflow angle",
                     item_ids=["2"],
                     theme_keys=["theme:startups"],
                     evidence_topics=["Startups"],
@@ -311,10 +311,16 @@ class WorkflowRenderServiceTest(unittest.TestCase):
             self.assertTrue(html_path.exists())
             self.assertIn("OpenAI launches a new coding agent", artifacts.html.content)
             self.assertIn("新闻卡片", artifacts.html.content)
-            self.assertIn("结构化摘要", artifacts.html.content)
+            self.assertIn("摘要", artifacts.html.content)
+            self.assertNotIn("结构化摘要", artifacts.html.content)
+            self.assertNotIn("单条摘要", artifacts.html.content)
+            self.assertNotIn("辅助来源属性", artifacts.html.content)
+            self.assertNotIn("类型 article", artifacts.html.content)
+            self.assertNotIn("入选原因", artifacts.html.content)
             self.assertIn("全局洞察", artifacts.html.content)
             self.assertNotIn("Weibo", artifacts.html.content)
             self.assertIn("Terminal-native coding workflow with patch and verify loops.", artifacts.html.content)
+            self.assertIn("关键信号：startup launch with concrete workflow angle", artifacts.html.content)
             self.assertIn("AI tools keep dominating the developer conversation.", artifacts.html.content)
             self.assertIn('data-story-search', artifacts.html.content)
             self.assertIn('data-source-filter="all"', artifacts.html.content)

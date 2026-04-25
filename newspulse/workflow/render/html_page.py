@@ -11,6 +11,7 @@ from newspulse.workflow.render.helpers import html_escape
 if TYPE_CHECKING:
     from newspulse.workflow.render.models import (
         RenderInsightSectionView,
+        RenderInsightSummaryView,
         RenderInsightView,
         RenderNewsCardView,
         RenderViewModel,
@@ -64,11 +65,56 @@ def _source_label(card: "RenderNewsCardView") -> str:
     return str(card.item.source_name or card.item.source_id or "未知来源")
 
 
+def _clean_story_summary_text(text: str) -> str:
+    normalized = " ".join(str(text or "").split())
+    if not normalized:
+        return ""
+
+    topic_body = ""
+    for prefix in ("主题:", "主题："):
+        if normalized.startswith(prefix):
+            topic_body = normalized[len(prefix) :].strip()
+            break
+    if not topic_body:
+        return normalized
+
+    topic_text = topic_body
+    reason_text = ""
+    for marker in ("| 入选原因:", "| 入选原因：", "｜ 入选原因:", "｜ 入选原因："):
+        if marker in topic_body:
+            topic_text, reason_text = topic_body.split(marker, 1)
+            break
+    if not reason_text:
+        return normalized
+
+    parts: list[str] = []
+    topic_text = topic_text.strip(" |｜")
+    reason_text = reason_text.strip()
+    if topic_text:
+        parts.append(f"聚焦 {topic_text}")
+    if reason_text:
+        parts.append(f"关键信号：{reason_text}")
+    if not parts:
+        return normalized
+    rendered = "，".join(parts)
+    if rendered[-1] not in "。.!?！？":
+        rendered += "。"
+    return rendered
+
+
+def _story_summary_text(card: "RenderNewsCardView") -> str:
+    raw_text = str(
+        card.summary.summary or card.source_summary or card.item.summary or ""
+    ).strip()
+    return _clean_story_summary_text(raw_text)
+
+
 def _search_text(card: "RenderNewsCardView") -> str:
     values = [
         card.item.title,
         card.item.source_name,
         card.item.source_id,
+        _story_summary_text(card),
         card.item.summary,
         card.source_summary,
     ]
@@ -120,67 +166,19 @@ def _render_action_links(card: "RenderNewsCardView") -> str:
     return "".join(links)
 
 
-def _render_bullet_list(items: Iterable[str], css_class: str) -> str:
-    normalized = [html_escape(str(item)) for item in items if str(item or "").strip()]
-    if not normalized:
+def _render_story_summary(card: "RenderNewsCardView") -> str:
+    summary_text = _story_summary_text(card)
+    if not summary_text:
         return ""
-    rows = "".join(f"<li>{item}</li>" for item in normalized)
-    return f'<ul class="{css_class}">{rows}</ul>'
-
-
-def _render_summary_panel(card: "RenderNewsCardView") -> str:
-    summary = card.summary
-    rows: list[str] = [
-        '<section class="analysis-panel">',
-        "<h3>新闻摘要</h3>",
-    ]
-
-    if summary.visible:
-        if summary.summary:
-            rows.append('<div class="panel-subtitle">摘要</div>')
-            rows.append(f'<p class="panel-body lead">{html_escape(summary.summary)}</p>')
-        if summary.evidence_topics:
-            rows.append('<div class="panel-subtitle">匹配主题</div>')
-            rows.append(_render_bullet_list(summary.evidence_topics, "bullet-list compact"))
-        if summary.evidence_notes:
-            rows.append('<div class="panel-subtitle">入选理由</div>')
-            rows.append(_render_bullet_list(summary.evidence_notes, "bullet-list compact"))
-        if summary.attributes:
-            rows.append('<div class="panel-subtitle">辅助来源属性</div>')
-            rows.append(_render_bullet_list(summary.attributes, "bullet-list compact"))
-        signal_pills: list[str] = []
-        if summary.current_rank > 0:
-            signal_pills.append(f"当前排名 #{summary.current_rank}")
-        if summary.rank_trend:
-            signal_pills.append(f"趋势 {summary.rank_trend}")
-        if summary.quality_score > 0:
-            signal_pills.append(f"质量 {summary.quality_score:.2f}")
-        if summary.semantic_score > 0:
-            signal_pills.append(f"语义 {summary.semantic_score:.2f}")
-        if summary.source_kind:
-            signal_pills.append(f"类型 {summary.source_kind}")
-        if signal_pills:
-            rows.append(
-                "".join(
-                    f'<div class="confidence-pill">{html_escape(text)}</div>'
-                    for text in signal_pills
-                )
-            )
-    else:
-        rows.append('<p class="panel-placeholder">这条新闻暂未生成结构化摘要。</p>')
-
-    rows.append("</section>")
-    return "".join(rows)
+    return f"""
+        <div class="story-summary-block">
+            <div class="story-summary-label">摘要</div>
+            <p class="story-summary">{html_escape(summary_text)}</p>
+        </div>
+    """
 
 
 def _render_story_card(card: "RenderNewsCardView", index: int, *, show_new_section: bool) -> str:
-    source_summary = card.source_summary or card.item.summary
-    summary_html = (
-        f'<p class="story-summary">{html_escape(source_summary)}</p>'
-        if source_summary
-        else ""
-    )
-
     return f"""
     <article
         class="story-card"
@@ -194,12 +192,11 @@ def _render_story_card(card: "RenderNewsCardView", index: int, *, show_new_secti
             <div class="story-main">
                 <div class="story-badges">{_render_badges(card, show_new_section=show_new_section)}</div>
                 <h2 class="story-title">{html_escape(card.item.title)}</h2>
-                {summary_html}
+                {_render_story_summary(card)}
                 <div class="story-meta-row">{_render_meta_row(card)}</div>
                 <div class="story-actions">{_render_action_links(card)}</div>
             </div>
         </div>
-        {_render_summary_panel(card)}
     </article>
     """
 
@@ -312,46 +309,55 @@ def _render_story_feed(cards: list["RenderNewsCardView"], *, show_new_section: b
     """
 
 
+def _rendered_summary_cards(
+    view_model: "RenderViewModel",
+) -> list["RenderInsightSummaryView"]:
+    cards = [summary for summary in view_model.summary_cards if summary.visible]
+    report_cards = [summary for summary in cards if summary.kind == "report"][:1]
+    theme_cards = [summary for summary in cards if summary.kind == "theme"]
+    return [*report_cards, *theme_cards]
+
+
 def _render_summary_card(summary) -> str:
-    topics_html = "".join(f'<span class="mini-chip">{html_escape(topic)}</span>' for topic in summary.evidence_topics[:6])
-    source_html = "".join(f'<span class="summary-source">{html_escape(source)}</span>' for source in summary.sources[:6])
-    notes_html = _render_bullet_list(summary.evidence_notes[:4], "bullet-list compact")
     item_count = len(summary.item_ids)
     count_text = f"{item_count} 条新闻" if item_count else ""
+    kind_text = "报告摘要" if summary.kind == "report" else "主题摘要"
+    source_text = "、".join(summary.sources[:4])
+    topic_text = "、".join(
+        topic
+        for topic in summary.evidence_topics[:4]
+        if str(topic or "").strip() and str(topic).strip() != str(summary.title or "").strip()
+    )
+    meta_parts = [part for part in (topic_text, f"来源证据：{source_text}" if source_text else "") if part]
+    meta_html = f'<div class="summary-meta-line">{html_escape(" · ".join(meta_parts))}</div>' if meta_parts else ""
     return f"""
     <article class="summary-card summary-{html_escape(summary.kind)}">
         <div class="summary-card-head">
-            <span class="summary-kind">{html_escape(summary.kind or 'summary')}</span>
+            <span class="summary-kind">{html_escape(kind_text)}</span>
             <span class="summary-count">{html_escape(count_text)}</span>
         </div>
         <h3>{html_escape(summary.title or summary.key)}</h3>
         <p>{html_escape(summary.summary)}</p>
-        <div class="chip-row">{topics_html}</div>
-        <div class="summary-source-row">{source_html}</div>
-        {notes_html}
+        {meta_html}
     </article>
     """
 
 
 def _render_summary_section(view_model: "RenderViewModel") -> str:
-    cards = [summary for summary in view_model.summary_cards if summary.visible]
+    cards = _rendered_summary_cards(view_model)
     if not cards:
         return ""
     report_cards = [summary for summary in cards if summary.kind == "report"]
     theme_cards = [summary for summary in cards if summary.kind == "theme"]
-    item_cards = [summary for summary in cards if summary.kind == "item"]
     groups: list[str] = []
     if report_cards:
-        groups.append('<div class="summary-grid report-summary-grid">' + "".join(_render_summary_card(summary) for summary in report_cards) + "</div>")
+        groups.append('<div class="summary-list report-summary-list">' + "".join(_render_summary_card(summary) for summary in report_cards[:1]) + "</div>")
     if theme_cards:
         groups.append('<h3 class="summary-subhead">主题摘要</h3>')
-        groups.append('<div class="summary-grid">' + "".join(_render_summary_card(summary) for summary in theme_cards) + "</div>")
-    if item_cards:
-        groups.append('<h3 class="summary-subhead">单条摘要</h3>')
-        groups.append('<div class="summary-grid item-summary-grid">' + "".join(_render_summary_card(summary) for summary in item_cards) + "</div>")
+        groups.append('<div class="summary-list">' + "".join(_render_summary_card(summary) for summary in theme_cards) + "</div>")
     return f"""
     <section class="summary-section">
-        <h2>结构化摘要</h2>
+        <h2>摘要</h2>
         {"".join(groups)}
     </section>
     """
@@ -462,16 +468,12 @@ def _page_styles() -> str:
             font: inherit;
         }
 
-        h1, h2, h3 {
-            font-family: "Source Han Serif SC", "Songti SC", "Noto Serif CJK SC", serif;
-        }
-
         .shell {
             max-width: 1120px;
             margin: 0 auto;
             background: var(--paper);
             border: 1px solid var(--border);
-            border-radius: 32px;
+            border-radius: 8px;
             overflow: hidden;
             box-shadow: var(--shadow);
             backdrop-filter: blur(12px);
@@ -521,7 +523,6 @@ def _page_styles() -> str:
         .mini-chip,
         .story-meta-pill,
         .story-action,
-        .confidence-pill,
         .filter-chip,
         .section-toggle {
             display: inline-flex;
@@ -543,7 +544,7 @@ def _page_styles() -> str:
             z-index: 1;
             margin-top: 16px;
             padding: 10px 14px;
-            border-radius: 16px;
+            border-radius: 8px;
             background: rgba(255, 255, 255, 0.12);
             border: 1px solid rgba(255, 255, 255, 0.18);
             font-size: 14px;
@@ -565,7 +566,7 @@ def _page_styles() -> str:
         .summary-section h2,
         .aggregate-section h2 {
             margin: 0 0 10px;
-            font-size: 26px;
+            font-size: 24px;
             line-height: 1.15;
         }
 
@@ -585,7 +586,7 @@ def _page_styles() -> str:
 
         .overview-card {
             padding: 18px 18px 16px;
-            border-radius: 20px;
+            border-radius: 8px;
             background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(250, 245, 238, 0.96));
             border: 1px solid var(--border);
         }
@@ -616,7 +617,7 @@ def _page_styles() -> str:
 
         .control-card {
             padding: 18px;
-            border-radius: 22px;
+            border-radius: 8px;
             background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(251, 247, 241, 0.90));
             border: 1px solid var(--border);
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
@@ -641,7 +642,7 @@ def _page_styles() -> str:
         .search-input {
             flex: 1;
             min-width: 0;
-            border-radius: 16px;
+            border-radius: 8px;
             border: 1px solid var(--border);
             background: rgba(255, 255, 255, 0.86);
             padding: 12px 14px;
@@ -667,7 +668,7 @@ def _page_styles() -> str:
 
         .search-clear {
             padding: 12px 14px;
-            border-radius: 16px;
+            border-radius: 8px;
             background: var(--accent-ghost);
             color: var(--accent-deep);
             border-color: rgba(195, 91, 23, 0.12);
@@ -713,8 +714,8 @@ def _page_styles() -> str:
         }
 
         .story-card {
-            padding: 24px;
-            border-radius: 28px;
+            padding: 22px;
+            border-radius: 8px;
             background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(251, 247, 241, 0.94));
             border: 1px solid var(--border);
         }
@@ -725,20 +726,19 @@ def _page_styles() -> str:
 
         .story-head {
             display: grid;
-            grid-template-columns: 72px minmax(0, 1fr);
-            gap: 18px;
+            grid-template-columns: 58px minmax(0, 1fr);
+            gap: 16px;
             align-items: start;
         }
 
         .story-index {
-            width: 72px;
-            height: 72px;
-            border-radius: 22px;
+            width: 58px;
+            height: 58px;
+            border-radius: 8px;
             background: linear-gradient(180deg, var(--accent), var(--accent-deep));
             color: #fff;
-            font-size: 26px;
+            font-size: 22px;
             font-weight: 800;
-            letter-spacing: -0.04em;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -755,17 +755,29 @@ def _page_styles() -> str:
         }
 
         .story-title {
-            margin: 12px 0 10px;
-            font-size: clamp(24px, 3vw, 34px);
-            line-height: 1.18;
-            letter-spacing: -0.03em;
+            margin: 10px 0 12px;
+            font-size: clamp(22px, 2.6vw, 30px);
+            line-height: 1.24;
+        }
+
+        .story-summary-block {
+            max-width: 900px;
+            margin-top: 6px;
+        }
+
+        .story-summary-label {
+            margin-bottom: 4px;
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 800;
         }
 
         .story-summary {
             margin: 0;
             max-width: 880px;
-            font-size: 15px;
+            font-size: 16px;
             color: #334052;
+            line-height: 1.75;
         }
 
         .story-meta-row {
@@ -820,73 +832,13 @@ def _page_styles() -> str:
             border: 1px solid rgba(195, 91, 23, 0.18);
         }
 
-        .analysis-panel {
-            margin-top: 20px;
-            padding: 20px 20px 18px;
-            border-radius: 22px;
-            background: linear-gradient(180deg, var(--panel) 0%, var(--panel-strong) 100%);
-            border: 1px solid rgba(195, 91, 23, 0.10);
-        }
-
-        .analysis-panel h3 {
-            margin: 8px 0 12px;
-            font-size: 22px;
-        }
-
-        .panel-subtitle {
-            margin: 14px 0 6px;
-            font-size: 12px;
-            font-weight: 800;
-            letter-spacing: 0.05em;
-            color: var(--muted);
-            text-transform: uppercase;
-        }
-
-        .panel-body {
-            margin: 0;
-            color: #303a48;
-            font-size: 14px;
-        }
-
-        .panel-body.lead {
-            font-size: 15px;
-            color: #1e2733;
-        }
-
-        .panel-placeholder {
-            margin: 10px 0 0;
-            color: var(--muted);
-            font-size: 14px;
-        }
-
-        .bullet-list {
-            margin: 0;
-            padding-left: 18px;
-            color: #303a48;
-        }
-
-        .bullet-list li + li {
-            margin-top: 4px;
-        }
-
-        .bullet-list.compact li + li {
-            margin-top: 2px;
-        }
-
-        .confidence-pill {
-            margin-top: 14px;
-            padding: 6px 10px;
-            background: #e8f1fb;
-            color: #25587a;
-        }
-
         .story-empty,
         .empty-state {
             padding: 26px 24px;
             text-align: center;
             color: var(--muted);
             font-size: 15px;
-            border-radius: 20px;
+            border-radius: 8px;
             background: rgba(255, 255, 255, 0.75);
             border: 1px dashed rgba(195, 91, 23, 0.18);
         }
@@ -936,7 +888,7 @@ def _page_styles() -> str:
 
         .aggregate-card {
             padding: 18px 18px 16px;
-            border-radius: 22px;
+            border-radius: 8px;
             background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(251, 247, 241, 0.94));
             border: 1px solid var(--border);
         }
@@ -957,31 +909,30 @@ def _page_styles() -> str:
             color: var(--muted);
         }
 
-        .summary-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-            gap: 16px;
+        .summary-list {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
             margin-top: 14px;
         }
 
-        .report-summary-grid {
-            grid-template-columns: 1fr;
+        .report-summary-list {
+            margin-bottom: 18px;
         }
 
         .summary-subhead {
-            margin: 20px 0 0;
+            margin: 16px 0 0;
             font-size: 18px;
         }
 
         .summary-card {
-            padding: 18px 18px 16px;
-            border-radius: 22px;
+            padding: 18px;
+            border-radius: 8px;
             background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(251, 247, 241, 0.94));
             border: 1px solid var(--border);
         }
 
-        .summary-card-head,
-        .summary-source-row {
+        .summary-card-head {
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
@@ -989,8 +940,7 @@ def _page_styles() -> str:
         }
 
         .summary-kind,
-        .summary-count,
-        .summary-source {
+        .summary-count {
             display: inline-flex;
             border-radius: 999px;
             padding: 4px 8px;
@@ -1003,21 +953,27 @@ def _page_styles() -> str:
             color: #25587a;
         }
 
-        .summary-count,
-        .summary-source {
+        .summary-count {
             background: rgba(242, 233, 223, 0.78);
             color: #624f3e;
         }
 
         .summary-card h3 {
-            margin: 10px 0 8px;
+            margin: 10px 0 6px;
             font-size: 20px;
         }
 
         .summary-card p {
-            margin: 0 0 12px;
+            margin: 0;
             color: #303a48;
-            font-size: 14px;
+            font-size: 15px;
+            line-height: 1.75;
+        }
+
+        .summary-meta-line {
+            margin-top: 10px;
+            color: var(--muted);
+            font-size: 13px;
         }
 
         .footer {
@@ -1096,19 +1052,9 @@ def _page_styles() -> str:
             }
 
             .story-summary,
-            .panel-body,
             .summary-card p,
             .aggregate-card p {
                 color: #d6dee8;
-            }
-
-            .panel-body.lead {
-                color: #f4f6f8;
-            }
-
-            .confidence-pill {
-                background: rgba(71, 139, 191, 0.18);
-                color: #a9d5f8;
             }
         }
 
@@ -1120,7 +1066,7 @@ def _page_styles() -> str:
             .story-index {
                 width: 60px;
                 height: 60px;
-                border-radius: 18px;
+                border-radius: 8px;
             }
         }
 
@@ -1140,7 +1086,7 @@ def _page_styles() -> str:
             .story-card,
             .control-card {
                 padding: 18px;
-                border-radius: 24px;
+                border-radius: 8px;
             }
 
             .overview-strip {
@@ -1148,10 +1094,6 @@ def _page_styles() -> str:
             }
 
             .aggregate-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .summary-grid {
                 grid-template-columns: 1fr;
             }
 
@@ -1314,6 +1256,7 @@ def render_html_content(
             f'<div class="hero-banner">发现新版本 {html_escape(update_info["remote_version"])}，当前版本 {html_escape(update_info["current_version"])}</div>'
         )
 
+    summary_card_count = len(_rendered_summary_cards(view_model))
     styles = _page_styles()
     script = _page_script()
     return f"""<!DOCTYPE html>
@@ -1334,7 +1277,7 @@ def render_html_content(
                 <span class="hero-pill">{html_escape(view_model.report_type)}</span>
                 <span class="hero-pill">模式：{html_escape(_mode_label(view_model.mode))}</span>
                 <span class="hero-pill">新闻卡片：{len(cards)}</span>
-                <span class="hero-pill">摘要卡片：{len(view_model.summary_cards)}</span>
+                <span class="hero-pill">摘要卡片：{summary_card_count}</span>
             </div>
             {version_html}
         </header>

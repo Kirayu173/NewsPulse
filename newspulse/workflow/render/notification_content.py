@@ -68,7 +68,7 @@ def _build_header(view_model: "RenderViewModel", format_type: str, now: datetime
                 "incremental": "增量",
             }
             mode_suffix = f" ({mode_map.get(ai_mode, ai_mode)})"
-        lines.append(f"{_bold('结构化摘要', format_type)} {display_value}{mode_suffix}")
+        lines.append(f"{_bold('摘要', format_type)} {display_value}{mode_suffix}")
 
     lines.extend(
         [
@@ -202,7 +202,7 @@ def _build_summary_section(view_model: "RenderViewModel", format_type: str) -> s
     if not view_model.summary_cards:
         return ""
 
-    lines = [f"{_bold('结构化摘要', format_type)}", ""]
+    lines = [f"{_bold('摘要', format_type)}", ""]
     report_summaries = [summary for summary in view_model.summary_cards if summary.kind == "report"]
     theme_summaries = [summary for summary in view_model.summary_cards if summary.kind == "theme"]
 
