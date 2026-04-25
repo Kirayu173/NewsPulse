@@ -120,28 +120,31 @@ class RenderSelectionEvidenceView:
 
 
 @dataclass(frozen=True)
-class RenderItemAnalysisView:
-    """Per-news LLM analysis shown next to the original news signal."""
+class RenderInsightBriefView:
+    """Per-news lightweight insight brief shown next to the news signal."""
 
-    status: str = "missing"
-    what_happened: str = ""
-    key_facts: list[str] = field(default_factory=list)
-    why_it_matters: str = ""
-    watchpoints: list[str] = field(default_factory=list)
-    uncertainties: list[str] = field(default_factory=list)
-    evidence: list[str] = field(default_factory=list)
-    confidence: float = 0.0
-    diagnostics: dict[str, Any] = field(default_factory=dict)
+    summary: str = ""
+    attributes: list[str] = field(default_factory=list)
+    matched_topics: list[str] = field(default_factory=list)
+    llm_reasons: list[str] = field(default_factory=list)
+    semantic_score: float = 0.0
+    quality_score: float = 0.0
+    current_rank: int = 0
+    rank_trend: str = ""
+    source_kind: str = ""
 
     @property
     def visible(self) -> bool:
         return bool(
-            self.what_happened
-            or self.key_facts
-            or self.why_it_matters
-            or self.watchpoints
-            or self.uncertainties
-            or self.evidence
+            self.summary
+            or self.attributes
+            or self.matched_topics
+            or self.llm_reasons
+            or self.semantic_score > 0
+            or self.quality_score > 0
+            or self.current_rank > 0
+            or self.rank_trend
+            or self.source_kind
         )
 
 
@@ -153,7 +156,7 @@ class RenderNewsCardView:
     source_summary: str = ""
     source_attributes: list[str] = field(default_factory=list)
     selection_evidence: RenderSelectionEvidenceView = field(default_factory=RenderSelectionEvidenceView)
-    analysis: RenderItemAnalysisView = field(default_factory=RenderItemAnalysisView)
+    brief: RenderInsightBriefView = field(default_factory=RenderInsightBriefView)
     is_selected: bool = False
     is_new: bool = False
     is_standalone: bool = False
@@ -219,7 +222,7 @@ class RenderViewModel:
 
     @property
     def analyzed_card_count(self) -> int:
-        return sum(1 for card in self.news_cards if card.analysis.visible)
+        return sum(1 for card in self.news_cards if card.brief.visible)
 
 
 @dataclass(frozen=True)
@@ -488,7 +491,7 @@ def _build_news_cards(
     insight_meta = dict(report.diagnostics.get("insight", {}))
     selection_matches = _build_selection_match_map(selection_meta)
     input_contexts = _build_input_context_map(insight_meta)
-    item_analyses = _build_item_analysis_map(insight_meta)
+    brief_payloads = _build_brief_map(insight_meta)
 
     ordered_items: list[HotlistItem] = list(selected_items)
     seen_ids = {str(item.news_item_id or "").strip() for item in ordered_items}
@@ -507,7 +510,7 @@ def _build_news_cards(
             continue
 
         context_payload = input_contexts.get(item_id, {})
-        analysis_payload = item_analyses.get(item_id, {})
+        brief_payload = brief_payloads.get(item_id, {})
         standalone_meta = standalone_rows.get(item_id, {})
 
         cards.append(
@@ -528,7 +531,7 @@ def _build_news_cards(
                     context_payload=context_payload,
                     match_payload=selection_matches.get(item_id, {}),
                 ),
-                analysis=_build_item_analysis_view(analysis_payload),
+                brief=_build_brief_view(brief_payload),
                 is_selected=item_id in selected_ids,
                 is_new=item.is_new or item_id in new_ids,
                 is_standalone=item_id in standalone_ids,
@@ -611,11 +614,11 @@ def _build_input_context_map(insight_meta: dict[str, Any]) -> dict[str, dict[str
     return payload
 
 
-def _build_item_analysis_map(insight_meta: dict[str, Any]) -> dict[str, dict[str, Any]]:
+def _build_brief_map(insight_meta: dict[str, Any]) -> dict[str, dict[str, Any]]:
     diagnostics = insight_meta.get("diagnostics", {})
     if not isinstance(diagnostics, dict):
         return {}
-    rows = diagnostics.get("item_analysis_payloads", [])
+    rows = diagnostics.get("brief_payloads", [])
     if not isinstance(rows, list):
         return {}
 
@@ -669,24 +672,20 @@ def _build_selection_evidence_view(
     )
 
 
-def _build_item_analysis_view(payload: dict[str, Any]) -> RenderItemAnalysisView:
+def _build_brief_view(payload: dict[str, Any]) -> RenderInsightBriefView:
     if not payload:
-        return RenderItemAnalysisView()
+        return RenderInsightBriefView()
 
-    diagnostics = payload.get("diagnostics", {})
-    if not isinstance(diagnostics, dict):
-        diagnostics = {}
-
-    return RenderItemAnalysisView(
-        status=str(diagnostics.get("status", "ok") or "ok").strip(),
-        what_happened=str(payload.get("what_happened", "") or "").strip(),
-        key_facts=_coerce_str_list(payload.get("key_facts", [])),
-        why_it_matters=str(payload.get("why_it_matters", "") or "").strip(),
-        watchpoints=_coerce_str_list(payload.get("watchpoints", [])),
-        uncertainties=_coerce_str_list(payload.get("uncertainties", [])),
-        evidence=_coerce_str_list(payload.get("evidence", [])),
-        confidence=_coerce_float(payload.get("confidence", 0.0)),
-        diagnostics=diagnostics,
+    return RenderInsightBriefView(
+        summary=str(payload.get("summary", "") or "").strip(),
+        attributes=_coerce_str_list(payload.get("attributes", [])),
+        matched_topics=_coerce_str_list(payload.get("matched_topics", [])),
+        llm_reasons=_coerce_str_list(payload.get("llm_reasons", [])),
+        semantic_score=_coerce_float(payload.get("semantic_score", 0.0)),
+        quality_score=_coerce_float(payload.get("quality_score", 0.0)),
+        current_rank=int(payload.get("current_rank", 0) or 0),
+        rank_trend=str(payload.get("rank_trend", "") or "").strip(),
+        source_kind=str(payload.get("source_kind", "") or "").strip(),
     )
 
 
@@ -760,10 +759,7 @@ def _build_insight_view(
         sections=section_views,
         stats={
             "total_news": total_titles,
-            "analyzed_news": int(
-                diagnostics.get("analyzed_items", insight_metadata.get("item_analysis_count", 0))
-                or 0
-            ),
+            "analyzed_news": int(diagnostics.get("brief_count", insight_metadata.get("brief_count", 0)) or 0),
             "max_news_limit": int(diagnostics.get("max_items", 0) or 0),
             "hotlist_count": total_titles,
             "ai_mode": str(diagnostics.get("report_mode", report_meta.get("mode", "")) or ""),

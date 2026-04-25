@@ -122,12 +122,6 @@ def _build_source_attributes(item: Any, selection_context: Any, source_kind: str
     host = _resolve_host(str(getattr(item, 'url', '') or getattr(item, 'mobile_url', '') or ''))
     if host and all(not line.startswith('host: ') for line in attributes):
         attributes.append(f'host: {host}')
-    if source_kind == 'hackernews_item':
-        attributes.append('route: external_link_then_hn_fallback')
-    elif source_kind == 'github_repository':
-        attributes.append('route: github_repo_context')
-    else:
-        attributes.append('route: article_content')
     return [line for line in attributes if str(line).strip()]
 
 

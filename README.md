@@ -52,7 +52,6 @@ Copy-Item .env.example .env
 - `config/ai_filter/extract_prompt.txt`
 - `config/ai_filter/update_tags_prompt.txt`
 - `config/ai_analysis_prompt.txt`
-- `config/ai_insight_item_prompt.txt`
 
 ### 4. 先跑环境检查
 
@@ -144,7 +143,6 @@ python -m newspulse --test-notification
 
 - 检查 `config/ai_filter/*.txt`
 - 检查 `config/ai_analysis_prompt.txt`
-- 检查 `config/ai_insight_item_prompt.txt`
 
 ### 5. 调度解析失败
 

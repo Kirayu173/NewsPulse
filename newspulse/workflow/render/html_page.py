@@ -129,40 +129,45 @@ def _render_bullet_list(items: Iterable[str], css_class: str) -> str:
 
 
 def _render_analysis_panel(card: "RenderNewsCardView") -> str:
-    analysis = card.analysis
+    brief = card.brief
     rows: list[str] = [
         '<section class="analysis-panel">',
-        "<h3>LLM Analysis</h3>",
+        "<h3>Insight Brief</h3>",
     ]
 
-    if analysis.visible:
-        if analysis.what_happened:
-            rows.append('<div class="panel-subtitle">发生了什么</div>')
+    if brief.visible:
+        if brief.summary:
+            rows.append('<div class="panel-subtitle">摘要</div>')
+            rows.append(f'<p class="panel-body lead">{html_escape(brief.summary)}</p>')
+        if brief.matched_topics:
+            rows.append('<div class="panel-subtitle">匹配主题</div>')
+            rows.append(_render_bullet_list(brief.matched_topics, "bullet-list compact"))
+        if brief.llm_reasons:
+            rows.append('<div class="panel-subtitle">入选理由</div>')
+            rows.append(_render_bullet_list(brief.llm_reasons, "bullet-list compact"))
+        if brief.attributes:
+            rows.append('<div class="panel-subtitle">来源属性</div>')
+            rows.append(_render_bullet_list(brief.attributes, "bullet-list compact"))
+        signal_pills: list[str] = []
+        if brief.current_rank > 0:
+            signal_pills.append(f"当前排名 #{brief.current_rank}")
+        if brief.rank_trend:
+            signal_pills.append(f"趋势 {brief.rank_trend}")
+        if brief.quality_score > 0:
+            signal_pills.append(f"质量 {brief.quality_score:.2f}")
+        if brief.semantic_score > 0:
+            signal_pills.append(f"语义 {brief.semantic_score:.2f}")
+        if brief.source_kind:
+            signal_pills.append(f"类型 {brief.source_kind}")
+        if signal_pills:
             rows.append(
-                f'<p class="panel-body lead">{html_escape(analysis.what_happened)}</p>'
-            )
-        if analysis.why_it_matters:
-            rows.append('<div class="panel-subtitle">为什么重要</div>')
-            rows.append(f'<p class="panel-body">{html_escape(analysis.why_it_matters)}</p>')
-        if analysis.key_facts:
-            rows.append('<div class="panel-subtitle">关键信息</div>')
-            rows.append(_render_bullet_list(analysis.key_facts, "bullet-list"))
-        if analysis.watchpoints:
-            rows.append('<div class="panel-subtitle">后续观察</div>')
-            rows.append(_render_bullet_list(analysis.watchpoints, "bullet-list compact"))
-        if analysis.uncertainties:
-            rows.append('<div class="panel-subtitle">不确定点</div>')
-            rows.append(_render_bullet_list(analysis.uncertainties, "bullet-list compact"))
-        if analysis.evidence:
-            rows.append('<div class="panel-subtitle">支撑依据</div>')
-            rows.append(_render_bullet_list(analysis.evidence, "bullet-list compact"))
-        confidence_text = _confidence_text(analysis.confidence)
-        if confidence_text:
-            rows.append(
-                f'<div class="confidence-pill">分析置信度 {html_escape(confidence_text)}</div>'
+                "".join(
+                    f'<div class="confidence-pill">{html_escape(text)}</div>'
+                    for text in signal_pills
+                )
             )
     else:
-        rows.append('<p class="panel-placeholder">这条新闻暂未生成 LLM Analysis。</p>')
+        rows.append('<p class="panel-placeholder">这条新闻暂未生成 Insight Brief。</p>')
 
     rows.append("</section>")
     return "".join(rows)
@@ -226,7 +231,7 @@ def _render_overview_section(
     show_new_section: bool,
 ) -> str:
     new_count = sum(1 for card in cards if card.is_new)
-    analyzed_count = sum(1 for card in cards if card.analysis.visible)
+    analyzed_count = sum(1 for card in cards if card.brief.visible)
     return f"""
     <section class="overview-strip">
         <div class="overview-card">
@@ -1208,7 +1213,7 @@ def render_html_content(
                 <span class="hero-pill">{html_escape(view_model.report_type)}</span>
                 <span class="hero-pill">模式：{html_escape(_mode_label(view_model.mode))}</span>
                 <span class="hero-pill">新闻卡片：{len(cards)}</span>
-                <span class="hero-pill">LLM Analysis：{view_model.analyzed_card_count}</span>
+                <span class="hero-pill">Insight Brief：{view_model.analyzed_card_count}</span>
             </div>
             {version_html}
         </header>

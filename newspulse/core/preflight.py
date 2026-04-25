@@ -308,7 +308,6 @@ def _check_ai_runtime(report: PreflightReport, runtime: ApplicationRuntime) -> N
             item="AI insight prompts",
             paths=[
                 settings.insight.analysis_config.get("PROMPT_FILE"),
-                settings.insight.analysis_config.get("ITEM_PROMPT_FILE"),
             ],
             hint="Make sure the insight prompt files under `config/` exist and are readable.",
         )

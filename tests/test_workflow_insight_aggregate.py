@@ -3,7 +3,7 @@ from pathlib import Path
 
 from newspulse.workflow.insight.aggregate import InsightAggregateGenerator
 from newspulse.workflow.insight.models import (
-    InsightItemAnalysis,
+    InsightBrief,
     InsightNewsContext,
     InsightRankSignals,
     InsightSelectionEvidence,
@@ -46,6 +46,34 @@ class InsightAggregateGeneratorTest(unittest.TestCase):
             ),
         ]
 
+    def _briefs(self):
+        return [
+            InsightBrief(
+                news_item_id="1",
+                title="OpenAI ships a new coding agent",
+                source_id="hackernews",
+                source_name="Hacker News",
+                source_kind="article",
+                summary="Terminal-native coding workflow stays hot.",
+                matched_topics=("AI Agent / MCP",),
+                llm_reasons=("workflow angle is clear",),
+                current_rank=1,
+                rank_trend="up",
+            ),
+            InsightBrief(
+                news_item_id="2",
+                title="GitHub launches an open source developer tool",
+                source_id="github-trending-today",
+                source_name="GitHub Trending",
+                source_kind="github_repository",
+                summary="Open source distribution remains a major signal.",
+                matched_topics=("Open Source",),
+                llm_reasons=("open source momentum",),
+                current_rank=2,
+                rank_trend="stable",
+            ),
+        ]
+
     def test_builds_sections_with_supporting_metadata(self):
         client = StubClient(
             {
@@ -65,21 +93,19 @@ class InsightAggregateGeneratorTest(unittest.TestCase):
         generator = InsightAggregateGenerator(
             client=client,
             analysis_config={"PROMPT_FILE": "ignored.txt"},
-            prompt_template=PromptTemplate(path=Path("agg.txt"), user_prompt="COUNT={news_count}\n{item_analyses_json}"),
+            prompt_template=PromptTemplate(path=Path("agg.txt"), user_prompt="COUNT={news_count}\n{briefs_json}"),
         )
-        analyses = [
-            InsightItemAnalysis(news_item_id="1", title="A", what_happened="A", why_it_matters="A", diagnostics={"status": "ok"}),
-            InsightItemAnalysis(news_item_id="2", title="B", what_happened="B", why_it_matters="B", diagnostics={"status": "ok"}),
-        ]
 
-        sections, raw_response, diagnostics = generator.generate(analyses, self._contexts())
+        sections, raw_response, diagnostics = generator.generate(self._briefs(), self._contexts())
 
         self.assertEqual(len(sections), 1)
         self.assertEqual(sections[0].key, "core_trends")
         self.assertEqual(sections[0].metadata["supporting_news_ids"], ["1", "2"])
         self.assertEqual(diagnostics["section_count"], 1)
+        self.assertEqual(diagnostics["brief_count"], 2)
         self.assertTrue(raw_response)
         self.assertIn("COUNT=2", client.calls[0])
+        self.assertIn("Terminal-native coding workflow stays hot.", client.calls[0])
 
     def test_supports_dynamic_section_count(self):
         client = StubClient(
@@ -105,14 +131,10 @@ class InsightAggregateGeneratorTest(unittest.TestCase):
         generator = InsightAggregateGenerator(
             client=client,
             analysis_config={"PROMPT_FILE": "ignored.txt"},
-            prompt_template=PromptTemplate(path=Path("agg.txt"), user_prompt="{item_analyses_json}"),
+            prompt_template=PromptTemplate(path=Path("agg.txt"), user_prompt="{briefs_json}"),
         )
-        analyses = [
-            InsightItemAnalysis(news_item_id="1", title="A", what_happened="A", why_it_matters="A", diagnostics={"status": "ok"}),
-            InsightItemAnalysis(news_item_id="2", title="B", what_happened="B", why_it_matters="B", diagnostics={"status": "ok"}),
-        ]
 
-        sections, _, diagnostics = generator.generate(analyses, self._contexts())
+        sections, _, diagnostics = generator.generate(self._briefs(), self._contexts())
 
         self.assertEqual(diagnostics["section_count"], 2)
         self.assertEqual([section.key for section in sections], ["core_trends", "signals"])
@@ -141,14 +163,10 @@ class InsightAggregateGeneratorTest(unittest.TestCase):
         generator = InsightAggregateGenerator(
             client=client,
             analysis_config={"PROMPT_FILE": "ignored.txt"},
-            prompt_template=PromptTemplate(path=Path("agg.txt"), user_prompt="{item_analyses_json}"),
+            prompt_template=PromptTemplate(path=Path("agg.txt"), user_prompt="{briefs_json}"),
         )
-        analyses = [
-            InsightItemAnalysis(news_item_id="1", title="A", what_happened="A", why_it_matters="A", diagnostics={"status": "ok"}),
-            InsightItemAnalysis(news_item_id="2", title="B", what_happened="B", why_it_matters="B", diagnostics={"status": "ok"}),
-        ]
 
-        sections, _, diagnostics = generator.generate(analyses, self._contexts())
+        sections, _, diagnostics = generator.generate(self._briefs(), self._contexts())
 
         self.assertEqual(diagnostics["section_count"], 1)
         self.assertEqual([section.key for section in sections], ["signals"])
@@ -162,13 +180,10 @@ class InsightAggregateGeneratorTest(unittest.TestCase):
         generator = InsightAggregateGenerator(
             client=BrokenClient(),
             analysis_config={"PROMPT_FILE": "ignored.txt"},
-            prompt_template=PromptTemplate(path=Path("agg.txt"), user_prompt="{item_analyses_json}"),
+            prompt_template=PromptTemplate(path=Path("agg.txt"), user_prompt="{briefs_json}"),
         )
-        analyses = [
-            InsightItemAnalysis(news_item_id="1", title="A", what_happened="A", why_it_matters="Important", diagnostics={"status": "ok"}),
-        ]
 
-        sections, _, diagnostics = generator.generate(analyses, self._contexts()[:1])
+        sections, _, diagnostics = generator.generate(self._briefs()[:1], self._contexts()[:1])
 
         self.assertEqual(sections[0].key, "core_trends")
         self.assertEqual(sections[0].metadata["section_generator"], "aggregate_fallback")

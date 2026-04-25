@@ -4,7 +4,7 @@ from pathlib import Path
 
 from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 
-from newspulse.workflow.insight.models import InsightItemAnalysis
+from newspulse.workflow.insight.models import InsightBrief
 from newspulse.workflow.insight.review import export_insight_outbox
 from newspulse.workflow.shared.contracts import (
     HotlistItem,
@@ -40,22 +40,21 @@ class InsightReviewExportTest(unittest.TestCase):
                         metadata={"supporting_news_ids": ["1"]},
                     )
                 ],
-                item_analyses=[
-                    InsightItemAnalysis(
+                briefs=[
+                    InsightBrief(
                         news_item_id="1",
                         title="A",
-                        what_happened="A",
-                        diagnostics={"status": "ok"},
+                        source_id="hackernews",
+                        source_name="Hacker News",
+                        summary="summary",
                     )
                 ],
                 diagnostics={
                     "input_contexts": [{"news_item_id": "1", "title": "A"}],
-                    "content_payloads": [{"news_item_id": "1", "status": "ok"}],
-                    "reduced_bundles": [{"news_item_id": "1", "reduced_text": "A"}],
-                    "item_analysis_payloads": [
-                        {"news_item_id": "1", "title": "A", "diagnostics": {"status": "ok"}}
+                    "brief_payloads": [
+                        {"news_item_id": "1", "title": "A", "summary": "summary", "matched_topics": ["AI"]}
                     ],
-                    "aggregate": {"item_count": 1, "section_count": 1},
+                    "aggregate": {"brief_count": 1, "section_count": 1},
                 },
             )
 
@@ -71,15 +70,15 @@ class InsightReviewExportTest(unittest.TestCase):
             )
 
             self.assertEqual(summary["insight"]["section_count"], 1)
+            self.assertEqual(summary["insight"]["brief_count"], 1)
             for filename in (
                 "stage5_insight_input.json",
-                "stage5_content_fetch.json",
-                "stage5_content_reduce.json",
-                "stage5_item_analysis.json",
+                "stage5_insight_briefs.json",
                 "stage5_insight.json",
                 "stage5_insight_review.md",
             ):
                 self.assertTrue((Path(tmp) / filename).exists(), filename)
+            self.assertFalse((Path(tmp) / "stage5_item_analysis.json").exists())
 
 
 if __name__ == "__main__":

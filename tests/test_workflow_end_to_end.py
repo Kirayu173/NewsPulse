@@ -17,7 +17,7 @@ from newspulse.storage import get_storage_manager
 from newspulse.storage.base import NewsData, NewsItem
 from newspulse.workflow.delivery import DeliveryService, GenericWebhookDeliveryAdapter
 from newspulse.workflow.insight.ai import AIInsightStrategy
-from newspulse.workflow.insight.models import InsightContentPayload, InsightItemAnalysis, ReducedContentBundle
+from newspulse.workflow.insight.models import InsightBrief
 from newspulse.workflow.insight.service import InsightService
 from newspulse.workflow.selection.ai import AISelectionStrategy
 from newspulse.workflow.selection.service import SelectionService
@@ -215,56 +215,30 @@ class RoutingAISelectionClient:
         return json_result(results)
 
 
-class StubInsightFetcher:
-    def fetch_many(self, contexts):
+class StubInsightBriefBuilder:
+    def build_many(self, contexts):
         return [
-            InsightContentPayload(
-                news_item_id=context.news_item_id,
-                status="ok",
-                source_type=context.source_context.source_kind or "article",
-                title=context.title,
-                excerpt=context.source_context.summary,
-                content_text=f"{context.title} -- enriched content",
-                content_markdown=f"{context.title} -- enriched content",
-                extractor_name="stub_fetcher",
-            )
-            for context in contexts
-        ]
-
-
-class StubInsightReducer:
-    def reduce_many(self, contexts, payloads):
-        return [
-            ReducedContentBundle(
-                news_item_id=context.news_item_id,
-                status="ok",
-                anchor_text=context.title,
-                reduced_text=f"{context.title} -- reduced content",
-                selected_sentences=(f"{context.title} -- reduced content",),
-                evidence_sentences=(f"{context.title} -- reduced evidence",),
-                reducer_name="stub_reducer",
-            )
-            for context in contexts
-        ]
-
-
-class StubInsightAnalyzer:
-    def analyze_many(self, contexts, bundles):
-        return [
-            InsightItemAnalysis(
+            InsightBrief(
                 news_item_id=context.news_item_id,
                 title=context.title,
-                what_happened=f"{context.title} happened",
-                why_it_matters=f"{context.title} matters",
-                evidence=(f"{context.title} evidence",),
-                diagnostics={"status": "ok"},
+                source_id=context.source_id,
+                source_name=context.source_name,
+                source_kind=context.source_context.source_kind,
+                summary=f"{context.title} matters",
+                matched_topics=context.selection_evidence.matched_topics,
+                llm_reasons=context.selection_evidence.llm_reasons,
+                quality_score=context.selection_evidence.quality_score,
+                semantic_score=context.selection_evidence.semantic_score,
+                current_rank=context.rank_signals.current_rank,
+                rank_trend=context.rank_signals.rank_trend,
+                url=context.url,
             )
             for context in contexts
         ]
 
 
 class StubInsightAggregate:
-    def generate(self, item_analyses, contexts):
+    def generate(self, briefs, contexts):
         return (
             [
                 InsightSection(
@@ -272,12 +246,12 @@ class StubInsightAggregate:
                     title="Core Trends",
                     content="AI tools keep dominating the developer conversation.",
                     metadata={
-                        "supporting_news_ids": [analysis.news_item_id for analysis in item_analyses],
+                        "supporting_news_ids": [brief.news_item_id for brief in briefs],
                     },
                 )
             ],
             '{"sections": []}',
-            {"item_count": len(item_analyses), "section_count": 1},
+            {"brief_count": len(briefs), "section_count": 1},
         )
 
 
@@ -421,9 +395,7 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
             ai_strategy=AIInsightStrategy(
                 client=object(),
                 analysis_config=runtime.settings.insight.analysis_config,
-                content_fetcher=StubInsightFetcher(),
-                content_reducer=StubInsightReducer(),
-                item_analyzer=StubInsightAnalyzer(),
+                brief_builder=StubInsightBriefBuilder(),
                 aggregate_generator=StubInsightAggregate(),
             )
         )
@@ -547,7 +519,7 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                 joined_payload = "\n".join(payload.content for payload in render_result.payloads)
                 self.assertEqual(selection.strategy, "ai")
                 self.assertTrue(insight.enabled)
-                self.assertEqual(insight.diagnostics["analyzed_items"], 2)
+                self.assertEqual(insight.diagnostics["brief_count"], 2)
                 self.assertIn("AI tools keep dominating the developer conversation.", render_result.html.content)
                 self.assertIn("AI tools keep dominating the developer conversation.", joined_payload)
                 self.assertEqual(report_package.meta.insight_strategy, "ai")

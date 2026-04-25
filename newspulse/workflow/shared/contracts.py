@@ -151,7 +151,7 @@ class InsightResult:
     enabled: bool = False
     strategy: str = "noop"
     sections: List[InsightSection] = field(default_factory=list)
-    item_analyses: List[Any] = field(default_factory=list)
+    briefs: List[Any] = field(default_factory=list)
     raw_response: str = ""
     diagnostics: Dict[str, Any] = field(default_factory=dict)
 

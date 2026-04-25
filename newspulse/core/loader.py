@@ -402,9 +402,6 @@ def _load_workflow_selection_config(config_data: Dict[str, Any]) -> Dict[str, An
 
 def _load_workflow_insight_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
     insight = _get_section(config_data, "workflow", "insight")
-    content = _get_section(insight, "content")
-    item_analysis = _get_section(insight, "item_analysis")
-    aggregate = _get_section(insight, "aggregate")
     enabled_env = _get_env_bool("AI_ANALYSIS_ENABLED")
     enabled = bool(
         _coalesce(
@@ -445,70 +442,6 @@ def _load_workflow_insight_config(config_data: Dict[str, Any]) -> Dict[str, Any]
                 default=50,
             )
         ),
-        "CONTENT": {
-            "CACHE_ENABLED": bool(
-                _coalesce(
-                    _get_present_value(content, "cache_enabled"),
-                    default=True,
-                )
-            ),
-            "ASYNC_ENABLED": bool(
-                _coalesce(
-                    _get_present_value(content, "async_enabled"),
-                    default=False,
-                )
-            ),
-            "MAX_CONCURRENCY": int(
-                _coalesce(
-                    _get_present_value(content, "max_concurrency"),
-                    default=8,
-                )
-            ),
-            "REQUEST_TIMEOUT": int(
-                _coalesce(
-                    _get_present_value(content, "request_timeout"),
-                    _get_present_value(content, "timeout"),
-                    default=12,
-                )
-            ),
-            "TIMEOUT": int(
-                _coalesce(
-                    _get_present_value(content, "request_timeout"),
-                    _get_present_value(content, "timeout"),
-                    default=12,
-                )
-            ),
-            "REDUCED_CHARS": int(
-                _coalesce(
-                    _get_present_value(content, "reduced_chars"),
-                    default=1600,
-                )
-            ),
-        },
-        "ITEM_ANALYSIS": {
-            "PROMPT_FILE": str(
-                _coalesce(
-                    _get_present_value(item_analysis, "prompt_file"),
-                    default="ai_insight_item_prompt.txt",
-                )
-                or "ai_insight_item_prompt.txt"
-            ),
-            "MIN_EVIDENCE_SENTENCES": int(
-                _coalesce(
-                    _get_present_value(item_analysis, "min_evidence_sentences"),
-                    default=3,
-                )
-            ),
-        },
-        "AGGREGATE": {
-            "PROMPT_FILE": str(
-                _coalesce(
-                    _get_present_value(aggregate, "prompt_file"),
-                    default="ai_analysis_prompt.txt",
-                )
-                or "ai_analysis_prompt.txt"
-            ),
-        },
     }
 
 def _load_workflow_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -566,17 +499,6 @@ def _load_ai_insight_operation_config(config_data: Dict[str, Any], config_root: 
                 config_root=config_root,
             )
         ),
-        "ITEM_PROMPT_FILE": str(
-            resolve_prompt_path(
-                str(
-                    _coalesce(
-                        _get_present_value(operation, "item_prompt_file"),
-                        default="ai_insight_item_prompt.txt",
-                    )
-                ),
-                config_root=config_root,
-            )
-        ),
         "TIMEOUT": _coalesce(_get_present_value(operation, "timeout"), default=None),
         "NUM_RETRIES": _coalesce(_get_present_value(operation, "num_retries"), default=None),
         "EXTRA_PARAMS": dict(_coalesce(_get_present_value(operation, "extra_params"), default={}) or {}),
@@ -590,16 +512,12 @@ def _load_ai_analysis_config(workflow_config: Dict[str, Any], operation_config: 
         "STRATEGY": insight["STRATEGY"],
         "LANGUAGE": insight["LANGUAGE"],
         "PROMPT_FILE": operation_config["PROMPT_FILE"],
-        "ITEM_PROMPT_FILE": operation_config.get("ITEM_PROMPT_FILE", "ai_insight_item_prompt.txt"),
         "TIMEOUT": operation_config.get("TIMEOUT"),
         "NUM_RETRIES": operation_config.get("NUM_RETRIES"),
         "EXTRA_PARAMS": operation_config.get("EXTRA_PARAMS", {}),
         "RUNTIME_CACHE": dict(operation_config.get("RUNTIME_CACHE", {}) or {}),
         "MODE": insight["MODE"],
         "MAX_ITEMS": insight["MAX_ITEMS"],
-        "CONTENT": dict(insight.get("CONTENT", {}) or {}),
-        "ITEM_ANALYSIS": dict(insight.get("ITEM_ANALYSIS", {}) or {}),
-        "AGGREGATE": dict(insight.get("AGGREGATE", {}) or {}),
     }
 
 def _load_ai_filter_config(workflow_config: Dict[str, Any], operation_config: Dict[str, Any]) -> Dict[str, Any]:

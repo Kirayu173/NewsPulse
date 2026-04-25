@@ -78,7 +78,6 @@ def normalize_ai_operation_mapping(mapping: Dict[str, Any]) -> Dict[str, Any]:
 
     for target_key, *source_keys in (
         ("PROMPT_FILE", "PROMPT_FILE", "prompt_file"),
-        ("ITEM_PROMPT_FILE", "ITEM_PROMPT_FILE", "item_prompt_file"),
         ("EXTRACT_PROMPT_FILE", "EXTRACT_PROMPT_FILE", "extract_prompt_file"),
         ("UPDATE_TAGS_PROMPT_FILE", "UPDATE_TAGS_PROMPT_FILE", "update_tags_prompt_file"),
     ):
@@ -299,9 +298,6 @@ def resolve_selection_stage_config(config: Dict[str, Any], raw_config: Dict[str,
 def resolve_insight_stage_config(config: Dict[str, Any], raw_config: Dict[str, Any]) -> Dict[str, Any]:
     workflow_insight = get_workflow_stage(config, raw_config, "INSIGHT", "insight")
     if workflow_insight:
-        workflow_content = get_nested_mapping(workflow_insight, "CONTENT", "content")
-        workflow_item_analysis = get_nested_mapping(workflow_insight, "ITEM_ANALYSIS", "item_analysis")
-        workflow_aggregate = get_nested_mapping(workflow_insight, "AGGREGATE", "aggregate")
         enabled = bool(mapping_get(workflow_insight, "ENABLED", "enabled", default=False))
         return {
             "ENABLED": enabled,
@@ -312,55 +308,6 @@ def resolve_insight_stage_config(config: Dict[str, Any], raw_config: Dict[str, A
             "MODE": str(mapping_get(workflow_insight, "MODE", "mode", default="follow_report") or "follow_report"),
             "MAX_ITEMS": int(mapping_get(workflow_insight, "MAX_ITEMS", "max_items", default=50) or 50),
             "LANGUAGE": str(mapping_get(workflow_insight, "LANGUAGE", "language", default="Chinese") or "Chinese"),
-            "CONTENT": {
-                "CACHE_ENABLED": bool(mapping_get(workflow_content, "CACHE_ENABLED", "cache_enabled", default=True)),
-                "ASYNC_ENABLED": bool(mapping_get(workflow_content, "ASYNC_ENABLED", "async_enabled", default=False)),
-                "MAX_CONCURRENCY": int(mapping_get(workflow_content, "MAX_CONCURRENCY", "max_concurrency", default=8) or 8),
-                "REQUEST_TIMEOUT": int(
-                    mapping_get(
-                        workflow_content,
-                        "REQUEST_TIMEOUT",
-                        "request_timeout",
-                        "TIMEOUT",
-                        "timeout",
-                        default=12,
-                    )
-                    or 12
-                ),
-                "TIMEOUT": int(
-                    mapping_get(
-                        workflow_content,
-                        "REQUEST_TIMEOUT",
-                        "request_timeout",
-                        "TIMEOUT",
-                        "timeout",
-                        default=12,
-                    )
-                    or 12
-                ),
-                "REDUCED_CHARS": int(mapping_get(workflow_content, "REDUCED_CHARS", "reduced_chars", default=1600) or 1600),
-            },
-            "ITEM_ANALYSIS": {
-                "PROMPT_FILE": str(
-                    mapping_get(workflow_item_analysis, "PROMPT_FILE", "prompt_file", default="ai_insight_item_prompt.txt")
-                    or "ai_insight_item_prompt.txt"
-                ),
-                "MIN_EVIDENCE_SENTENCES": int(
-                    mapping_get(
-                        workflow_item_analysis,
-                        "MIN_EVIDENCE_SENTENCES",
-                        "min_evidence_sentences",
-                        default=3,
-                    )
-                    or 3
-                ),
-            },
-            "AGGREGATE": {
-                "PROMPT_FILE": str(
-                    mapping_get(workflow_aggregate, "PROMPT_FILE", "prompt_file", default="ai_analysis_prompt.txt")
-                    or "ai_analysis_prompt.txt"
-                ),
-            },
         }
 
     analysis_config = config.get("AI_ANALYSIS", {})
@@ -371,9 +318,6 @@ def resolve_insight_stage_config(config: Dict[str, Any], raw_config: Dict[str, A
         "MODE": str(analysis_config.get("MODE", "follow_report") or "follow_report"),
         "MAX_ITEMS": int(analysis_config.get("MAX_ITEMS", 50) or 50),
         "LANGUAGE": str(analysis_config.get("LANGUAGE", "Chinese") or "Chinese"),
-        "CONTENT": coerce_mapping(analysis_config.get("CONTENT", {})),
-        "ITEM_ANALYSIS": coerce_mapping(analysis_config.get("ITEM_ANALYSIS", {})),
-        "AGGREGATE": coerce_mapping(analysis_config.get("AGGREGATE", {})),
     }
 
 
@@ -414,9 +358,6 @@ def resolve_ai_filter_config(config: Dict[str, Any], raw_config: Dict[str, Any])
 def resolve_ai_analysis_config(config: Dict[str, Any], raw_config: Dict[str, Any]) -> Dict[str, Any]:
     insight = resolve_insight_stage_config(config, raw_config)
     operation = resolve_ai_operation_mapping(config, raw_config, "insight", legacy_key="AI_ANALYSIS")
-    content = get_nested_mapping(insight, "CONTENT", "content")
-    item_analysis = get_nested_mapping(insight, "ITEM_ANALYSIS", "item_analysis")
-    aggregate = get_nested_mapping(insight, "AGGREGATE", "aggregate")
     return {
         "ENABLED": bool(insight.get("ENABLED", False)),
         "STRATEGY": str(insight.get("STRATEGY", "noop") or "noop"),
@@ -431,60 +372,6 @@ def resolve_ai_analysis_config(config: Dict[str, Any], raw_config: Dict[str, Any
             get_nested_mapping(operation, "RUNTIME_CACHE", "runtime_cache")
             or get_nested_mapping(operation, "LLM_CACHE", "llm_cache")
         ),
-        "ITEM_PROMPT_FILE": str(
-            mapping_get(
-                operation,
-                "ITEM_PROMPT_FILE",
-                "item_prompt_file",
-                default="ai_insight_item_prompt.txt",
-            )
-            or "ai_insight_item_prompt.txt"
-        ),
-        "CONTENT": {
-            "CACHE_ENABLED": bool(mapping_get(content, "CACHE_ENABLED", "cache_enabled", default=True)),
-            "ASYNC_ENABLED": bool(mapping_get(content, "ASYNC_ENABLED", "async_enabled", default=False)),
-            "MAX_CONCURRENCY": int(mapping_get(content, "MAX_CONCURRENCY", "max_concurrency", default=8) or 8),
-            "REQUEST_TIMEOUT": int(
-                mapping_get(content, "REQUEST_TIMEOUT", "request_timeout", "TIMEOUT", "timeout", default=12) or 12
-            ),
-            "TIMEOUT": int(
-                mapping_get(content, "REQUEST_TIMEOUT", "request_timeout", "TIMEOUT", "timeout", default=12) or 12
-            ),
-            "REDUCED_CHARS": int(mapping_get(content, "REDUCED_CHARS", "reduced_chars", default=1600) or 1600),
-        },
-        "ITEM_ANALYSIS": {
-            "MIN_EVIDENCE_SENTENCES": int(
-                mapping_get(item_analysis, "MIN_EVIDENCE_SENTENCES", "min_evidence_sentences", default=3) or 3
-            ),
-            "ITEM_PROMPT_FILE": str(
-                mapping_get(
-                    item_analysis,
-                    "PROMPT_FILE",
-                    "prompt_file",
-                    default=(
-                        mapping_get(
-                            operation,
-                            "ITEM_PROMPT_FILE",
-                            "item_prompt_file",
-                            default="ai_insight_item_prompt.txt",
-                        )
-                        or "ai_insight_item_prompt.txt"
-                    ),
-                )
-                or "ai_insight_item_prompt.txt"
-            ),
-        },
-        "AGGREGATE": {
-            "PROMPT_FILE": str(
-                mapping_get(
-                    aggregate,
-                    "PROMPT_FILE",
-                    "prompt_file",
-                    default=(mapping_get(operation, "PROMPT_FILE", "prompt_file", default="ai_analysis_prompt.txt") or "ai_analysis_prompt.txt"),
-                )
-                or "ai_analysis_prompt.txt"
-            ),
-        },
     }
 
 

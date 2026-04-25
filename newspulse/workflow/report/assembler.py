@@ -102,7 +102,7 @@ class ReportPackageAssembler:
                 "insight": {
                     "enabled": insight.enabled,
                     "strategy": insight.strategy,
-                    "item_analysis_count": len(insight.item_analyses),
+                    "brief_count": len(insight.briefs),
                     "raw_response": insight.raw_response,
                     "diagnostics": deepcopy(insight.diagnostics),
                 },

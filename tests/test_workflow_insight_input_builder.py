@@ -81,9 +81,9 @@ class InsightInputBuilderTest(unittest.TestCase):
         self.assertNotIn('rank_timeline', contexts[0].source_context.metadata)
         self.assertEqual(contexts[1].source_context.source_kind, 'github_repository')
         self.assertEqual(contexts[1].source_context.metadata['full_name'], 'openai/codex')
-        self.assertIn('route: article_content', contexts[0].source_context.attributes)
+        self.assertIn('host: example.com', contexts[0].source_context.attributes)
         self.assertEqual(contexts[2].source_context.source_kind, 'hackernews_item')
-        self.assertIn('route: external_link_then_hn_fallback', contexts[2].source_context.attributes)
+        self.assertIn('host: news.ycombinator.com', contexts[2].source_context.attributes)
 
 
 if __name__ == '__main__':

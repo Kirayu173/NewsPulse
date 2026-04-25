@@ -28,7 +28,7 @@ class RenderInsightHelperTest(unittest.TestCase):
         self.assertIn("核心趋势", html)
         self.assertIn("AI coding tools keep climbing.", html)
         self.assertIn("<br>", html)
-        self.assertIn("**AI 分析**", markdown)
+        self.assertIn("**AI 洞察**", markdown)
         self.assertIn("**核心趋势**", markdown)
         self.assertIn("1. AI coding tools keep climbing.", markdown)
         self.assertIn("**关键信号**", markdown)
@@ -39,7 +39,7 @@ class RenderInsightHelperTest(unittest.TestCase):
 
         self.assertIn("跳过", render_insight_markdown(skipped))
         self.assertIn("no selected items", render_insight_markdown(skipped))
-        self.assertIn("AI 分析失败", render_insight_markdown(errored))
+        self.assertIn("AI 洞察失败", render_insight_markdown(errored))
         self.assertIn("bad response", render_insight_html_rich(errored))
 
 

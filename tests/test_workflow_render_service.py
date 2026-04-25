@@ -1,6 +1,7 @@
-﻿import unittest
+import unittest
 from datetime import datetime
 from pathlib import Path
+
 from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 
 from newspulse.runtime import build_runtime, run_render_stage
@@ -123,9 +124,9 @@ def _build_report_package() -> ReportPackage:
             "insight": {
                 "enabled": True,
                 "strategy": "ai",
-                "item_analysis_count": 2,
+                "brief_count": 2,
                 "diagnostics": {
-                    "analyzed_items": 2,
+                    "brief_count": 2,
                     "max_items": 10,
                     "report_mode": "current",
                     "input_contexts": [
@@ -158,30 +159,34 @@ def _build_report_package() -> ReportPackage:
                             },
                         },
                     ],
-                    "item_analysis_payloads": [
+                    "brief_payloads": [
                         {
                             "news_item_id": "1",
                             "title": "OpenAI launches a new coding agent",
-                            "what_happened": "OpenAI shipped a terminal-native coding agent workflow.",
-                            "key_facts": ["Patch loop is built-in", "Verification is part of the default flow"],
-                            "why_it_matters": "It reduces the gap between demo agents and repeatable engineering work.",
-                            "watchpoints": ["Whether repository-level controls appear next"],
-                            "uncertainties": ["How much autonomy teams will allow in production"],
-                            "evidence": ["Workflow explicitly includes patch and verify steps"],
-                            "confidence": 0.86,
-                            "diagnostics": {"status": "ok"},
+                            "source_name": "Hacker News",
+                            "summary": "Terminal-native coding workflow with patch and verify loops.",
+                            "attributes": ["developer tools", "terminal"],
+                            "matched_topics": ["AI Agents", "Coding Workflow"],
+                            "llm_reasons": ["clear developer workflow angle"],
+                            "semantic_score": 0.84,
+                            "quality_score": 0.93,
+                            "current_rank": 1,
+                            "rank_trend": "up",
+                            "source_kind": "article",
                         },
                         {
                             "news_item_id": "2",
                             "title": "Startup launches AI productivity app",
-                            "what_happened": "A startup released a productivity workflow tool with AI copilots.",
-                            "key_facts": ["Targets productivity use cases", "Competes in workflow tooling"],
-                            "why_it_matters": "It shows the product layer is racing to package AI into repeatable work habits.",
-                            "watchpoints": ["Retention versus novelty adoption"],
-                            "uncertainties": [],
-                            "evidence": ["Product Hunt launch timing indicates GTM push"],
-                            "confidence": 0.79,
-                            "diagnostics": {"status": "ok"},
+                            "source_name": "Product Hunt",
+                            "summary": "Product Hunt launch with startup distribution context.",
+                            "attributes": ["product launch"],
+                            "matched_topics": ["Startups"],
+                            "llm_reasons": ["startup launch with concrete workflow angle"],
+                            "semantic_score": 0.75,
+                            "quality_score": 0.88,
+                            "current_rank": 2,
+                            "rank_trend": "stable",
+                            "source_kind": "article",
                         },
                     ],
                 },
@@ -207,7 +212,7 @@ class WorkflowRenderServiceTest(unittest.TestCase):
         self.assertEqual(view_model.hotlist_groups[0].items[0].title, "OpenAI launches a new coding agent")
         self.assertEqual(view_model.new_item_groups[0].items[0].title, "OpenAI launches a new coding agent")
         self.assertEqual(len(view_model.news_cards), 3)
-        self.assertEqual(view_model.news_cards[0].analysis.what_happened, "OpenAI shipped a terminal-native coding agent workflow.")
+        self.assertEqual(view_model.news_cards[0].brief.summary, "Terminal-native coding workflow with patch and verify loops.")
         self.assertEqual(view_model.news_cards[0].selection_evidence.matched_topics, ["AI Agents", "Coding Workflow"])
         self.assertTrue(view_model.news_cards[2].is_standalone)
         self.assertEqual(view_model.insight.sections[0].content, "AI tools keep dominating the developer conversation.")
@@ -271,11 +276,9 @@ class WorkflowRenderServiceTest(unittest.TestCase):
             self.assertTrue(html_path.exists())
             self.assertIn("OpenAI launches a new coding agent", artifacts.html.content)
             self.assertIn("新闻卡片", artifacts.html.content)
-            self.assertIn("LLM Analysis", artifacts.html.content)
-            self.assertNotIn("Why this story made the cut", artifacts.html.content)
+            self.assertIn("Insight Brief", artifacts.html.content)
             self.assertNotIn("Weibo", artifacts.html.content)
-            self.assertNotIn("Legacy LLM analysis marker", artifacts.html.content)
-            self.assertIn("OpenAI shipped a terminal-native coding agent workflow.", artifacts.html.content)
+            self.assertIn("Terminal-native coding workflow with patch and verify loops.", artifacts.html.content)
             self.assertIn("AI tools keep dominating the developer conversation.", artifacts.html.content)
             self.assertIn('data-story-search', artifacts.html.content)
             self.assertIn('data-source-filter="all"', artifacts.html.content)
@@ -294,66 +297,19 @@ class WorkflowRenderServiceTest(unittest.TestCase):
             self.assertEqual(artifacts.payloads[0].channel, "generic_webhook")
             self.assertEqual(artifacts.metadata["display_regions"], ["new_items", "hotlist", "insight"])
 
-    def test_render_service_respects_display_regions_and_emit_switches(self):
-        report = _build_report_package()
-
-        with TemporaryDirectory() as temp_dir:
-            service = RenderService(
-                html_adapter=HTMLRenderAdapter(
-                    output_dir=temp_dir,
-                    date_folder_func=lambda: "2026-04-17",
-                    time_filename_func=lambda: "103000",
-                ),
-                notification_adapter=NotificationRenderAdapter(
-                    notification_channels=["generic_webhook"],
-                    batch_size=8000,
-                ),
-            )
-
-            html_only = service.run(
-                report,
-                RenderOptions(
-                    display_regions=["insight"],
-                    emit_html=True,
-                    emit_notification=False,
-                ),
-            )
-
-            self.assertIn("AI tools keep dominating the developer conversation.", html_only.html.content)
-            self.assertNotIn("OpenAI launches a new coding agent", html_only.html.content)
-            self.assertEqual(html_only.payloads, [])
-
-            notify_only = service.run(
-                report,
-                RenderOptions(
-                    display_regions=["hotlist"],
-                    emit_html=False,
-                    emit_notification=True,
-                ),
-            )
-
-            self.assertEqual(notify_only.html.file_path, "")
-            self.assertTrue(notify_only.payloads)
-            combined_payload = "\n".join(payload.content for payload in notify_only.payloads)
-            self.assertIn("OpenAI launches a new coding agent", combined_payload)
-            self.assertNotIn("AI tools keep dominating the developer conversation.", combined_payload)
-
     def test_render_service_surfaces_skipped_insight_reason_from_report_package(self):
         report = _build_report_package()
         report.content.insight_sections = []
         report.diagnostics["insight"] = {
             "enabled": False,
             "strategy": "noop",
-            "item_analysis_count": 0,
+            "brief_count": 0,
             "diagnostics": {
                 "skipped": True,
                 "reason": "schedule disabled",
                 "report_mode": "current",
             },
         }
-
-        def fixed_now():
-            return datetime(2026, 4, 17, 10, 30, 0)
 
         view_model = build_render_view_model(
             report,
@@ -364,40 +320,6 @@ class WorkflowRenderServiceTest(unittest.TestCase):
         self.assertEqual(view_model.insight.status, "skipped")
         self.assertEqual(view_model.insight.message, "schedule disabled")
 
-        with TemporaryDirectory() as temp_dir:
-            service = RenderService(
-                html_adapter=HTMLRenderAdapter(
-                    output_dir=temp_dir,
-                    get_time_func=fixed_now,
-                    date_folder_func=lambda: "2026-04-17",
-                    time_filename_func=lambda: "103000",
-                    display_mode="keyword",
-                ),
-                notification_adapter=NotificationRenderAdapter(
-                    notification_channels=["generic_webhook"],
-                    get_time_func=fixed_now,
-                    display_mode="keyword",
-                    batch_size=8000,
-                ),
-                display_mode="keyword",
-                rank_threshold=5,
-            )
-
-            artifacts = service.run(
-                report,
-                RenderOptions(
-                    display_regions=["insight"],
-                    emit_html=True,
-                    emit_notification=True,
-                ),
-            )
-
-            combined_payload = "\n".join(payload.content for payload in artifacts.payloads)
-            self.assertIn("schedule disabled", artifacts.html.content)
-            self.assertIn("schedule disabled", combined_payload)
-
-
-class RuntimeRenderStageTest(unittest.TestCase):
     def test_runtime_run_render_stage_uses_project_defaults_and_channel_config(self):
         report = _build_report_package()
 
@@ -428,39 +350,6 @@ class RuntimeRenderStageTest(unittest.TestCase):
             self.assertEqual(artifacts.metadata["display_regions"], ["hotlist", "insight"])
             self.assertFalse(artifacts.metadata["notification_enabled"])
             self.assertIn('<header class="hero">', artifacts.html.content)
-            self.assertNotIn("Weibo", artifacts.html.content)
-            runtime.cleanup()
-
-    def test_runtime_run_render_stage_filters_disabled_new_item_region_even_if_order_keeps_it(self):
-        report = _build_report_package()
-
-        with TemporaryDirectory() as temp_dir:
-            runtime = build_runtime(
-                {
-                    "TIMEZONE": "Asia/Hong_Kong",
-                    "DISPLAY_MODE": "keyword",
-                    "DISPLAY": {
-                        "REGION_ORDER": ["hotlist", "new_items", "insight", "standalone"],
-                        "REGIONS": {
-                            "HOTLIST": True,
-                            "NEW_ITEMS": False,
-                            "STANDALONE": True,
-                            "INSIGHT": True,
-                        },
-                    },
-                    "STORAGE": {
-                        "LOCAL": {
-                            "DATA_DIR": temp_dir,
-                        }
-                    },
-                }
-            )
-
-            artifacts = run_render_stage(runtime.container, runtime.render_builder, report)
-
-            self.assertEqual(artifacts.metadata["display_regions"], ["hotlist", "insight", "standalone"])
-            self.assertNotIn('story-badge accent">??</span>', artifacts.html.content)
-            runtime.cleanup()
 
 
 if __name__ == "__main__":

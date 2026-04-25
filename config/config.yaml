@@ -39,7 +39,6 @@
                   update_tags_prompt_file: ai_filter/update_tags_prompt.txt
                 insight:
                   prompt_file: ai_analysis_prompt.txt
-                  item_prompt_file: ai_insight_item_prompt.txt
             storage:
               backend: local
               formats:

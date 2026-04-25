@@ -68,7 +68,7 @@ def _build_header(view_model: "RenderViewModel", format_type: str, now: datetime
                 "incremental": "增量",
             }
             mode_suffix = f" ({mode_map.get(ai_mode, ai_mode)})"
-        lines.append(f"{_bold('AI 分析', format_type)} {display_value}{mode_suffix}")
+        lines.append(f"{_bold('AI 洞察', format_type)} {display_value}{mode_suffix}")
 
     lines.extend(
         [

@@ -271,11 +271,6 @@ class RuntimeSettingsTest(unittest.TestCase):
                         "mode": "current",
                         "max_items": 8,
                         "language": "Japanese",
-                        "content": {
-                            "async_enabled": True,
-                            "max_concurrency": 5,
-                            "request_timeout": 18,
-                        },
                     },
                 },
                 "ai": {
@@ -319,9 +314,6 @@ class RuntimeSettingsTest(unittest.TestCase):
 
         self.assertEqual(settings.insight.analysis_config["PROMPT_FILE"], "insight_prompt.txt")
         self.assertEqual(settings.insight.analysis_config["MAX_ITEMS"], 8)
-        self.assertTrue(settings.insight.analysis_config["CONTENT"]["ASYNC_ENABLED"])
-        self.assertEqual(settings.insight.analysis_config["CONTENT"]["MAX_CONCURRENCY"], 5)
-        self.assertEqual(settings.insight.analysis_config["CONTENT"]["REQUEST_TIMEOUT"], 18)
         self.assertEqual(settings.insight.ai_runtime_config["MODEL"], "openai/base")
         self.assertEqual(settings.insight.ai_runtime_config["API_KEY"], "insight-key")
         self.assertEqual(settings.insight.ai_runtime_config["TEMPERATURE"], 0.2)

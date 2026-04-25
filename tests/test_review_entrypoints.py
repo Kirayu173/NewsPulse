@@ -87,7 +87,6 @@ class ReviewEntrypointSmokeTest(unittest.TestCase):
                   update_tags_prompt_file: ai_filter/update_tags_prompt.txt
                 insight:
                   prompt_file: ai_analysis_prompt.txt
-                  item_prompt_file: ai_insight_item_prompt.txt
             storage:
               backend: local
               formats:
@@ -104,8 +103,7 @@ class ReviewEntrypointSmokeTest(unittest.TestCase):
         )
         (config_dir / "frequency_words.txt").write_text("[WORD_GROUPS]\nAI\n", encoding="utf-8")
         (config_dir / "ai_interests.txt").write_text("AI agents", encoding="utf-8")
-        (config_dir / "ai_analysis_prompt.txt").write_text("[user]\n{item_analyses_json}", encoding="utf-8")
-        (config_dir / "ai_insight_item_prompt.txt").write_text("[user]\n{title}", encoding="utf-8")
+        (config_dir / "ai_analysis_prompt.txt").write_text("[user]\n{briefs_json}", encoding="utf-8")
         (config_dir / "ai_filter" / "prompt.txt").write_text("[user]\n{news_list}", encoding="utf-8")
         (config_dir / "ai_filter" / "extract_prompt.txt").write_text("[user]\nextract", encoding="utf-8")
         (config_dir / "ai_filter" / "update_tags_prompt.txt").write_text("[user]\nupdate", encoding="utf-8")
