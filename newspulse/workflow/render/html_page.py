@@ -128,37 +128,37 @@ def _render_bullet_list(items: Iterable[str], css_class: str) -> str:
     return f'<ul class="{css_class}">{rows}</ul>'
 
 
-def _render_analysis_panel(card: "RenderNewsCardView") -> str:
-    brief = card.brief
+def _render_summary_panel(card: "RenderNewsCardView") -> str:
+    summary = card.summary
     rows: list[str] = [
         '<section class="analysis-panel">',
-        "<h3>Insight Brief</h3>",
+        "<h3>新闻摘要</h3>",
     ]
 
-    if brief.visible:
-        if brief.summary:
+    if summary.visible:
+        if summary.summary:
             rows.append('<div class="panel-subtitle">摘要</div>')
-            rows.append(f'<p class="panel-body lead">{html_escape(brief.summary)}</p>')
-        if brief.matched_topics:
+            rows.append(f'<p class="panel-body lead">{html_escape(summary.summary)}</p>')
+        if summary.evidence_topics:
             rows.append('<div class="panel-subtitle">匹配主题</div>')
-            rows.append(_render_bullet_list(brief.matched_topics, "bullet-list compact"))
-        if brief.llm_reasons:
+            rows.append(_render_bullet_list(summary.evidence_topics, "bullet-list compact"))
+        if summary.evidence_notes:
             rows.append('<div class="panel-subtitle">入选理由</div>')
-            rows.append(_render_bullet_list(brief.llm_reasons, "bullet-list compact"))
-        if brief.attributes:
-            rows.append('<div class="panel-subtitle">来源属性</div>')
-            rows.append(_render_bullet_list(brief.attributes, "bullet-list compact"))
+            rows.append(_render_bullet_list(summary.evidence_notes, "bullet-list compact"))
+        if summary.attributes:
+            rows.append('<div class="panel-subtitle">辅助来源属性</div>')
+            rows.append(_render_bullet_list(summary.attributes, "bullet-list compact"))
         signal_pills: list[str] = []
-        if brief.current_rank > 0:
-            signal_pills.append(f"当前排名 #{brief.current_rank}")
-        if brief.rank_trend:
-            signal_pills.append(f"趋势 {brief.rank_trend}")
-        if brief.quality_score > 0:
-            signal_pills.append(f"质量 {brief.quality_score:.2f}")
-        if brief.semantic_score > 0:
-            signal_pills.append(f"语义 {brief.semantic_score:.2f}")
-        if brief.source_kind:
-            signal_pills.append(f"类型 {brief.source_kind}")
+        if summary.current_rank > 0:
+            signal_pills.append(f"当前排名 #{summary.current_rank}")
+        if summary.rank_trend:
+            signal_pills.append(f"趋势 {summary.rank_trend}")
+        if summary.quality_score > 0:
+            signal_pills.append(f"质量 {summary.quality_score:.2f}")
+        if summary.semantic_score > 0:
+            signal_pills.append(f"语义 {summary.semantic_score:.2f}")
+        if summary.source_kind:
+            signal_pills.append(f"类型 {summary.source_kind}")
         if signal_pills:
             rows.append(
                 "".join(
@@ -167,7 +167,7 @@ def _render_analysis_panel(card: "RenderNewsCardView") -> str:
                 )
             )
     else:
-        rows.append('<p class="panel-placeholder">这条新闻暂未生成 Insight Brief。</p>')
+        rows.append('<p class="panel-placeholder">这条新闻暂未生成结构化摘要。</p>')
 
     rows.append("</section>")
     return "".join(rows)
@@ -199,7 +199,7 @@ def _render_story_card(card: "RenderNewsCardView", index: int, *, show_new_secti
                 <div class="story-actions">{_render_action_links(card)}</div>
             </div>
         </div>
-        {_render_analysis_panel(card)}
+        {_render_summary_panel(card)}
     </article>
     """
 
@@ -231,7 +231,7 @@ def _render_overview_section(
     show_new_section: bool,
 ) -> str:
     new_count = sum(1 for card in cards if card.is_new)
-    analyzed_count = sum(1 for card in cards if card.brief.visible)
+    analyzed_count = sum(1 for card in cards if card.summary.visible)
     return f"""
     <section class="overview-strip">
         <div class="overview-card">
@@ -312,6 +312,51 @@ def _render_story_feed(cards: list["RenderNewsCardView"], *, show_new_section: b
     """
 
 
+def _render_summary_card(summary) -> str:
+    topics_html = "".join(f'<span class="mini-chip">{html_escape(topic)}</span>' for topic in summary.evidence_topics[:6])
+    source_html = "".join(f'<span class="summary-source">{html_escape(source)}</span>' for source in summary.sources[:6])
+    notes_html = _render_bullet_list(summary.evidence_notes[:4], "bullet-list compact")
+    item_count = len(summary.item_ids)
+    count_text = f"{item_count} 条新闻" if item_count else ""
+    return f"""
+    <article class="summary-card summary-{html_escape(summary.kind)}">
+        <div class="summary-card-head">
+            <span class="summary-kind">{html_escape(summary.kind or 'summary')}</span>
+            <span class="summary-count">{html_escape(count_text)}</span>
+        </div>
+        <h3>{html_escape(summary.title or summary.key)}</h3>
+        <p>{html_escape(summary.summary)}</p>
+        <div class="chip-row">{topics_html}</div>
+        <div class="summary-source-row">{source_html}</div>
+        {notes_html}
+    </article>
+    """
+
+
+def _render_summary_section(view_model: "RenderViewModel") -> str:
+    cards = [summary for summary in view_model.summary_cards if summary.visible]
+    if not cards:
+        return ""
+    report_cards = [summary for summary in cards if summary.kind == "report"]
+    theme_cards = [summary for summary in cards if summary.kind == "theme"]
+    item_cards = [summary for summary in cards if summary.kind == "item"]
+    groups: list[str] = []
+    if report_cards:
+        groups.append('<div class="summary-grid report-summary-grid">' + "".join(_render_summary_card(summary) for summary in report_cards) + "</div>")
+    if theme_cards:
+        groups.append('<h3 class="summary-subhead">主题摘要</h3>')
+        groups.append('<div class="summary-grid">' + "".join(_render_summary_card(summary) for summary in theme_cards) + "</div>")
+    if item_cards:
+        groups.append('<h3 class="summary-subhead">单条摘要</h3>')
+        groups.append('<div class="summary-grid item-summary-grid">' + "".join(_render_summary_card(summary) for summary in item_cards) + "</div>")
+    return f"""
+    <section class="summary-section">
+        <h2>结构化摘要</h2>
+        {"".join(groups)}
+    </section>
+    """
+
+
 def _render_insight_sections(sections: Iterable["RenderInsightSectionView"]) -> str:
     blocks: list[str] = []
     for section in sections:
@@ -357,7 +402,7 @@ def _render_aggregate_insight(insight: "RenderInsightView") -> str:
     <section class="aggregate-section" data-collapsible-section>
         <div class="aggregate-head">
             <div class="aggregate-heading">
-                <h2>综合判断</h2>
+                <h2>全局洞察</h2>
                 <div class="chip-row">{stats_html}</div>
             </div>
             <button
@@ -510,12 +555,14 @@ def _page_styles() -> str:
 
         .overview-strip,
         .story-feed,
+        .summary-section,
         .aggregate-section {
             margin-top: 24px;
             animation: rise-in 0.55s ease both;
         }
 
         .story-feed h2,
+        .summary-section h2,
         .aggregate-section h2 {
             margin: 0 0 10px;
             font-size: 26px;
@@ -530,6 +577,7 @@ def _page_styles() -> str:
 
         .overview-card,
         .story-card,
+        .summary-card,
         .aggregate-card,
         .control-card {
             animation: rise-in 0.6s ease both;
@@ -909,6 +957,69 @@ def _page_styles() -> str:
             color: var(--muted);
         }
 
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 16px;
+            margin-top: 14px;
+        }
+
+        .report-summary-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .summary-subhead {
+            margin: 20px 0 0;
+            font-size: 18px;
+        }
+
+        .summary-card {
+            padding: 18px 18px 16px;
+            border-radius: 22px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(251, 247, 241, 0.94));
+            border: 1px solid var(--border);
+        }
+
+        .summary-card-head,
+        .summary-source-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .summary-kind,
+        .summary-count,
+        .summary-source {
+            display: inline-flex;
+            border-radius: 999px;
+            padding: 4px 8px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .summary-kind {
+            background: #e8f1fb;
+            color: #25587a;
+        }
+
+        .summary-count,
+        .summary-source {
+            background: rgba(242, 233, 223, 0.78);
+            color: #624f3e;
+        }
+
+        .summary-card h3 {
+            margin: 10px 0 8px;
+            font-size: 20px;
+        }
+
+        .summary-card p {
+            margin: 0 0 12px;
+            color: #303a48;
+            font-size: 14px;
+        }
+
         .footer {
             padding: 0 30px 30px;
             color: var(--muted);
@@ -952,6 +1063,7 @@ def _page_styles() -> str:
 
             .overview-card,
             .story-card,
+            .summary-card,
             .aggregate-card,
             .control-card,
             .story-empty,
@@ -985,6 +1097,7 @@ def _page_styles() -> str:
 
             .story-summary,
             .panel-body,
+            .summary-card p,
             .aggregate-card p {
                 color: #d6dee8;
             }
@@ -1035,6 +1148,10 @@ def _page_styles() -> str:
             }
 
             .aggregate-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .summary-grid {
                 grid-template-columns: 1fr;
             }
 
@@ -1175,6 +1292,10 @@ def render_html_content(
                 show_new_section=show_new_section,
             )
         )
+        if "insight" in region_order:
+            summary_html = _render_summary_section(view_model)
+            if summary_html:
+                sections.append(summary_html)
         sections.append(_render_story_feed(cards, show_new_section=show_new_section))
 
     if "insight" in region_order:
@@ -1213,7 +1334,7 @@ def render_html_content(
                 <span class="hero-pill">{html_escape(view_model.report_type)}</span>
                 <span class="hero-pill">模式：{html_escape(_mode_label(view_model.mode))}</span>
                 <span class="hero-pill">新闻卡片：{len(cards)}</span>
-                <span class="hero-pill">Insight Brief：{view_model.analyzed_card_count}</span>
+                <span class="hero-pill">摘要卡片：{len(view_model.summary_cards)}</span>
             </div>
             {version_html}
         </header>

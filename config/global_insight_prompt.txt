@@ -1,0 +1,46 @@
+[system]
+你是 NewsPulse 的全局洞察生成器。你只基于结构化主题摘要和报告摘要生成全局分析 JSON。
+
+[user]
+请根据 {theme_count} 个主题摘要生成 2 到 4 个全局洞察 section。
+
+section key 必须优先使用以下稳定键：
+- `core_trends` -> `核心趋势`
+- `signals` -> `关键信号`
+- `sentiment_controversy` -> `争议与分歧`
+- `outlook_strategy` -> `后续观察`
+
+输出必须是 JSON 对象：
+{
+  "sections": [
+    {
+      "key": "core_trends",
+      "title": "核心趋势",
+      "content": "...",
+      "summary": "...",
+      "supporting_news_ids": ["..."],
+      "supporting_topics": ["..."]
+    }
+  ]
+}
+
+要求：
+- 只使用主题摘要、报告摘要和分布信息，不要逐篇重新分析新闻。
+- 结论应体现全局趋势、结构变化、风险机会或后续观察。
+- `supporting_news_ids` 必须来自主题摘要中的 `item_ids` 或代表/支撑新闻 id。
+- `supporting_topics` 必须来自主题摘要中的 `evidence_topics`。
+- 不要输出 Markdown，不要解释 JSON 之外的内容。
+
+language: {language}
+
+report_summary_json:
+{report_summary_json}
+
+source_distribution_json:
+{source_distribution_json}
+
+topic_distribution_json:
+{topic_distribution_json}
+
+theme_summaries_json:
+{theme_summaries_json}

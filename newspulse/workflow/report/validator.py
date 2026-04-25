@@ -80,6 +80,7 @@ class ReportPackageValidator:
             "hotlist_group_count": len(content.hotlist_groups),
             "new_item_count": len(content.new_items),
             "standalone_section_count": len(content.standalone_sections),
+            "summary_card_count": len(content.summary_cards),
             "insight_section_count": len(content.insight_sections),
             "failed_source_count": len(snapshot.failed_sources),
             "skipped_region_count": len(skipped_regions),

@@ -299,21 +299,21 @@ def _check_ai_runtime(report: PreflightReport, runtime: ApplicationRuntime) -> N
     if insight_enabled:
         _check_runtime_mapping(
             report,
-            item="AI insight runtime",
+            item="AI global insight runtime",
             config=settings.insight.ai_runtime_config,
             hint="Check the insight runtime fields in `.env` or `config/config.yaml`, especially model, API key, and base URL.",
         )
         _check_prompt_files(
             report,
-            item="AI insight prompts",
+            item="AI global insight prompt",
             paths=[
                 settings.insight.analysis_config.get("PROMPT_FILE"),
             ],
-            hint="Make sure the insight prompt files under `config/` exist and are readable.",
+            hint="Make sure the global insight prompt file under `config/` exists and is readable.",
         )
     else:
-        report.add("skip", "AI insight runtime", "not required because AI insight is disabled")
-        report.add("skip", "AI insight prompts", "not required because AI insight is disabled")
+        report.add("skip", "AI global insight runtime", "not required because global insight is disabled")
+        report.add("skip", "AI global insight prompt", "not required because global insight is disabled")
 
 
 def _check_runtime_mapping(report: PreflightReport, *, item: str, config: dict[str, Any], hint: str) -> None:

@@ -86,7 +86,7 @@ class ReviewEntrypointSmokeTest(unittest.TestCase):
                   extract_prompt_file: ai_filter/extract_prompt.txt
                   update_tags_prompt_file: ai_filter/update_tags_prompt.txt
                 insight:
-                  prompt_file: ai_analysis_prompt.txt
+                  prompt_file: global_insight_prompt.txt
             storage:
               backend: local
               formats:
@@ -103,7 +103,7 @@ class ReviewEntrypointSmokeTest(unittest.TestCase):
         )
         (config_dir / "frequency_words.txt").write_text("[WORD_GROUPS]\nAI\n", encoding="utf-8")
         (config_dir / "ai_interests.txt").write_text("AI agents", encoding="utf-8")
-        (config_dir / "ai_analysis_prompt.txt").write_text("[user]\n{briefs_json}", encoding="utf-8")
+        (config_dir / "global_insight_prompt.txt").write_text("[user]\n{theme_summaries_json}", encoding="utf-8")
         (config_dir / "ai_filter" / "prompt.txt").write_text("[user]\n{news_list}", encoding="utf-8")
         (config_dir / "ai_filter" / "extract_prompt.txt").write_text("[user]\nextract", encoding="utf-8")
         (config_dir / "ai_filter" / "update_tags_prompt.txt").write_text("[user]\nupdate", encoding="utf-8")
@@ -196,8 +196,9 @@ class ReviewEntrypointSmokeTest(unittest.TestCase):
                 summary = run_insight_review(config_path=config_path, outbox_dir=outbox)
 
             self.assertFalse(summary["insight"]["enabled"])
-            self._assert_file(outbox, "stage5_insight_review.md")
-            self._assert_file(outbox, "stage5_insight.json")
+            self._assert_file(outbox, "stage5_summary_review.md")
+            self._assert_file(outbox, "stage5_global_insight_review.md")
+            self._assert_file(outbox, "stage5_global_insight.json")
         finally:
             workspace.cleanup()
             shutil.rmtree(outbox, ignore_errors=True)

@@ -1,5 +1,5 @@
 # coding=utf-8
-"""AI-based lightweight native insight workflow."""
+"""AI-based summary-first global insight workflow."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from newspulse.workflow.insight.aggregate import InsightAggregateGenerator
-from newspulse.workflow.insight.brief_builder import InsightBriefBuilder
 from newspulse.workflow.insight.input_builder import InsightInputBuilder
+from newspulse.workflow.insight.summary_builder import InsightSummaryBuilder
 from newspulse.workflow.shared.ai_runtime.client import AIRuntimeClient, CachedAIRuntimeClient
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate
 from newspulse.workflow.shared.ai_runtime.request_config import resolve_runtime_cache_config
@@ -18,7 +18,7 @@ from newspulse.workflow.shared.options import InsightOptions
 
 
 class AIInsightStrategy:
-    """Run the native stage-5 pipeline: context -> brief -> aggregate."""
+    """Run the native stage-5 pipeline: context -> summary -> global insight."""
 
     def __init__(
         self,
@@ -31,7 +31,7 @@ class AIInsightStrategy:
         client: AIRuntimeClient | Any | None = None,
         prompt_template: PromptTemplate | None = None,
         input_builder: InsightInputBuilder | None = None,
-        brief_builder: InsightBriefBuilder | None = None,
+        summary_builder: InsightSummaryBuilder | None = None,
         aggregate_generator: InsightAggregateGenerator | None = None,
     ):
         del storage_manager, proxy_url
@@ -46,7 +46,7 @@ class AIInsightStrategy:
         self.shared_client = shared_client
 
         self.input_builder = input_builder or InsightInputBuilder()
-        self.brief_builder = brief_builder or InsightBriefBuilder()
+        self.summary_builder = summary_builder or InsightSummaryBuilder()
         self.aggregate_generator = aggregate_generator or InsightAggregateGenerator(
             ai_runtime_config=ai_runtime_config,
             analysis_config=self.analysis_config,
@@ -57,7 +57,7 @@ class AIInsightStrategy:
 
     def run(self, snapshot: Any, selection: Any, options: InsightOptions) -> InsightResult:
         contexts = []
-        briefs = []
+        summary_bundle = None
         raw_response = ""
         cache_stats_before = self._cache_stats()
         try:
@@ -71,7 +71,7 @@ class AIInsightStrategy:
                         selection=selection,
                         options=options,
                         contexts=contexts,
-                        briefs=briefs,
+                        summary_bundle=summary_bundle,
                         aggregate_diag={"skipped": True, "reason": "no selected items available for insight generation"},
                         cache_stats=self._cache_delta(cache_stats_before),
                         skipped=True,
@@ -79,8 +79,8 @@ class AIInsightStrategy:
                     ),
                 )
 
-            briefs = self.brief_builder.build_many(contexts)
-            if not briefs:
+            summary_bundle = self.summary_builder.build_many(contexts)
+            if not summary_bundle.summaries:
                 return InsightResult(
                     enabled=True,
                     strategy="ai",
@@ -89,27 +89,27 @@ class AIInsightStrategy:
                         selection=selection,
                         options=options,
                         contexts=contexts,
-                        briefs=briefs,
-                        aggregate_diag={"skipped": True, "reason": "no briefs available for insight generation"},
+                        summary_bundle=summary_bundle,
+                        aggregate_diag={"skipped": True, "reason": "no summaries available for insight generation"},
                         cache_stats=self._cache_delta(cache_stats_before),
                         skipped=True,
-                        reason="no briefs available for insight generation",
+                        reason="no summaries available for insight generation",
                     ),
                 )
 
-            sections, raw_response, aggregate_diag = self.aggregate_generator.generate(briefs, contexts)
+            sections, raw_response, aggregate_diag = self.aggregate_generator.generate(summary_bundle, contexts)
             return InsightResult(
                 enabled=True,
                 strategy="ai",
+                summaries=list(summary_bundle.summaries),
                 sections=list(sections),
-                briefs=list(briefs),
                 raw_response=raw_response,
                 diagnostics=self._build_diagnostics(
                     snapshot=snapshot,
                     selection=selection,
                     options=options,
                     contexts=contexts,
-                    briefs=briefs,
+                    summary_bundle=summary_bundle,
                     aggregate_diag=aggregate_diag,
                     cache_stats=self._cache_delta(cache_stats_before),
                 ),
@@ -118,14 +118,14 @@ class AIInsightStrategy:
             return InsightResult(
                 enabled=True,
                 strategy="ai",
-                briefs=list(briefs),
+                summaries=list(summary_bundle.summaries) if summary_bundle is not None else [],
                 raw_response=raw_response,
                 diagnostics=self._build_diagnostics(
                     snapshot=snapshot,
                     selection=selection,
                     options=options,
                     contexts=contexts,
-                    briefs=briefs,
+                    summary_bundle=summary_bundle,
                     aggregate_diag={"error": f"{type(exc).__name__}: {exc}"},
                     cache_stats=self._cache_delta(cache_stats_before),
                     error=f"{type(exc).__name__}: {exc}",
@@ -170,7 +170,7 @@ class AIInsightStrategy:
         selection: Any,
         options: InsightOptions,
         contexts: list[Any],
-        briefs: list[Any],
+        summary_bundle: Any,
         aggregate_diag: Mapping[str, Any],
         cache_stats: Mapping[str, Any],
         skipped: bool = False,
@@ -181,7 +181,10 @@ class AIInsightStrategy:
             "mode": getattr(snapshot, "mode", ""),
             "report_mode": options.mode,
             "selected_items": int(getattr(selection, "total_selected", len(getattr(selection, "selected_items", []) or [])) or 0),
-            "brief_count": len(briefs),
+            "summary_count": len(summary_bundle.summaries) if summary_bundle is not None else 0,
+            "item_summary_count": len(summary_bundle.item_summaries) if summary_bundle is not None else 0,
+            "theme_summary_count": len(summary_bundle.theme_summaries) if summary_bundle is not None else 0,
+            "report_summary_present": bool(getattr(summary_bundle, "report_summary", None)),
             "section_count": int(aggregate_diag.get("section_count", 0) or 0),
             "max_items": options.max_items,
             "llm_cache_enabled": bool(cache_stats.get("enabled", False)),
@@ -189,7 +192,12 @@ class AIInsightStrategy:
             "llm_cache_misses": int(cache_stats.get("misses", 0) or 0),
             "llm_cache_entries": int(cache_stats.get("entries", 0) or 0),
             "input_contexts": [asdict(context) for context in contexts],
-            "brief_payloads": [asdict(brief) for brief in briefs],
+            "summary_payloads": [asdict(summary) for summary in summary_bundle.summaries] if summary_bundle is not None else [],
+            "item_summary_payloads": [asdict(summary) for summary in summary_bundle.item_summaries] if summary_bundle is not None else [],
+            "theme_summary_payloads": [asdict(summary) for summary in summary_bundle.theme_summaries] if summary_bundle is not None else [],
+            "report_summary_payload": asdict(summary_bundle.report_summary)
+            if summary_bundle is not None and summary_bundle.report_summary is not None
+            else {},
             "aggregate": dict(aggregate_diag or {}),
         }
         if skipped:

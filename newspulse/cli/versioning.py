@@ -126,7 +126,7 @@ def check_all_versions(
         resolve_timeline_path(config_root=layout.config_root),
         resolve_frequency_words_path(config_root=layout.config_root),
         resolve_ai_interests_path(config_root=layout.config_root),
-        resolve_prompt_path("ai_analysis_prompt.txt", config_root=layout.config_root),
+        resolve_prompt_path("global_insight_prompt.txt", config_root=layout.config_root),
         resolve_prompt_path("ai_translation_prompt.txt", config_root=layout.config_root),
     ]
 

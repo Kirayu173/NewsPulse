@@ -60,28 +60,33 @@ def export_insight_outbox(
             "enabled": bool(insight.enabled),
             "strategy": str(insight.strategy or ""),
             "section_count": len(insight.sections),
-            "brief_count": len(insight.briefs),
+            "summary_count": len(insight.summaries),
+            "item_summary_count": len([summary for summary in insight.summaries if summary.kind == "item"]),
+            "theme_summary_count": len([summary for summary in insight.summaries if summary.kind == "theme"]),
         },
     }
 
     outbox.write_stage_json(
-        "stage5_insight_input.json",
+        "stage5_summary_input.json",
         summary=summary,
         input_contexts=diagnostics.get("input_contexts", []),
     )
     outbox.write_stage_json(
-        "stage5_insight_briefs.json",
+        "stage5_summaries.json",
         summary=summary,
-        briefs=diagnostics.get("brief_payloads", []),
+        summaries=diagnostics.get("summary_payloads", []),
+        item_summaries=diagnostics.get("item_summary_payloads", []),
+        theme_summaries=diagnostics.get("theme_summary_payloads", []),
+        report_summary=diagnostics.get("report_summary_payload", {}),
     )
     outbox.write_stage_json(
-        "stage5_insight.json",
+        "stage5_global_insight.json",
         summary=summary,
         insight=asdict(insight),
     )
     outbox.write_markdown(
-        "stage5_insight_review.md",
-        _build_insight_review_markdown(
+        "stage5_summary_review.md",
+        _build_summary_review_markdown(
             generated_at=generated_at,
             config_path=config_path_obj,
             storage_data_dir=storage_path,
@@ -90,11 +95,22 @@ def export_insight_outbox(
             insight=insight,
         ),
     )
-    outbox.write_log("stage5_insight_run.log", run_log)
+    outbox.write_markdown(
+        "stage5_global_insight_review.md",
+        _build_global_insight_review_markdown(
+            generated_at=generated_at,
+            config_path=config_path_obj,
+            storage_data_dir=storage_path,
+            snapshot=snapshot,
+            selection=selection,
+            insight=insight,
+        ),
+    )
+    outbox.write_log("stage5_summary_global_insight_run.log", run_log)
     return summary
 
 
-def _build_insight_review_markdown(
+def _build_summary_review_markdown(
     *,
     generated_at: datetime,
     config_path: Path,
@@ -105,26 +121,28 @@ def _build_insight_review_markdown(
 ) -> str:
     diagnostics = dict(getattr(insight, "diagnostics", {}) or {})
     input_contexts = list(diagnostics.get("input_contexts", []))
-    brief_payloads = list(diagnostics.get("brief_payloads", []))
-    aggregate = dict(diagnostics.get("aggregate", {}) or {})
+    item_summaries = list(diagnostics.get("item_summary_payloads", []))
+    theme_summaries = list(diagnostics.get("theme_summary_payloads", []))
+    report_summary = dict(diagnostics.get("report_summary_payload", {}) or {})
 
     lines: list[str] = []
-    lines.append("# Stage 5 Insight Review")
+    lines.append("# Stage 5 Summary Review")
     lines.append("")
     lines.append(f'- generated_at: {generated_at.strftime("%Y-%m-%d %H:%M:%S %z") }')
     lines.append(f'- config_path: `{config_path}`')
     lines.append(f'- storage_data_dir: `{storage_data_dir}`')
     lines.append(f'- snapshot_items: {len(snapshot.items)}')
     lines.append(f'- selected_items: {selection.total_selected}')
-    lines.append(f'- briefs: {len(insight.briefs)}')
-    lines.append(f'- sections: {len(insight.sections)}')
+    lines.append(f'- summaries: {len(insight.summaries)}')
+    lines.append(f'- item_summaries: {len(item_summaries)}')
+    lines.append(f'- theme_summaries: {len(theme_summaries)}')
     if diagnostics.get("reason"):
         lines.append(f'- reason: {diagnostics.get("reason")}')
     if diagnostics.get("error"):
         lines.append(f'- error: {diagnostics.get("error")}')
     lines.append("")
 
-    lines.append("## Insight Inputs")
+    lines.append("## Summary Inputs")
     lines.append("")
     for index, row in enumerate(input_contexts[:12], start=1):
         source_name = row.get("source_name", "")
@@ -147,31 +165,83 @@ def _build_insight_review_markdown(
         lines.append(f"... ({len(input_contexts) - 12} more inputs)")
     lines.append("")
 
-    lines.append("## Insight Briefs")
+    lines.append("## Report Summary")
     lines.append("")
-    for index, row in enumerate(brief_payloads[:12], start=1):
-        lines.append(f"{index}. [{row.get('source_name', '')}] {row.get('title', '')}")
-        if row.get("summary"):
-            lines.append(f"   summary: {row.get('summary')}")
-        attributes = row.get("attributes", [])
-        if isinstance(attributes, list) and attributes:
-            lines.append(f"   attributes: {', '.join(str(item) for item in attributes[:4])}")
-        matched_topics = row.get("matched_topics", [])
-        if isinstance(matched_topics, list) and matched_topics:
-            lines.append(f"   matched_topics: {', '.join(str(item) for item in matched_topics[:4])}")
-        llm_reasons = row.get("llm_reasons", [])
-        if isinstance(llm_reasons, list) and llm_reasons:
-            lines.append(f"   llm_reasons: {' | '.join(str(item) for item in llm_reasons[:3])}")
-        lines.append(
-            f"   rank/scores: rank={row.get('current_rank', 0)} trend={row.get('rank_trend', '')} semantic={row.get('semantic_score', 0)} quality={row.get('quality_score', 0)}"
-        )
-    if len(brief_payloads) > 12:
-        lines.append(f"... ({len(brief_payloads) - 12} more briefs)")
+    if report_summary:
+        lines.append(report_summary.get("summary", ""))
+        if report_summary.get("evidence_topics"):
+            lines.append(f"- evidence_topics: {', '.join(str(item) for item in report_summary.get('evidence_topics', [])[:8])}")
+    else:
+        lines.append("No report summary was generated.")
     lines.append("")
 
-    lines.append("## Aggregate Insight")
+    lines.append("## Theme Summaries")
     lines.append("")
-    lines.append(f"- aggregate_brief_count: {aggregate.get('brief_count', len(insight.briefs))}")
+    for index, row in enumerate(theme_summaries[:12], start=1):
+        lines.append(f"{index}. {row.get('title', '')}")
+        if row.get("summary"):
+            lines.append(f"   summary: {row.get('summary')}")
+        if row.get("item_ids"):
+            lines.append(f"   item_ids: {', '.join(str(item) for item in row.get('item_ids', [])[:8])}")
+        if row.get("evidence_topics"):
+            lines.append(f"   evidence_topics: {', '.join(str(item) for item in row.get('evidence_topics', [])[:6])}")
+        if row.get("evidence_notes"):
+            lines.append(f"   evidence_notes: {' | '.join(str(item) for item in row.get('evidence_notes', [])[:3])}")
+        if row.get("sources"):
+            lines.append(f"   auxiliary_sources: {', '.join(str(item) for item in row.get('sources', [])[:4])}")
+    if len(theme_summaries) > 12:
+        lines.append(f"... ({len(theme_summaries) - 12} more theme summaries)")
+    lines.append("")
+
+    lines.append("## Item Summaries")
+    lines.append("")
+    for index, row in enumerate(item_summaries[:12], start=1):
+        lines.append(f"{index}. {row.get('title', '')}")
+        if row.get("summary"):
+            lines.append(f"   summary: {row.get('summary')}")
+        if row.get("evidence_topics"):
+            lines.append(f"   evidence_topics: {', '.join(str(item) for item in row.get('evidence_topics', [])[:4])}")
+        if row.get("evidence_notes"):
+            lines.append(f"   evidence_notes: {' | '.join(str(item) for item in row.get('evidence_notes', [])[:3])}")
+    if len(item_summaries) > 12:
+        lines.append(f"... ({len(item_summaries) - 12} more item summaries)")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def _build_global_insight_review_markdown(
+    *,
+    generated_at: datetime,
+    config_path: Path,
+    storage_data_dir: Path,
+    snapshot: Any,
+    selection: Any,
+    insight: Any,
+) -> str:
+    diagnostics = dict(getattr(insight, "diagnostics", {}) or {})
+    aggregate = dict(diagnostics.get("aggregate", {}) or {})
+
+    lines: list[str] = []
+    lines.append("# Stage 5 Global Insight Review")
+    lines.append("")
+    lines.append(f'- generated_at: {generated_at.strftime("%Y-%m-%d %H:%M:%S %z") }')
+    lines.append(f'- config_path: `{config_path}`')
+    lines.append(f'- storage_data_dir: `{storage_data_dir}`')
+    lines.append(f'- snapshot_items: {len(snapshot.items)}')
+    lines.append(f'- selected_items: {selection.total_selected}')
+    lines.append(f'- summaries: {len(insight.summaries)}')
+    lines.append(f'- sections: {len(insight.sections)}')
+    if diagnostics.get("reason"):
+        lines.append(f'- reason: {diagnostics.get("reason")}')
+    if diagnostics.get("error"):
+        lines.append(f'- error: {diagnostics.get("error")}')
+    lines.append("")
+
+    lines.append("## Aggregate Diagnostics")
+    lines.append("")
+    lines.append(f"- aggregate_summary_count: {aggregate.get('summary_count', len(insight.summaries))}")
+    lines.append(f"- aggregate_theme_summary_count: {aggregate.get('theme_summary_count', 0)}")
     lines.append(f"- aggregate_section_count: {aggregate.get('section_count', len(insight.sections))}")
     if aggregate.get("source_distribution"):
         lines.append(f"- source_distribution: {json.dumps(aggregate.get('source_distribution'), ensure_ascii=False)}")

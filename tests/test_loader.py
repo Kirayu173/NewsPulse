@@ -193,7 +193,7 @@ class LoaderConfigRootTest(unittest.TestCase):
                   api_base: ""
                 """,
             )
-            write_text(config_dir / "ai_analysis_prompt.txt", "[user]\nhello")
+            write_text(config_dir / "global_insight_prompt.txt", "[user]\nhello")
             write_text(config_dir / "ai_filter" / "prompt.txt", "[user]\nclassify")
             write_text(config_dir / "ai_filter" / "extract_prompt.txt", "[user]\nextract")
             write_text(config_dir / "ai_filter" / "update_tags_prompt.txt", "[user]\nupdate")
@@ -215,7 +215,7 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["_PATHS"]["CONFIG_PATH"], str(config_dir / "config.yaml"))
             self.assertEqual(
                 config["AI_ANALYSIS"]["PROMPT_FILE"],
-                str(config_dir / "ai_analysis_prompt.txt"),
+                str(config_dir / "global_insight_prompt.txt"),
             )
             self.assertEqual(
                 config["AI_FILTER"]["PROMPT_FILE"],
@@ -318,7 +318,7 @@ class LoaderConfigRootTest(unittest.TestCase):
         with workspace_tmpdir() as workspace:
             config_dir = workspace / "config"
             config_file = config_dir / "config.yaml"
-            write_text(config_dir / "ai_analysis_prompt.txt", "[user]\nanalysis")
+            write_text(config_dir / "global_insight_prompt.txt", "[user]\nanalysis")
             write_text(config_dir / "ai_filter" / "prompt.txt", "[user]\nfilter")
             write_text(config_dir / "ai_filter" / "extract_prompt.txt", "[user]\nextract")
             write_text(config_dir / "ai_filter" / "update_tags_prompt.txt", "[user]\nupdate")
@@ -376,7 +376,7 @@ class LoaderConfigRootTest(unittest.TestCase):
                       extra_params:
                         top_p: 0.9
                     insight:
-                      prompt_file: ai_analysis_prompt.txt
+                      prompt_file: global_insight_prompt.txt
                       api_key: insight-key
                       temperature: 0.8
                       runtime_cache:
@@ -415,7 +415,7 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["AI_ANALYSIS"]["MAX_ITEMS"], 9)
             self.assertEqual(
                 config["AI_ANALYSIS"]["PROMPT_FILE"],
-                str((config_dir / "ai_analysis_prompt.txt").resolve()),
+                str((config_dir / "global_insight_prompt.txt").resolve()),
             )
             self.assertEqual(config["AI_ANALYSIS"]["RUNTIME_CACHE"]["TTL_SECONDS"], 60)
             self.assertFalse(config["AI_ANALYSIS"]["RUNTIME_CACHE"]["ENABLED"])

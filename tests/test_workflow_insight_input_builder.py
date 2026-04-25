@@ -1,7 +1,7 @@
 import unittest
 
 from newspulse.workflow.insight.input_builder import InsightInputBuilder
-from newspulse.workflow.shared.contracts import HotlistItem, SelectionResult
+from newspulse.workflow.shared.contracts import HotlistItem, SelectionGroup, SelectionResult
 
 
 class InsightInputBuilderTest(unittest.TestCase):
@@ -84,6 +84,27 @@ class InsightInputBuilderTest(unittest.TestCase):
         self.assertIn('host: example.com', contexts[0].source_context.attributes)
         self.assertEqual(contexts[2].source_context.source_kind, 'hackernews_item')
         self.assertIn('host: news.ycombinator.com', contexts[2].source_context.attributes)
+
+    def test_keyword_group_labels_feed_theme_topics_when_ai_topics_are_missing(self):
+        item = HotlistItem(
+            news_item_id='1',
+            source_id='thepaper',
+            source_name='澎湃新闻',
+            title='科技政策更新',
+            current_rank=1,
+        )
+        selection = SelectionResult(
+            strategy='keyword',
+            groups=[SelectionGroup(key='technology', label='科技政策', items=[item])],
+            selected_items=[item],
+            total_candidates=1,
+            total_selected=1,
+            diagnostics={},
+        )
+
+        contexts = InsightInputBuilder().build(None, selection)
+
+        self.assertEqual(contexts[0].selection_evidence.matched_topics, ('科技政策',))
 
 
 if __name__ == '__main__':

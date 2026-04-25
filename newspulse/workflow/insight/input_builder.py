@@ -35,6 +35,7 @@ class InsightInputBuilder:
         selected_match_map = _map_by_id(diagnostics.get('selected_matches'))
         llm_decision_map = _map_by_id(diagnostics.get('llm_decisions'))
         semantic_candidate_map = _best_semantic_candidates(diagnostics.get('semantic_candidates'))
+        group_topic_map = _group_topics_by_item(getattr(selection, 'groups', []) or [])
 
         contexts: list[InsightNewsContext] = []
         for item in selected_items:
@@ -46,6 +47,9 @@ class InsightInputBuilder:
             selected_match = selected_match_map.get(item_id, {})
             semantic_candidate = semantic_candidate_map.get(item_id, {})
             llm_decision = llm_decision_map.get(item_id, {})
+            matched_topics = _collect_topics(selected_match, llm_decision)
+            if not matched_topics:
+                matched_topics = list(group_topic_map.get(item_id, []))
             contexts.append(
                 InsightNewsContext(
                     news_item_id=item_id,
@@ -62,7 +66,7 @@ class InsightInputBuilder:
                         metadata=_whitelist_source_metadata(item, source_kind),
                     ),
                     selection_evidence=InsightSelectionEvidence(
-                        matched_topics=tuple(_collect_topics(selected_match, llm_decision)),
+                        matched_topics=tuple(matched_topics),
                         semantic_score=float(semantic_candidate.get('score', 0.0) or 0.0),
                         quality_score=float(
                             selected_match.get('quality_score', llm_decision.get('quality_score', 0.0)) or 0.0
@@ -180,6 +184,24 @@ def _collect_topics(*rows: Mapping[str, Any]) -> list[str]:
             if text and text not in topics:
                 topics.append(text)
     return topics
+
+
+def _group_topics_by_item(groups: Any) -> dict[str, tuple[str, ...]]:
+    mapped: dict[str, list[str]] = {}
+    if not isinstance(groups, Sequence):
+        return {}
+    for group in groups:
+        label = str(getattr(group, 'label', '') or getattr(group, 'key', '') or '').strip()
+        if not label:
+            continue
+        for item in list(getattr(group, 'items', []) or []):
+            item_id = str(getattr(item, 'news_item_id', '') or '').strip()
+            if not item_id:
+                continue
+            topics = mapped.setdefault(item_id, [])
+            if label not in topics:
+                topics.append(label)
+    return {item_id: tuple(topics) for item_id, topics in mapped.items()}
 
 
 def _collect_reasons(*rows: Mapping[str, Any]) -> list[str]:

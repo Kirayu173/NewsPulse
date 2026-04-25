@@ -1,17 +1,17 @@
 # coding=utf-8
-"""Aggregate lightweight insight briefs into stable insight sections."""
+"""Aggregate theme summaries into stable global insight sections."""
 
 from __future__ import annotations
 
 import json
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 from newspulse.workflow.insight.models import (
     DEFAULT_SECTION_TEMPLATES,
-    InsightBrief,
     InsightNewsContext,
     InsightSectionTemplate,
     build_summary,
@@ -22,11 +22,11 @@ from newspulse.workflow.shared.ai_runtime.codec import extract_json_block
 from newspulse.workflow.shared.ai_runtime.errors import AIResponseDecodeError
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate, load_prompt_template
 from newspulse.workflow.shared.ai_runtime.request_config import build_request_overrides
-from newspulse.workflow.shared.contracts import InsightSection
+from newspulse.workflow.shared.contracts import InsightSection, InsightSummary, InsightSummaryBundle
 
 
 class InsightAggregateGenerator:
-    """Generate stable aggregate insight sections from lightweight briefs."""
+    """Generate stable global insight sections from theme summaries."""
 
     def __init__(
         self,
@@ -48,7 +48,7 @@ class InsightAggregateGenerator:
             client = AIRuntimeClient(ai_runtime_config)
         self.client = client
         self.prompt_template = prompt_template or load_prompt_template(
-            self.analysis_config.get("PROMPT_FILE", "ai_analysis_prompt.txt"),
+            self.analysis_config.get("PROMPT_FILE", "global_insight_prompt.txt"),
             config_root=self.config_root,
             required=True,
         )
@@ -62,17 +62,24 @@ class InsightAggregateGenerator:
 
     def generate(
         self,
-        briefs: Sequence[InsightBrief],
-        contexts: Sequence[InsightNewsContext],
+        summaries: InsightSummaryBundle | Sequence[InsightSummary],
+        contexts: Sequence[InsightNewsContext] = (),
     ) -> tuple[list[InsightSection], str, dict[str, Any]]:
-        valid_briefs = [brief for brief in briefs if str(brief.news_item_id or "").strip() and str(brief.title or "").strip()]
-        if not valid_briefs:
-            return [], "", {"skipped": True, "reason": "no briefs available"}
+        summary_bundle = _coerce_summary_bundle(summaries)
+        valid_theme_summaries = [
+            summary
+            for summary in summary_bundle.theme_summaries
+            if str(summary.key or "").strip() and str(summary.summary or "").strip()
+        ]
+        report_summary = summary_bundle.report_summary
+        if not valid_theme_summaries and report_summary is None:
+            return [], "", {"skipped": True, "reason": "no summaries available"}
 
-        brief_payload = _build_brief_payload(valid_briefs)
-        source_distribution = _source_distribution(valid_briefs, contexts)
-        topic_distribution = _topic_distribution(valid_briefs, contexts)
-        user_prompt = self._render_prompt(brief_payload, source_distribution, topic_distribution)
+        theme_payload = _build_theme_summary_payload(valid_theme_summaries)
+        report_payload = asdict(report_summary) if report_summary is not None else {}
+        source_distribution = _source_distribution(summary_bundle, contexts)
+        topic_distribution = _topic_distribution(summary_bundle, contexts)
+        user_prompt = self._render_prompt(theme_payload, report_payload, source_distribution, topic_distribution)
         raw_response = ""
         try:
             response = self.client.generate_json(
@@ -83,21 +90,27 @@ class InsightAggregateGenerator:
             payload = response.json_payload
             sections = _coerce_sections(
                 payload,
-                brief_payload=brief_payload,
+                summary_bundle=summary_bundle,
                 section_templates=self.section_templates,
                 source_distribution=source_distribution,
                 topic_distribution=topic_distribution,
             )
             return sections, raw_response, {
-                "brief_count": len(valid_briefs),
+                "summary_count": len(summary_bundle.summaries),
+                "item_summary_count": len(summary_bundle.item_summaries),
+                "theme_summary_count": len(valid_theme_summaries),
+                "report_summary_present": report_summary is not None,
                 "source_distribution": source_distribution,
                 "topic_distribution": topic_distribution,
                 "section_count": len(sections),
             }
         except Exception as exc:
-            fallback = _fallback_section(valid_briefs, source_distribution, topic_distribution)
+            fallback = _fallback_section(summary_bundle, source_distribution, topic_distribution)
             return fallback, raw_response, {
-                "brief_count": len(valid_briefs),
+                "summary_count": len(summary_bundle.summaries),
+                "item_summary_count": len(summary_bundle.item_summaries),
+                "theme_summary_count": len(valid_theme_summaries),
+                "report_summary_present": report_summary is not None,
                 "source_distribution": source_distribution,
                 "topic_distribution": topic_distribution,
                 "section_count": len(fallback),
@@ -107,14 +120,17 @@ class InsightAggregateGenerator:
 
     def _render_prompt(
         self,
-        brief_payload: list[dict[str, Any]],
+        theme_summary_payload: list[dict[str, Any]],
+        report_summary_payload: dict[str, Any],
         source_distribution: dict[str, int],
         topic_distribution: dict[str, int],
     ) -> str:
         user_prompt = self.prompt_template.user_prompt
         replacements = {
-            "news_count": str(len(brief_payload)),
-            "briefs_json": json.dumps(brief_payload, ensure_ascii=False, indent=2),
+            "summary_count": str(len(theme_summary_payload)),
+            "theme_count": str(len(theme_summary_payload)),
+            "theme_summaries_json": json.dumps(theme_summary_payload, ensure_ascii=False, indent=2),
+            "report_summary_json": json.dumps(report_summary_payload, ensure_ascii=False, indent=2),
             "source_distribution_json": json.dumps(source_distribution, ensure_ascii=False, indent=2),
             "topic_distribution_json": json.dumps(topic_distribution, ensure_ascii=False, indent=2),
             "language": str(self.analysis_config.get("LANGUAGE", "Chinese") or "Chinese"),
@@ -124,34 +140,46 @@ class InsightAggregateGenerator:
         return user_prompt
 
 
-def _build_brief_payload(briefs: Sequence[InsightBrief]) -> list[dict[str, Any]]:
+def _coerce_summary_bundle(summaries: InsightSummaryBundle | Sequence[InsightSummary]) -> InsightSummaryBundle:
+    if isinstance(summaries, InsightSummaryBundle):
+        return summaries
+    item_summaries = [summary for summary in summaries if getattr(summary, "kind", "") == "item"]
+    theme_summaries = [summary for summary in summaries if getattr(summary, "kind", "") == "theme"]
+    report_summary = next((summary for summary in summaries if getattr(summary, "kind", "") == "report"), None)
+    return InsightSummaryBundle(
+        item_summaries=list(item_summaries),
+        theme_summaries=list(theme_summaries),
+        report_summary=report_summary,
+    )
+
+
+def _build_theme_summary_payload(theme_summaries: Sequence[InsightSummary]) -> list[dict[str, Any]]:
     payload: list[dict[str, Any]] = []
-    for brief in briefs:
+    for summary in theme_summaries:
+        metadata = dict(summary.metadata or {})
         payload.append(
             {
-                "news_item_id": brief.news_item_id,
-                "title": brief.title,
-                "source_id": brief.source_id,
-                "source_name": brief.source_name,
-                "source_kind": brief.source_kind,
-                "summary": brief.summary,
-                "attributes": list(brief.attributes),
-                "matched_topics": list(brief.matched_topics),
-                "llm_reasons": list(brief.llm_reasons),
-                "semantic_score": brief.semantic_score,
-                "quality_score": brief.quality_score,
-                "current_rank": brief.current_rank,
-                "rank_trend": brief.rank_trend,
-                "url": brief.url,
+                "key": summary.key,
+                "title": summary.title,
+                "summary": summary.summary,
+                "item_ids": list(summary.item_ids),
+                "theme_keys": list(summary.theme_keys),
+                "evidence_topics": list(summary.evidence_topics),
+                "evidence_notes": list(summary.evidence_notes),
+                "representative_item_ids": list(metadata.get("representative_item_ids", [])),
+                "supporting_item_ids": list(metadata.get("supporting_item_ids", [])),
+                "representative_titles": list(metadata.get("representative_titles", [])),
+                "source_evidence": list(summary.sources),
+                "item_count": int(metadata.get("item_count", len(summary.item_ids)) or 0),
             }
         )
     return payload
 
 
-def _source_distribution(briefs: Sequence[InsightBrief], contexts: Sequence[InsightNewsContext]) -> dict[str, int]:
+def _source_distribution(summary_bundle: InsightSummaryBundle, contexts: Sequence[InsightNewsContext]) -> dict[str, int]:
     counter: Counter[str] = Counter()
-    for brief in briefs:
-        counter.update([brief.source_name or brief.source_id or "unknown"])
+    for summary in summary_bundle.theme_summaries or summary_bundle.item_summaries:
+        counter.update([source for source in summary.sources if source])
     if counter:
         return dict(counter)
     for context in contexts:
@@ -159,10 +187,10 @@ def _source_distribution(briefs: Sequence[InsightBrief], contexts: Sequence[Insi
     return dict(counter)
 
 
-def _topic_distribution(briefs: Sequence[InsightBrief], contexts: Sequence[InsightNewsContext]) -> dict[str, int]:
+def _topic_distribution(summary_bundle: InsightSummaryBundle, contexts: Sequence[InsightNewsContext]) -> dict[str, int]:
     counter: Counter[str] = Counter()
-    for brief in briefs:
-        counter.update(brief.matched_topics)
+    for summary in summary_bundle.theme_summaries or summary_bundle.item_summaries:
+        counter.update(summary.evidence_topics)
     if counter:
         return dict(counter)
     for context in contexts:
@@ -173,11 +201,12 @@ def _topic_distribution(briefs: Sequence[InsightBrief], contexts: Sequence[Insig
 def _coerce_sections(
     payload: Any,
     *,
-    brief_payload: Sequence[dict[str, Any]],
+    summary_bundle: InsightSummaryBundle,
     section_templates: Sequence[InsightSectionTemplate],
     source_distribution: dict[str, int],
     topic_distribution: dict[str, int],
 ) -> list[InsightSection]:
+    default_supporting_news_ids = _default_supporting_news_ids(summary_bundle)
     if isinstance(payload, Mapping) and isinstance(payload.get("sections"), list):
         sections: list[InsightSection] = []
         seen_keys: set[str] = set()
@@ -197,10 +226,11 @@ def _coerce_sections(
                     content=content,
                     summary=str(row.get("summary", "") or build_summary(content)).strip(),
                     metadata={
-                        "supporting_news_ids": supporting_news_ids or _default_supporting_news_ids(brief_payload),
+                        "supporting_news_ids": supporting_news_ids or default_supporting_news_ids,
                         "supporting_topics": supporting_topics or list(topic_distribution)[:6],
                         "source_distribution": _coerce_distribution(row.get("source_distribution")) or source_distribution,
                         "section_generator": "aggregate_llm",
+                        "input_summary_keys": _input_summary_keys(summary_bundle),
                     },
                 )
             )
@@ -234,10 +264,11 @@ def _coerce_sections(
                 content=content,
                 summary=build_summary(content, template.summary_limit),
                 metadata={
-                    "supporting_news_ids": supporting_news_ids or _default_supporting_news_ids(brief_payload),
+                    "supporting_news_ids": supporting_news_ids or default_supporting_news_ids,
                     "supporting_topics": supporting_topics or list(topic_distribution)[:6],
                     "source_distribution": section_source_distribution,
                     "section_generator": "aggregate_llm",
+                    "input_summary_keys": _input_summary_keys(summary_bundle),
                 },
             )
         )
@@ -247,16 +278,22 @@ def _coerce_sections(
 
 
 def _fallback_section(
-    briefs: Sequence[InsightBrief],
+    summary_bundle: InsightSummaryBundle,
     source_distribution: Mapping[str, int],
     topic_distribution: Mapping[str, int],
 ) -> list[InsightSection]:
-    first = briefs[0]
-    content = first.summary or first.title
-    if first.matched_topics:
-        content = f"{content} ????????? {', '.join(first.matched_topics[:3])}?"
-    elif first.source_name:
-        content = f"{content} ???????? {first.source_name} ????"
+    report_summary = summary_bundle.report_summary
+    theme_summaries = list(summary_bundle.theme_summaries)
+    if report_summary is not None:
+        content = report_summary.summary
+    elif theme_summaries:
+        content = "；".join(summary.summary for summary in theme_summaries[:3] if summary.summary)
+    elif summary_bundle.item_summaries:
+        content = "；".join(summary.summary for summary in summary_bundle.item_summaries[:3] if summary.summary)
+    else:
+        content = "No summary input was available for global insight generation."
+    if theme_summaries:
+        content = f"{content} 后续洞察基于主题摘要生成，重点主题包括：{', '.join(summary.title for summary in theme_summaries[:3])}。"
     return [
         InsightSection(
             key="core_trends",
@@ -264,17 +301,30 @@ def _fallback_section(
             content=content.strip() or "No aggregate insight could be generated.",
             summary=build_summary(content),
             metadata={
-                "supporting_news_ids": [brief.news_item_id for brief in briefs[:4]],
+                "supporting_news_ids": _default_supporting_news_ids(summary_bundle),
                 "supporting_topics": list(topic_distribution)[:6],
                 "source_distribution": dict(source_distribution),
                 "section_generator": "aggregate_fallback",
+                "input_summary_keys": _input_summary_keys(summary_bundle),
             },
         )
     ]
 
 
-def _default_supporting_news_ids(brief_payload: Sequence[dict[str, Any]]) -> list[str]:
-    return [str(row.get("news_item_id", "")).strip() for row in brief_payload[:4] if str(row.get("news_item_id", "")).strip()]
+def _default_supporting_news_ids(summary_bundle: InsightSummaryBundle) -> list[str]:
+    ids: list[str] = []
+    for summary in summary_bundle.theme_summaries or summary_bundle.item_summaries:
+        for item_id in summary.item_ids:
+            text = str(item_id or "").strip()
+            if text and text not in ids:
+                ids.append(text)
+            if len(ids) >= 8:
+                return ids
+    return ids
+
+
+def _input_summary_keys(summary_bundle: InsightSummaryBundle) -> list[str]:
+    return [summary.key for summary in summary_bundle.summaries if summary.key][:12]
 
 
 def _coerce_id_list(value: Any) -> list[str]:

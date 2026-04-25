@@ -90,6 +90,41 @@ class InsightSection:
 
 
 @dataclass
+class InsightSummary:
+    """Structured summary block produced before global insight aggregation."""
+
+    kind: str
+    key: str
+    title: str
+    summary: str
+    item_ids: List[str] = field(default_factory=list)
+    theme_keys: List[str] = field(default_factory=list)
+    evidence_topics: List[str] = field(default_factory=list)
+    evidence_notes: List[str] = field(default_factory=list)
+    sources: List[str] = field(default_factory=list)
+    expanded: bool = True
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class InsightSummaryBundle:
+    """Grouped Stage-5 summary output split by item, theme and report scopes."""
+
+    item_summaries: List[InsightSummary] = field(default_factory=list)
+    theme_summaries: List[InsightSummary] = field(default_factory=list)
+    report_summary: InsightSummary | None = None
+
+    @property
+    def summaries(self) -> List[InsightSummary]:
+        rows: List[InsightSummary] = []
+        if self.report_summary is not None:
+            rows.append(self.report_summary)
+        rows.extend(self.theme_summaries)
+        rows.extend(self.item_summaries)
+        return rows
+
+
+@dataclass
 class HotlistSnapshot:
     """Unique downstream input generated from stored hotlist data."""
 
@@ -150,8 +185,8 @@ class InsightResult:
 
     enabled: bool = False
     strategy: str = "noop"
+    summaries: List[InsightSummary] = field(default_factory=list)
     sections: List[InsightSection] = field(default_factory=list)
-    briefs: List[Any] = field(default_factory=list)
     raw_response: str = ""
     diagnostics: Dict[str, Any] = field(default_factory=dict)
 
@@ -177,6 +212,7 @@ class ReportContent:
     selected_items: List[HotlistItem] = field(default_factory=list)
     new_items: List[HotlistItem] = field(default_factory=list)
     standalone_sections: List[StandaloneSection] = field(default_factory=list)
+    summary_cards: List[InsightSummary] = field(default_factory=list)
     insight_sections: List[InsightSection] = field(default_factory=list)
 
 

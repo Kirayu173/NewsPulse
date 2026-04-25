@@ -495,7 +495,7 @@ def _load_ai_insight_operation_config(config_data: Dict[str, Any], config_root: 
     return {
         "PROMPT_FILE": str(
             resolve_prompt_path(
-                str(_coalesce(_get_present_value(operation, "prompt_file"), default="ai_analysis_prompt.txt")),
+                str(_coalesce(_get_present_value(operation, "prompt_file"), default="global_insight_prompt.txt")),
                 config_root=config_root,
             )
         ),

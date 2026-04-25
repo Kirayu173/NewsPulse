@@ -67,6 +67,7 @@ class ReportPackageAssembler:
             selected_items=self._copy_known_items(selected_items, snapshot_item_map),
             new_items=self._build_new_items(snapshot.new_items, resolved_selected_item_ids),
             standalone_sections=self._build_standalone_sections(snapshot.standalone_sections),
+            summary_cards=self._build_summary_cards(insight.summaries),
             insight_sections=self._build_insight_sections(insight.sections),
         )
 
@@ -102,7 +103,7 @@ class ReportPackageAssembler:
                 "insight": {
                     "enabled": insight.enabled,
                     "strategy": insight.strategy,
-                    "brief_count": len(insight.briefs),
+                    "summary_count": len(insight.summaries),
                     "raw_response": insight.raw_response,
                     "diagnostics": deepcopy(insight.diagnostics),
                 },
@@ -209,6 +210,16 @@ class ReportPackageAssembler:
         standalone_sections: list[StandaloneSection],
     ) -> list[StandaloneSection]:
         return [deepcopy(section) for section in standalone_sections]
+
+    @staticmethod
+    def _build_summary_cards(summaries):
+        return [
+            deepcopy(summary)
+            for summary in summaries
+            if str(getattr(summary, "kind", "") or "").strip()
+            and str(getattr(summary, "key", "") or "").strip()
+            and str(getattr(summary, "summary", "") or "").strip()
+        ]
 
     @staticmethod
     def _build_insight_sections(

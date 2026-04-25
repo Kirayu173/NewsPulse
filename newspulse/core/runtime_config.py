@@ -362,7 +362,7 @@ def resolve_ai_analysis_config(config: Dict[str, Any], raw_config: Dict[str, Any
         "ENABLED": bool(insight.get("ENABLED", False)),
         "STRATEGY": str(insight.get("STRATEGY", "noop") or "noop"),
         "LANGUAGE": str(insight.get("LANGUAGE", "Chinese") or "Chinese"),
-        "PROMPT_FILE": str(mapping_get(operation, "PROMPT_FILE", "prompt_file", default="ai_analysis_prompt.txt") or "ai_analysis_prompt.txt"),
+        "PROMPT_FILE": str(mapping_get(operation, "PROMPT_FILE", "prompt_file", default="global_insight_prompt.txt") or "global_insight_prompt.txt"),
         "MODE": str(insight.get("MODE", "follow_report") or "follow_report"),
         "MAX_ITEMS": int(insight.get("MAX_ITEMS", 50) or 50),
         "TIMEOUT": mapping_get(operation, "TIMEOUT", "timeout"),

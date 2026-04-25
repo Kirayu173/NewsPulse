@@ -1,5 +1,5 @@
 # coding=utf-8
-"""Native contracts and helpers used by the lightweight insight stage."""
+"""Native context contracts and helpers used by the insight stage."""
 
 from __future__ import annotations
 
@@ -52,26 +52,6 @@ class InsightNewsContext:
     rank_signals: InsightRankSignals = field(default_factory=InsightRankSignals)
     source_context: InsightSourceContext = field(default_factory=InsightSourceContext)
     selection_evidence: InsightSelectionEvidence = field(default_factory=InsightSelectionEvidence)
-
-
-@dataclass(frozen=True)
-class InsightBrief:
-    """Compact stage-5 artifact reused by aggregate, report and render layers."""
-
-    news_item_id: str
-    title: str
-    source_id: str
-    source_name: str
-    source_kind: str = ""
-    summary: str = ""
-    attributes: tuple[str, ...] = ()
-    matched_topics: tuple[str, ...] = ()
-    llm_reasons: tuple[str, ...] = ()
-    semantic_score: float = 0.0
-    quality_score: float = 0.0
-    current_rank: int = 0
-    rank_trend: str = ""
-    url: str = ""
 
 
 @dataclass(frozen=True)

@@ -17,7 +17,7 @@ class RecordingInsightService:
             enabled=True,
             strategy='ai',
             sections=[InsightSection(key='core_trends', title='Core Trends', content='ok')],
-            diagnostics={'report_mode': options.mode, 'brief_count': len(selection.selected_items)},
+            diagnostics={'report_mode': options.mode, 'item_summary_count': len(selection.selected_items)},
         )
 
 
@@ -44,7 +44,7 @@ class RuntimeInsightStageTest(unittest.TestCase):
                 'MODE': ai_mode,
                 'MAX_ITEMS': 7,
                 'LANGUAGE': 'Chinese',
-                'PROMPT_FILE': 'ai_analysis_prompt.txt',
+                'PROMPT_FILE': 'global_insight_prompt.txt',
             },
             'STORAGE': {
                 'BACKEND': 'local',

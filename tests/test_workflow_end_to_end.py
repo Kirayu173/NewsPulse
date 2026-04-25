@@ -17,8 +17,8 @@ from newspulse.storage import get_storage_manager
 from newspulse.storage.base import NewsData, NewsItem
 from newspulse.workflow.delivery import DeliveryService, GenericWebhookDeliveryAdapter
 from newspulse.workflow.insight.ai import AIInsightStrategy
-from newspulse.workflow.insight.models import InsightBrief
 from newspulse.workflow.insight.service import InsightService
+from newspulse.workflow.insight.summary_builder import InsightSummaryBuilder
 from newspulse.workflow.selection.ai import AISelectionStrategy
 from newspulse.workflow.selection.service import SelectionService
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate
@@ -151,7 +151,7 @@ def _build_config(
             "MODE": "daily",
             "MAX_ITEMS": 5,
             "LANGUAGE": "Chinese",
-            "PROMPT_FILE": "ai_analysis_prompt.txt",
+            "PROMPT_FILE": "global_insight_prompt.txt",
         },
         "ENABLE_NOTIFICATION": True,
         "GENERIC_WEBHOOK_URL": "https://example.com/webhook",
@@ -215,30 +215,13 @@ class RoutingAISelectionClient:
         return json_result(results)
 
 
-class StubInsightBriefBuilder:
-    def build_many(self, contexts):
-        return [
-            InsightBrief(
-                news_item_id=context.news_item_id,
-                title=context.title,
-                source_id=context.source_id,
-                source_name=context.source_name,
-                source_kind=context.source_context.source_kind,
-                summary=f"{context.title} matters",
-                matched_topics=context.selection_evidence.matched_topics,
-                llm_reasons=context.selection_evidence.llm_reasons,
-                quality_score=context.selection_evidence.quality_score,
-                semantic_score=context.selection_evidence.semantic_score,
-                current_rank=context.rank_signals.current_rank,
-                rank_trend=context.rank_signals.rank_trend,
-                url=context.url,
-            )
-            for context in contexts
-        ]
-
-
 class StubInsightAggregate:
-    def generate(self, briefs, contexts):
+    def generate(self, summary_bundle, contexts):
+        item_ids = [
+            item_id
+            for summary in summary_bundle.item_summaries
+            for item_id in summary.item_ids
+        ]
         return (
             [
                 InsightSection(
@@ -246,12 +229,17 @@ class StubInsightAggregate:
                     title="Core Trends",
                     content="AI tools keep dominating the developer conversation.",
                     metadata={
-                        "supporting_news_ids": [brief.news_item_id for brief in briefs],
+                        "supporting_news_ids": item_ids,
                     },
                 )
             ],
             '{"sections": []}',
-            {"brief_count": len(briefs), "section_count": 1},
+            {
+                "summary_count": len(summary_bundle.summaries),
+                "item_summary_count": len(summary_bundle.item_summaries),
+                "theme_summary_count": len(summary_bundle.theme_summaries),
+                "section_count": 1,
+            },
         )
 
 
@@ -395,7 +383,7 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
             ai_strategy=AIInsightStrategy(
                 client=object(),
                 analysis_config=runtime.settings.insight.analysis_config,
-                brief_builder=StubInsightBriefBuilder(),
+                summary_builder=InsightSummaryBuilder(),
                 aggregate_generator=StubInsightAggregate(),
             )
         )
@@ -519,7 +507,7 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
                 joined_payload = "\n".join(payload.content for payload in render_result.payloads)
                 self.assertEqual(selection.strategy, "ai")
                 self.assertTrue(insight.enabled)
-                self.assertEqual(insight.diagnostics["brief_count"], 2)
+                self.assertEqual(insight.diagnostics["item_summary_count"], 2)
                 self.assertIn("AI tools keep dominating the developer conversation.", render_result.html.content)
                 self.assertIn("AI tools keep dominating the developer conversation.", joined_payload)
                 self.assertEqual(report_package.meta.insight_strategy, "ai")

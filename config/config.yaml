@@ -38,7 +38,7 @@
                   extract_prompt_file: ai_filter/extract_prompt.txt
                   update_tags_prompt_file: ai_filter/update_tags_prompt.txt
                 insight:
-                  prompt_file: ai_analysis_prompt.txt
+                  prompt_file: global_insight_prompt.txt
             storage:
               backend: local
               formats:

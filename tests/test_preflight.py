@@ -79,7 +79,7 @@ def _write_timeline(config_dir: Path) -> None:
 def _write_common_files(config_dir: Path) -> None:
     write_text(config_dir / "frequency_words.txt", "[WORD_GROUPS]\nAI\n")
     write_text(config_dir / "ai_interests.txt", "AI agents and coding tools")
-    write_text(config_dir / "ai_analysis_prompt.txt", "[user]\n{briefs_json}")
+    write_text(config_dir / "global_insight_prompt.txt", "[user]\n{theme_summaries_json}")
     write_text(config_dir / "ai_filter" / "prompt.txt", "[user]\n{news_list}")
     write_text(config_dir / "ai_filter" / "extract_prompt.txt", "[user]\nextract")
     write_text(config_dir / "ai_filter" / "update_tags_prompt.txt", "[user]\nupdate")
@@ -140,7 +140,7 @@ def _write_config(
               update_tags_prompt_file: ai_filter/update_tags_prompt.txt
             insight:
               model: openai/insight-model
-              prompt_file: ai_analysis_prompt.txt
+              prompt_file: global_insight_prompt.txt
         storage:
           backend: local
           local:

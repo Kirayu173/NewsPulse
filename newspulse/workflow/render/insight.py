@@ -34,11 +34,11 @@ def render_insight_markdown(insight: RenderInsightView) -> str:
         return ""
 
     if insight.status == "skipped":
-        return f"跳过: {insight.message or '本次未生成 AI 洞察'}"
+        return f"跳过: {insight.message or '本次未生成全局洞察'}"
     if insight.status == "error":
-        return f"AI 洞察失败: {insight.message or '未知错误'}"
+        return f"全局洞察失败: {insight.message or '未知错误'}"
 
-    lines = ["**AI 洞察**", ""]
+    lines = ["**全局洞察**", ""]
     for title, content in _iter_sections(insight):
         lines.extend([f"**{title}**", content, ""])
     return "\n".join(lines).strip()
@@ -62,7 +62,7 @@ def render_insight_html_rich(insight: RenderInsightView) -> str:
     parts = [
         '<div class="ai-section">',
         '  <div class="ai-section-header">',
-        '    <div class="ai-section-title">AI 洞察</div>',
+        '    <div class="ai-section-title">全局洞察</div>',
         '    <span class="ai-section-badge">AI</span>',
         '  </div>',
         '  <div class="ai-blocks-grid">',

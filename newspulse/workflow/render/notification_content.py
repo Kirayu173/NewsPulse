@@ -68,7 +68,7 @@ def _build_header(view_model: "RenderViewModel", format_type: str, now: datetime
                 "incremental": "增量",
             }
             mode_suffix = f" ({mode_map.get(ai_mode, ai_mode)})"
-        lines.append(f"{_bold('AI 洞察', format_type)} {display_value}{mode_suffix}")
+        lines.append(f"{_bold('结构化摘要', format_type)} {display_value}{mode_suffix}")
 
     lines.extend(
         [
@@ -198,6 +198,29 @@ def _build_failed_section(failed_ids: list[str], format_type: str) -> str:
     return "\n".join(lines).strip()
 
 
+def _build_summary_section(view_model: "RenderViewModel", format_type: str) -> str:
+    if not view_model.summary_cards:
+        return ""
+
+    lines = [f"{_bold('结构化摘要', format_type)}", ""]
+    report_summaries = [summary for summary in view_model.summary_cards if summary.kind == "report"]
+    theme_summaries = [summary for summary in view_model.summary_cards if summary.kind == "theme"]
+
+    for summary in report_summaries[:1]:
+        lines.append(f"{_bold(summary.title or '报告摘要', format_type)}")
+        lines.append(summary.summary)
+        lines.append("")
+
+    if theme_summaries:
+        lines.append(f"{_bold('主题摘要', format_type)}")
+        for index, summary in enumerate(theme_summaries[:6], start=1):
+            source_suffix = f" · 来源证据: {', '.join(summary.sources[:3])}" if summary.sources else ""
+            lines.append(f"{index}. {summary.title}: {summary.summary}{source_suffix}")
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
+
 def _build_empty_message(mode: str) -> str:
     if mode == "incremental":
         return "本次没有新增热榜内容"
@@ -290,12 +313,15 @@ def split_content_into_batches(
             else ""
         ),
         "standalone": _build_standalone_section(view_model.standalone_groups, format_type),
+        "summary": _build_summary_section(view_model, format_type),
         "insight": render_insight_markdown(view_model.insight).strip(),
         "failed": _build_failed_section(view_model.failed_source_names, format_type),
     }
 
     ordered_sections: List[str] = []
     for region in region_order:
+        if region == "insight" and sections.get("summary"):
+            ordered_sections.append(sections["summary"])
         section = sections.get(region, "")
         if section:
             ordered_sections.append(section)

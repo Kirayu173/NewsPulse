@@ -13,6 +13,7 @@ from newspulse.workflow.shared.contracts import (
     DeliveryPayload,
     HotlistItem,
     InsightSection,
+    InsightSummary,
     ReportPackage,
     SelectionGroup,
     StandaloneSection,
@@ -120,26 +121,36 @@ class RenderSelectionEvidenceView:
 
 
 @dataclass(frozen=True)
-class RenderInsightBriefView:
-    """Per-news lightweight insight brief shown next to the news signal."""
+class RenderInsightSummaryView:
+    """Structured summary card shown before global insight analysis."""
 
+    kind: str = ""
+    key: str = ""
+    title: str = ""
     summary: str = ""
+    item_ids: list[str] = field(default_factory=list)
+    theme_keys: list[str] = field(default_factory=list)
+    evidence_topics: list[str] = field(default_factory=list)
+    evidence_notes: list[str] = field(default_factory=list)
+    sources: list[str] = field(default_factory=list)
+    expanded: bool = True
     attributes: list[str] = field(default_factory=list)
-    matched_topics: list[str] = field(default_factory=list)
-    llm_reasons: list[str] = field(default_factory=list)
     semantic_score: float = 0.0
     quality_score: float = 0.0
     current_rank: int = 0
     rank_trend: str = ""
     source_kind: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def visible(self) -> bool:
         return bool(
-            self.summary
+            self.title
+            or self.summary
             or self.attributes
-            or self.matched_topics
-            or self.llm_reasons
+            or self.evidence_topics
+            or self.evidence_notes
+            or self.sources
             or self.semantic_score > 0
             or self.quality_score > 0
             or self.current_rank > 0
@@ -156,7 +167,7 @@ class RenderNewsCardView:
     source_summary: str = ""
     source_attributes: list[str] = field(default_factory=list)
     selection_evidence: RenderSelectionEvidenceView = field(default_factory=RenderSelectionEvidenceView)
-    brief: RenderInsightBriefView = field(default_factory=RenderInsightBriefView)
+    summary: RenderInsightSummaryView = field(default_factory=RenderInsightSummaryView)
     is_selected: bool = False
     is_new: bool = False
     is_standalone: bool = False
@@ -206,6 +217,7 @@ class RenderViewModel:
     new_item_groups: list[RenderGroupView] = field(default_factory=list)
     standalone_groups: list[RenderGroupView] = field(default_factory=list)
     news_cards: list[RenderNewsCardView] = field(default_factory=list)
+    summary_cards: list[RenderInsightSummaryView] = field(default_factory=list)
     insight: RenderInsightView = field(default_factory=RenderInsightView)
 
     @property
@@ -222,7 +234,7 @@ class RenderViewModel:
 
     @property
     def analyzed_card_count(self) -> int:
-        return sum(1 for card in self.news_cards if card.brief.visible)
+        return sum(1 for card in self.news_cards if card.summary.visible)
 
 
 @dataclass(frozen=True)
@@ -299,6 +311,7 @@ def build_render_view_model(
         rank_threshold=rank_threshold,
         convert_time_func=convert_time_func,
     )
+    summary_cards = _build_summary_cards(report.content.summary_cards)
     insight_view = _build_insight_view(
         report.content.insight_sections,
         insight_metadata=insight_meta,
@@ -316,6 +329,7 @@ def build_render_view_model(
         new_item_groups=new_item_groups,
         standalone_groups=standalone_groups,
         news_cards=news_cards,
+        summary_cards=summary_cards,
         insight=insight_view,
     )
 
@@ -491,7 +505,7 @@ def _build_news_cards(
     insight_meta = dict(report.diagnostics.get("insight", {}))
     selection_matches = _build_selection_match_map(selection_meta)
     input_contexts = _build_input_context_map(insight_meta)
-    brief_payloads = _build_brief_map(insight_meta)
+    item_summary_payloads = _build_item_summary_map(insight_meta, report.content.summary_cards)
 
     ordered_items: list[HotlistItem] = list(selected_items)
     seen_ids = {str(item.news_item_id or "").strip() for item in ordered_items}
@@ -510,7 +524,7 @@ def _build_news_cards(
             continue
 
         context_payload = input_contexts.get(item_id, {})
-        brief_payload = brief_payloads.get(item_id, {})
+        summary_payload = item_summary_payloads.get(item_id, {})
         standalone_meta = standalone_rows.get(item_id, {})
 
         cards.append(
@@ -531,7 +545,7 @@ def _build_news_cards(
                     context_payload=context_payload,
                     match_payload=selection_matches.get(item_id, {}),
                 ),
-                brief=_build_brief_view(brief_payload),
+                summary=_build_summary_view(summary_payload),
                 is_selected=item_id in selected_ids,
                 is_new=item.is_new or item_id in new_ids,
                 is_standalone=item_id in standalone_ids,
@@ -614,19 +628,34 @@ def _build_input_context_map(insight_meta: dict[str, Any]) -> dict[str, dict[str
     return payload
 
 
-def _build_brief_map(insight_meta: dict[str, Any]) -> dict[str, dict[str, Any]]:
+def _build_item_summary_map(
+    insight_meta: dict[str, Any],
+    summary_cards: list[InsightSummary],
+) -> dict[str, dict[str, Any]]:
+    payload: dict[str, dict[str, Any]] = {}
+    for summary in summary_cards:
+        if getattr(summary, "kind", "") != "item":
+            continue
+        row = _summary_to_payload(summary)
+        for item_id in summary.item_ids:
+            text = str(item_id or "").strip()
+            if text and text not in payload:
+                payload[text] = row
+    if payload:
+        return payload
+
     diagnostics = insight_meta.get("diagnostics", {})
     if not isinstance(diagnostics, dict):
         return {}
-    rows = diagnostics.get("brief_payloads", [])
+    rows = diagnostics.get("item_summary_payloads", [])
     if not isinstance(rows, list):
         return {}
 
-    payload: dict[str, dict[str, Any]] = {}
     for row in rows:
         if not isinstance(row, dict):
             continue
-        item_id = str(row.get("news_item_id", "") or "").strip()
+        item_ids = _coerce_str_list(row.get("item_ids", []))
+        item_id = item_ids[0] if item_ids else str(row.get("key", "") or "").replace("item:", "", 1).strip()
         if item_id:
             payload[item_id] = dict(row)
     return payload
@@ -672,20 +701,49 @@ def _build_selection_evidence_view(
     )
 
 
-def _build_brief_view(payload: dict[str, Any]) -> RenderInsightBriefView:
-    if not payload:
-        return RenderInsightBriefView()
+def _build_summary_cards(summary_cards: list[InsightSummary]) -> list[RenderInsightSummaryView]:
+    return [_build_summary_view(_summary_to_payload(summary)) for summary in summary_cards]
 
-    return RenderInsightBriefView(
+
+def _summary_to_payload(summary: InsightSummary) -> dict[str, Any]:
+    return {
+        "kind": summary.kind,
+        "key": summary.key,
+        "title": summary.title,
+        "summary": summary.summary,
+        "item_ids": list(summary.item_ids),
+        "theme_keys": list(summary.theme_keys),
+        "evidence_topics": list(summary.evidence_topics),
+        "evidence_notes": list(summary.evidence_notes),
+        "sources": list(summary.sources),
+        "expanded": bool(summary.expanded),
+        "metadata": dict(summary.metadata or {}),
+    }
+
+
+def _build_summary_view(payload: dict[str, Any]) -> RenderInsightSummaryView:
+    if not payload:
+        return RenderInsightSummaryView()
+
+    metadata = dict(payload.get("metadata", {}) if isinstance(payload.get("metadata"), dict) else {})
+    return RenderInsightSummaryView(
+        kind=str(payload.get("kind", "") or "").strip(),
+        key=str(payload.get("key", "") or "").strip(),
+        title=str(payload.get("title", "") or "").strip(),
         summary=str(payload.get("summary", "") or "").strip(),
-        attributes=_coerce_str_list(payload.get("attributes", [])),
-        matched_topics=_coerce_str_list(payload.get("matched_topics", [])),
-        llm_reasons=_coerce_str_list(payload.get("llm_reasons", [])),
-        semantic_score=_coerce_float(payload.get("semantic_score", 0.0)),
-        quality_score=_coerce_float(payload.get("quality_score", 0.0)),
-        current_rank=int(payload.get("current_rank", 0) or 0),
-        rank_trend=str(payload.get("rank_trend", "") or "").strip(),
-        source_kind=str(payload.get("source_kind", "") or "").strip(),
+        item_ids=_coerce_str_list(payload.get("item_ids", [])),
+        theme_keys=_coerce_str_list(payload.get("theme_keys", [])),
+        evidence_topics=_coerce_str_list(payload.get("evidence_topics", [])),
+        evidence_notes=_coerce_str_list(payload.get("evidence_notes", [])),
+        sources=_coerce_str_list(payload.get("sources", [])),
+        expanded=bool(payload.get("expanded", True)),
+        attributes=_coerce_str_list(metadata.get("attributes", [])),
+        semantic_score=_coerce_float(metadata.get("semantic_score", 0.0)),
+        quality_score=_coerce_float(metadata.get("quality_score", 0.0)),
+        current_rank=int(metadata.get("current_rank", 0) or 0),
+        rank_trend=str(metadata.get("rank_trend", "") or "").strip(),
+        source_kind=str(metadata.get("source_kind", "") or "").strip(),
+        metadata=metadata,
     )
 
 
@@ -759,7 +817,7 @@ def _build_insight_view(
         sections=section_views,
         stats={
             "total_news": total_titles,
-            "analyzed_news": int(diagnostics.get("brief_count", insight_metadata.get("brief_count", 0)) or 0),
+            "analyzed_news": int(diagnostics.get("item_summary_count", insight_metadata.get("summary_count", 0)) or 0),
             "max_news_limit": int(diagnostics.get("max_items", 0) or 0),
             "hotlist_count": total_titles,
             "ai_mode": str(diagnostics.get("report_mode", report_meta.get("mode", "")) or ""),

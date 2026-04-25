@@ -9,6 +9,7 @@ from newspulse.workflow import (
     HotlistItem,
     HTMLRenderAdapter,
     InsightSection,
+    InsightSummary,
     NotificationRenderAdapter,
     RenderService,
     ReportContent,
@@ -94,6 +95,67 @@ def _build_report_package() -> ReportPackage:
                     content="AI tools keep dominating the developer conversation.",
                 )
             ],
+            summary_cards=[
+                InsightSummary(
+                    kind="report",
+                    key="report",
+                    title="报告摘要",
+                    summary="2 条入选新闻形成 2 个主题：AI Agents、Startups",
+                    item_ids=["1", "2"],
+                    theme_keys=["theme:ai-agents", "theme:startups"],
+                    evidence_topics=["AI Agents", "Startups"],
+                    sources=["Hacker News", "Product Hunt"],
+                ),
+                InsightSummary(
+                    kind="theme",
+                    key="theme:ai-agents",
+                    title="AI Agents",
+                    summary="AI Agents 覆盖 1 条入选新闻，代表信号包括：OpenAI launches a new coding agent",
+                    item_ids=["1"],
+                    theme_keys=["theme:ai-agents"],
+                    evidence_topics=["AI Agents", "Coding Workflow"],
+                    evidence_notes=["clear developer workflow angle"],
+                    sources=["Hacker News"],
+                ),
+                InsightSummary(
+                    kind="item",
+                    key="item:1",
+                    title="OpenAI launches a new coding agent",
+                    summary="Terminal-native coding workflow with patch and verify loops.",
+                    item_ids=["1"],
+                    theme_keys=["theme:ai-agents"],
+                    evidence_topics=["AI Agents", "Coding Workflow"],
+                    evidence_notes=["clear developer workflow angle"],
+                    sources=["Hacker News"],
+                    metadata={
+                        "attributes": ["developer tools", "terminal"],
+                        "semantic_score": 0.84,
+                        "quality_score": 0.93,
+                        "current_rank": 1,
+                        "rank_trend": "up",
+                        "source_kind": "article",
+                    },
+                ),
+                InsightSummary(
+                    kind="item",
+                    key="item:2",
+                    title="Startup launches AI productivity app",
+                    summary="Product Hunt launch with startup distribution context.",
+                    item_ids=["2"],
+                    theme_keys=["theme:startups"],
+                    evidence_topics=["Startups"],
+                    evidence_notes=["startup launch with concrete workflow angle"],
+                    sources=["Product Hunt"],
+                    metadata={
+                        "attributes": ["product launch"],
+                        "semantic_score": 0.75,
+                        "quality_score": 0.88,
+                        "current_rank": 2,
+                        "rank_trend": "stable",
+                        "source_kind": "article",
+                    },
+                ),
+            ],
         ),
         integrity=ReportIntegrity(valid=True, counters={"selected_item_count": 2}),
         diagnostics={
@@ -124,9 +186,11 @@ def _build_report_package() -> ReportPackage:
             "insight": {
                 "enabled": True,
                 "strategy": "ai",
-                "brief_count": 2,
+                "summary_count": 4,
                 "diagnostics": {
-                    "brief_count": 2,
+                    "summary_count": 4,
+                    "item_summary_count": 2,
+                    "theme_summary_count": 1,
                     "max_items": 10,
                     "report_mode": "current",
                     "input_contexts": [
@@ -159,36 +223,6 @@ def _build_report_package() -> ReportPackage:
                             },
                         },
                     ],
-                    "brief_payloads": [
-                        {
-                            "news_item_id": "1",
-                            "title": "OpenAI launches a new coding agent",
-                            "source_name": "Hacker News",
-                            "summary": "Terminal-native coding workflow with patch and verify loops.",
-                            "attributes": ["developer tools", "terminal"],
-                            "matched_topics": ["AI Agents", "Coding Workflow"],
-                            "llm_reasons": ["clear developer workflow angle"],
-                            "semantic_score": 0.84,
-                            "quality_score": 0.93,
-                            "current_rank": 1,
-                            "rank_trend": "up",
-                            "source_kind": "article",
-                        },
-                        {
-                            "news_item_id": "2",
-                            "title": "Startup launches AI productivity app",
-                            "source_name": "Product Hunt",
-                            "summary": "Product Hunt launch with startup distribution context.",
-                            "attributes": ["product launch"],
-                            "matched_topics": ["Startups"],
-                            "llm_reasons": ["startup launch with concrete workflow angle"],
-                            "semantic_score": 0.75,
-                            "quality_score": 0.88,
-                            "current_rank": 2,
-                            "rank_trend": "stable",
-                            "source_kind": "article",
-                        },
-                    ],
                 },
             },
             "failed_sources": [{"source_id": "weibo", "source_name": "Weibo"}],
@@ -212,7 +246,8 @@ class WorkflowRenderServiceTest(unittest.TestCase):
         self.assertEqual(view_model.hotlist_groups[0].items[0].title, "OpenAI launches a new coding agent")
         self.assertEqual(view_model.new_item_groups[0].items[0].title, "OpenAI launches a new coding agent")
         self.assertEqual(len(view_model.news_cards), 3)
-        self.assertEqual(view_model.news_cards[0].brief.summary, "Terminal-native coding workflow with patch and verify loops.")
+        self.assertEqual(view_model.news_cards[0].summary.summary, "Terminal-native coding workflow with patch and verify loops.")
+        self.assertEqual(len(view_model.summary_cards), 4)
         self.assertEqual(view_model.news_cards[0].selection_evidence.matched_topics, ["AI Agents", "Coding Workflow"])
         self.assertTrue(view_model.news_cards[2].is_standalone)
         self.assertEqual(view_model.insight.sections[0].content, "AI tools keep dominating the developer conversation.")
@@ -276,7 +311,8 @@ class WorkflowRenderServiceTest(unittest.TestCase):
             self.assertTrue(html_path.exists())
             self.assertIn("OpenAI launches a new coding agent", artifacts.html.content)
             self.assertIn("新闻卡片", artifacts.html.content)
-            self.assertIn("Insight Brief", artifacts.html.content)
+            self.assertIn("结构化摘要", artifacts.html.content)
+            self.assertIn("全局洞察", artifacts.html.content)
             self.assertNotIn("Weibo", artifacts.html.content)
             self.assertIn("Terminal-native coding workflow with patch and verify loops.", artifacts.html.content)
             self.assertIn("AI tools keep dominating the developer conversation.", artifacts.html.content)
@@ -303,7 +339,7 @@ class WorkflowRenderServiceTest(unittest.TestCase):
         report.diagnostics["insight"] = {
             "enabled": False,
             "strategy": "noop",
-            "brief_count": 0,
+            "summary_count": 0,
             "diagnostics": {
                 "skipped": True,
                 "reason": "schedule disabled",
