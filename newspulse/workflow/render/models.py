@@ -129,7 +129,6 @@ class RenderInsightSummaryView:
     title: str = ""
     summary: str = ""
     item_ids: list[str] = field(default_factory=list)
-    theme_keys: list[str] = field(default_factory=list)
     evidence_topics: list[str] = field(default_factory=list)
     evidence_notes: list[str] = field(default_factory=list)
     sources: list[str] = field(default_factory=list)
@@ -155,7 +154,6 @@ class RenderInsightSummaryView:
             or self.quality_score > 0
             or self.current_rank > 0
             or self.rank_trend
-            or self.source_kind
         )
 
 
@@ -712,7 +710,6 @@ def _summary_to_payload(summary: InsightSummary) -> dict[str, Any]:
         "title": summary.title,
         "summary": summary.summary,
         "item_ids": list(summary.item_ids),
-        "theme_keys": list(summary.theme_keys),
         "evidence_topics": list(summary.evidence_topics),
         "evidence_notes": list(summary.evidence_notes),
         "sources": list(summary.sources),
@@ -732,7 +729,6 @@ def _build_summary_view(payload: dict[str, Any]) -> RenderInsightSummaryView:
         title=str(payload.get("title", "") or "").strip(),
         summary=str(payload.get("summary", "") or "").strip(),
         item_ids=_coerce_str_list(payload.get("item_ids", [])),
-        theme_keys=_coerce_str_list(payload.get("theme_keys", [])),
         evidence_topics=_coerce_str_list(payload.get("evidence_topics", [])),
         evidence_notes=_coerce_str_list(payload.get("evidence_notes", [])),
         sources=_coerce_str_list(payload.get("sources", [])),

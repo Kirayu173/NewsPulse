@@ -78,6 +78,8 @@ def normalize_ai_operation_mapping(mapping: Dict[str, Any]) -> Dict[str, Any]:
 
     for target_key, *source_keys in (
         ("PROMPT_FILE", "PROMPT_FILE", "prompt_file"),
+        ("ITEM_PROMPT_FILE", "ITEM_PROMPT_FILE", "item_prompt_file"),
+        ("REPORT_PROMPT_FILE", "REPORT_PROMPT_FILE", "report_prompt_file"),
         ("EXTRACT_PROMPT_FILE", "EXTRACT_PROMPT_FILE", "extract_prompt_file"),
         ("UPDATE_TAGS_PROMPT_FILE", "UPDATE_TAGS_PROMPT_FILE", "update_tags_prompt_file"),
     ):
@@ -91,6 +93,46 @@ def normalize_ai_operation_mapping(mapping: Dict[str, Any]) -> Dict[str, Any]:
     if runtime_cache:
         normalized["RUNTIME_CACHE"] = runtime_cache
     return normalized
+
+
+def normalize_insight_content_mapping(mapping: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(mapping, dict):
+        mapping = {}
+    extractor_order = mapping_get(mapping, "EXTRACTOR_ORDER", "extractor_order", default=None)
+    if isinstance(extractor_order, str):
+        extractor_order = [extractor_order]
+    if not isinstance(extractor_order, list) or not extractor_order:
+        extractor_order = ["trafilatura", "readability", "beautifulsoup"]
+    return {
+        "ENABLED": bool(mapping_get(mapping, "ENABLED", "enabled", default=False)),
+        "FETCH_TIMEOUT_SECONDS": int(mapping_get(mapping, "FETCH_TIMEOUT_SECONDS", "fetch_timeout_seconds", default=8) or 8),
+        "FETCH_CONCURRENCY": int(mapping_get(mapping, "FETCH_CONCURRENCY", "fetch_concurrency", default=3) or 3),
+        "MAX_RAW_CHARS": int(mapping_get(mapping, "MAX_RAW_CHARS", "max_raw_chars", default=120000) or 120000),
+        "MAX_REDUCED_CHARS": int(mapping_get(mapping, "MAX_REDUCED_CHARS", "max_reduced_chars", default=6000) or 6000),
+        "EXTRACTOR_ORDER": [str(item) for item in extractor_order if str(item).strip()],
+    }
+
+
+def normalize_insight_summary_mapping(mapping: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(mapping, dict):
+        mapping = {}
+    return {
+        "ITEM_PROMPT_FILE": str(
+            mapping_get(mapping, "ITEM_PROMPT_FILE", "item_prompt_file", default="insight/item_summary_prompt.txt")
+            or "insight/item_summary_prompt.txt"
+        ),
+        "REPORT_PROMPT_FILE": str(
+            mapping_get(mapping, "REPORT_PROMPT_FILE", "report_prompt_file", default="insight/report_summary_prompt.txt")
+            or "insight/report_summary_prompt.txt"
+        ),
+        "ITEM_CONCURRENCY": int(mapping_get(mapping, "ITEM_CONCURRENCY", "item_concurrency", default=3) or 3),
+        "ITEM_SUMMARY_MAX_CHARS": int(
+            mapping_get(mapping, "ITEM_SUMMARY_MAX_CHARS", "item_summary_max_chars", default=220) or 220
+        ),
+        "REPORT_SUMMARY_MAX_CHARS": int(
+            mapping_get(mapping, "REPORT_SUMMARY_MAX_CHARS", "report_summary_max_chars", default=300) or 300
+        ),
+    }
 
 
 def merge_ai_runtime_config(base_config: Dict[str, Any], override_config: Dict[str, Any]) -> Dict[str, Any]:
@@ -299,6 +341,8 @@ def resolve_insight_stage_config(config: Dict[str, Any], raw_config: Dict[str, A
     workflow_insight = get_workflow_stage(config, raw_config, "INSIGHT", "insight")
     if workflow_insight:
         enabled = bool(mapping_get(workflow_insight, "ENABLED", "enabled", default=False))
+        content = get_nested_mapping(workflow_insight, "CONTENT", "content")
+        summary = get_nested_mapping(workflow_insight, "SUMMARY", "summary")
         return {
             "ENABLED": enabled,
             "STRATEGY": str(
@@ -308,6 +352,8 @@ def resolve_insight_stage_config(config: Dict[str, Any], raw_config: Dict[str, A
             "MODE": str(mapping_get(workflow_insight, "MODE", "mode", default="follow_report") or "follow_report"),
             "MAX_ITEMS": int(mapping_get(workflow_insight, "MAX_ITEMS", "max_items", default=50) or 50),
             "LANGUAGE": str(mapping_get(workflow_insight, "LANGUAGE", "language", default="Chinese") or "Chinese"),
+            "CONTENT": normalize_insight_content_mapping(content),
+            "SUMMARY": normalize_insight_summary_mapping(summary),
         }
 
     analysis_config = config.get("AI_ANALYSIS", {})
@@ -318,6 +364,8 @@ def resolve_insight_stage_config(config: Dict[str, Any], raw_config: Dict[str, A
         "MODE": str(analysis_config.get("MODE", "follow_report") or "follow_report"),
         "MAX_ITEMS": int(analysis_config.get("MAX_ITEMS", 50) or 50),
         "LANGUAGE": str(analysis_config.get("LANGUAGE", "Chinese") or "Chinese"),
+        "CONTENT": normalize_insight_content_mapping(coerce_mapping(analysis_config.get("CONTENT", {}))),
+        "SUMMARY": normalize_insight_summary_mapping(coerce_mapping(analysis_config.get("SUMMARY", {}))),
     }
 
 
@@ -358,6 +406,13 @@ def resolve_ai_filter_config(config: Dict[str, Any], raw_config: Dict[str, Any])
 def resolve_ai_analysis_config(config: Dict[str, Any], raw_config: Dict[str, Any]) -> Dict[str, Any]:
     insight = resolve_insight_stage_config(config, raw_config)
     operation = resolve_ai_operation_mapping(config, raw_config, "insight", legacy_key="AI_ANALYSIS")
+    summary = normalize_insight_summary_mapping(insight.get("SUMMARY", {}))
+    item_prompt = mapping_get(operation, "ITEM_PROMPT_FILE", "item_prompt_file")
+    report_prompt = mapping_get(operation, "REPORT_PROMPT_FILE", "report_prompt_file")
+    if item_prompt:
+        summary["ITEM_PROMPT_FILE"] = str(item_prompt)
+    if report_prompt:
+        summary["REPORT_PROMPT_FILE"] = str(report_prompt)
     return {
         "ENABLED": bool(insight.get("ENABLED", False)),
         "STRATEGY": str(insight.get("STRATEGY", "noop") or "noop"),
@@ -372,6 +427,8 @@ def resolve_ai_analysis_config(config: Dict[str, Any], raw_config: Dict[str, Any
             get_nested_mapping(operation, "RUNTIME_CACHE", "runtime_cache")
             or get_nested_mapping(operation, "LLM_CACHE", "llm_cache")
         ),
+        "CONTENT": normalize_insight_content_mapping(insight.get("CONTENT", {})),
+        "SUMMARY": summary,
     }
 
 

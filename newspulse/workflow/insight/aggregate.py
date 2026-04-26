@@ -1,5 +1,5 @@
 # coding=utf-8
-"""Aggregate theme summaries into stable global insight sections."""
+"""Aggregate item and report summaries into stable global insight sections."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from newspulse.workflow.shared.contracts import InsightSection, InsightSummary, 
 
 
 class InsightAggregateGenerator:
-    """Generate stable global insight sections from theme summaries."""
+    """Generate stable global insight sections from item and report summaries."""
 
     def __init__(
         self,
@@ -66,20 +66,20 @@ class InsightAggregateGenerator:
         contexts: Sequence[InsightNewsContext] = (),
     ) -> tuple[list[InsightSection], str, dict[str, Any]]:
         summary_bundle = _coerce_summary_bundle(summaries)
-        valid_theme_summaries = [
+        item_summaries = [
             summary
-            for summary in summary_bundle.theme_summaries
+            for summary in summary_bundle.item_summaries
             if str(summary.key or "").strip() and str(summary.summary or "").strip()
         ]
         report_summary = summary_bundle.report_summary
-        if not valid_theme_summaries and report_summary is None:
-            return [], "", {"skipped": True, "reason": "no summaries available"}
+        if not item_summaries and report_summary is None:
+            return [], "", {"skipped": True, "reason": "no item or report summaries available"}
 
-        theme_payload = _build_theme_summary_payload(valid_theme_summaries)
+        item_payload = _build_item_summary_payload(item_summaries)
         report_payload = asdict(report_summary) if report_summary is not None else {}
         source_distribution = _source_distribution(summary_bundle, contexts)
         topic_distribution = _topic_distribution(summary_bundle, contexts)
-        user_prompt = self._render_prompt(theme_payload, report_payload, source_distribution, topic_distribution)
+        user_prompt = self._render_prompt(item_payload, report_payload, source_distribution, topic_distribution)
         raw_response = ""
         try:
             response = self.client.generate_json(
@@ -97,8 +97,7 @@ class InsightAggregateGenerator:
             )
             return sections, raw_response, {
                 "summary_count": len(summary_bundle.summaries),
-                "item_summary_count": len(summary_bundle.item_summaries),
-                "theme_summary_count": len(valid_theme_summaries),
+                "item_summary_count": len(item_summaries),
                 "report_summary_present": report_summary is not None,
                 "source_distribution": source_distribution,
                 "topic_distribution": topic_distribution,
@@ -108,8 +107,7 @@ class InsightAggregateGenerator:
             fallback = _fallback_section(summary_bundle, source_distribution, topic_distribution)
             return fallback, raw_response, {
                 "summary_count": len(summary_bundle.summaries),
-                "item_summary_count": len(summary_bundle.item_summaries),
-                "theme_summary_count": len(valid_theme_summaries),
+                "item_summary_count": len(item_summaries),
                 "report_summary_present": report_summary is not None,
                 "source_distribution": source_distribution,
                 "topic_distribution": topic_distribution,
@@ -120,21 +118,21 @@ class InsightAggregateGenerator:
 
     def _render_prompt(
         self,
-        theme_summary_payload: list[dict[str, Any]],
+        item_summary_payload: list[dict[str, Any]],
         report_summary_payload: dict[str, Any],
         source_distribution: dict[str, int],
         topic_distribution: dict[str, int],
     ) -> str:
-        user_prompt = self.prompt_template.user_prompt
         replacements = {
-            "summary_count": str(len(theme_summary_payload)),
-            "theme_count": str(len(theme_summary_payload)),
-            "theme_summaries_json": json.dumps(theme_summary_payload, ensure_ascii=False, indent=2),
+            "summary_count": str(len(item_summary_payload) + (1 if report_summary_payload else 0)),
+            "item_summary_count": str(len(item_summary_payload)),
+            "item_summaries_json": json.dumps(item_summary_payload, ensure_ascii=False, indent=2),
             "report_summary_json": json.dumps(report_summary_payload, ensure_ascii=False, indent=2),
             "source_distribution_json": json.dumps(source_distribution, ensure_ascii=False, indent=2),
             "topic_distribution_json": json.dumps(topic_distribution, ensure_ascii=False, indent=2),
             "language": str(self.analysis_config.get("LANGUAGE", "Chinese") or "Chinese"),
         }
+        user_prompt = self.prompt_template.user_prompt
         for key, value in replacements.items():
             user_prompt = user_prompt.replace("{" + key + "}", str(value))
         return user_prompt
@@ -144,18 +142,16 @@ def _coerce_summary_bundle(summaries: InsightSummaryBundle | Sequence[InsightSum
     if isinstance(summaries, InsightSummaryBundle):
         return summaries
     item_summaries = [summary for summary in summaries if getattr(summary, "kind", "") == "item"]
-    theme_summaries = [summary for summary in summaries if getattr(summary, "kind", "") == "theme"]
     report_summary = next((summary for summary in summaries if getattr(summary, "kind", "") == "report"), None)
     return InsightSummaryBundle(
         item_summaries=list(item_summaries),
-        theme_summaries=list(theme_summaries),
         report_summary=report_summary,
     )
 
 
-def _build_theme_summary_payload(theme_summaries: Sequence[InsightSummary]) -> list[dict[str, Any]]:
+def _build_item_summary_payload(item_summaries: Sequence[InsightSummary]) -> list[dict[str, Any]]:
     payload: list[dict[str, Any]] = []
-    for summary in theme_summaries:
+    for summary in item_summaries:
         metadata = dict(summary.metadata or {})
         payload.append(
             {
@@ -163,14 +159,11 @@ def _build_theme_summary_payload(theme_summaries: Sequence[InsightSummary]) -> l
                 "title": summary.title,
                 "summary": summary.summary,
                 "item_ids": list(summary.item_ids),
-                "theme_keys": list(summary.theme_keys),
                 "evidence_topics": list(summary.evidence_topics),
                 "evidence_notes": list(summary.evidence_notes),
-                "representative_item_ids": list(metadata.get("representative_item_ids", [])),
-                "supporting_item_ids": list(metadata.get("supporting_item_ids", [])),
-                "representative_titles": list(metadata.get("representative_titles", [])),
-                "source_evidence": list(summary.sources),
-                "item_count": int(metadata.get("item_count", len(summary.item_ids)) or 0),
+                "sources": list(summary.sources),
+                "quality_score": float(metadata.get("quality_score", 0.0) or 0.0),
+                "current_rank": int(metadata.get("current_rank", 0) or 0),
             }
         )
     return payload
@@ -178,7 +171,7 @@ def _build_theme_summary_payload(theme_summaries: Sequence[InsightSummary]) -> l
 
 def _source_distribution(summary_bundle: InsightSummaryBundle, contexts: Sequence[InsightNewsContext]) -> dict[str, int]:
     counter: Counter[str] = Counter()
-    for summary in summary_bundle.theme_summaries or summary_bundle.item_summaries:
+    for summary in summary_bundle.item_summaries:
         counter.update([source for source in summary.sources if source])
     if counter:
         return dict(counter)
@@ -189,7 +182,7 @@ def _source_distribution(summary_bundle: InsightSummaryBundle, contexts: Sequenc
 
 def _topic_distribution(summary_bundle: InsightSummaryBundle, contexts: Sequence[InsightNewsContext]) -> dict[str, int]:
     counter: Counter[str] = Counter()
-    for summary in summary_bundle.theme_summaries or summary_bundle.item_summaries:
+    for summary in summary_bundle.item_summaries:
         counter.update(summary.evidence_topics)
     if counter:
         return dict(counter)
@@ -283,17 +276,12 @@ def _fallback_section(
     topic_distribution: Mapping[str, int],
 ) -> list[InsightSection]:
     report_summary = summary_bundle.report_summary
-    theme_summaries = list(summary_bundle.theme_summaries)
     if report_summary is not None:
         content = report_summary.summary
-    elif theme_summaries:
-        content = "；".join(summary.summary for summary in theme_summaries[:3] if summary.summary)
     elif summary_bundle.item_summaries:
         content = "；".join(summary.summary for summary in summary_bundle.item_summaries[:3] if summary.summary)
     else:
-        content = "No summary input was available for global insight generation."
-    if theme_summaries:
-        content = f"{content} 后续洞察基于主题摘要生成，重点主题包括：{', '.join(summary.title for summary in theme_summaries[:3])}。"
+        content = "No item or report summary input was available for global insight generation."
     return [
         InsightSection(
             key="core_trends",
@@ -313,8 +301,15 @@ def _fallback_section(
 
 def _default_supporting_news_ids(summary_bundle: InsightSummaryBundle) -> list[str]:
     ids: list[str] = []
-    for summary in summary_bundle.theme_summaries or summary_bundle.item_summaries:
+    for summary in summary_bundle.item_summaries:
         for item_id in summary.item_ids:
+            text = str(item_id or "").strip()
+            if text and text not in ids:
+                ids.append(text)
+            if len(ids) >= 8:
+                return ids
+    if summary_bundle.report_summary is not None:
+        for item_id in summary_bundle.report_summary.item_ids:
             text = str(item_id or "").strip()
             if text and text not in ids:
                 ids.append(text)

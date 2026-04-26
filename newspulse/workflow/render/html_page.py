@@ -313,15 +313,13 @@ def _rendered_summary_cards(
     view_model: "RenderViewModel",
 ) -> list["RenderInsightSummaryView"]:
     cards = [summary for summary in view_model.summary_cards if summary.visible]
-    report_cards = [summary for summary in cards if summary.kind == "report"][:1]
-    theme_cards = [summary for summary in cards if summary.kind == "theme"]
-    return [*report_cards, *theme_cards]
+    return [summary for summary in cards if summary.kind == "report"][:1]
 
 
 def _render_summary_card(summary) -> str:
     item_count = len(summary.item_ids)
     count_text = f"{item_count} 条新闻" if item_count else ""
-    kind_text = "报告摘要" if summary.kind == "report" else "主题摘要"
+    kind_text = "报告摘要"
     source_text = "、".join(summary.sources[:4])
     topic_text = "、".join(
         topic
@@ -347,18 +345,10 @@ def _render_summary_section(view_model: "RenderViewModel") -> str:
     cards = _rendered_summary_cards(view_model)
     if not cards:
         return ""
-    report_cards = [summary for summary in cards if summary.kind == "report"]
-    theme_cards = [summary for summary in cards if summary.kind == "theme"]
-    groups: list[str] = []
-    if report_cards:
-        groups.append('<div class="summary-list report-summary-list">' + "".join(_render_summary_card(summary) for summary in report_cards[:1]) + "</div>")
-    if theme_cards:
-        groups.append('<h3 class="summary-subhead">主题摘要</h3>')
-        groups.append('<div class="summary-list">' + "".join(_render_summary_card(summary) for summary in theme_cards) + "</div>")
     return f"""
     <section class="summary-section">
         <h2>摘要</h2>
-        {"".join(groups)}
+        <div class="summary-list report-summary-list">{"".join(_render_summary_card(summary) for summary in cards)}</div>
     </section>
     """
 

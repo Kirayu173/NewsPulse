@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from newspulse.workflow.insight.aggregate import InsightAggregateGenerator
+from newspulse.workflow.insight.content_enricher import ContentFetchEnricher
+from newspulse.workflow.insight.content_preprocessor import ContentPreprocessor
 from newspulse.workflow.insight.input_builder import InsightInputBuilder
+from newspulse.workflow.insight.item_summary_generator import ItemSummaryGenerator
+from newspulse.workflow.insight.report_summary_generator import ReportSummaryGenerator
 from newspulse.workflow.insight.summary_builder import InsightSummaryBuilder
 from newspulse.workflow.shared.ai_runtime.client import AIRuntimeClient, CachedAIRuntimeClient
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate
@@ -32,6 +36,8 @@ class AIInsightStrategy:
         prompt_template: PromptTemplate | None = None,
         input_builder: InsightInputBuilder | None = None,
         summary_builder: InsightSummaryBuilder | None = None,
+        content_enricher: ContentFetchEnricher | None = None,
+        content_preprocessor: ContentPreprocessor | None = None,
         aggregate_generator: InsightAggregateGenerator | None = None,
     ):
         del storage_manager, proxy_url
@@ -46,7 +52,31 @@ class AIInsightStrategy:
         self.shared_client = shared_client
 
         self.input_builder = input_builder or InsightInputBuilder()
-        self.summary_builder = summary_builder or InsightSummaryBuilder()
+        content_config = _content_config(self.analysis_config)
+        summary_config = _summary_config(self.analysis_config)
+        self.content_enricher = content_enricher or ContentFetchEnricher(
+            enabled=bool(content_config.get("ENABLED", False)),
+            timeout_seconds=int(content_config.get("FETCH_TIMEOUT_SECONDS", 8) or 8),
+            max_raw_chars=int(content_config.get("MAX_RAW_CHARS", 120_000) or 120_000),
+            extractor_order=content_config.get("EXTRACTOR_ORDER", ("trafilatura", "readability", "beautifulsoup")),
+        )
+        self.content_preprocessor = content_preprocessor or ContentPreprocessor()
+        self.summary_builder = summary_builder or InsightSummaryBuilder(
+            item_summary_generator=ItemSummaryGenerator(
+                ai_runtime_config=ai_runtime_config,
+                analysis_config=self.analysis_config,
+                summary_config=summary_config,
+                config_root=self.config_root,
+                client=shared_client,
+            ),
+            report_summary_generator=ReportSummaryGenerator(
+                ai_runtime_config=ai_runtime_config,
+                analysis_config=self.analysis_config,
+                summary_config=summary_config,
+                config_root=self.config_root,
+                client=shared_client,
+            ),
+        )
         self.aggregate_generator = aggregate_generator or InsightAggregateGenerator(
             ai_runtime_config=ai_runtime_config,
             analysis_config=self.analysis_config,
@@ -57,7 +87,10 @@ class AIInsightStrategy:
 
     def run(self, snapshot: Any, selection: Any, options: InsightOptions) -> InsightResult:
         contexts = []
+        reduced_contexts = []
         summary_bundle = None
+        fetch_diag: dict[str, Any] = {}
+        reduction_diag: dict[str, Any] = {}
         raw_response = ""
         cache_stats_before = self._cache_stats()
         try:
@@ -71,6 +104,9 @@ class AIInsightStrategy:
                         selection=selection,
                         options=options,
                         contexts=contexts,
+                        reduced_contexts=reduced_contexts,
+                        fetch_diag=fetch_diag,
+                        reduction_diag=reduction_diag,
                         summary_bundle=summary_bundle,
                         aggregate_diag={"skipped": True, "reason": "no selected items available for insight generation"},
                         cache_stats=self._cache_delta(cache_stats_before),
@@ -79,7 +115,21 @@ class AIInsightStrategy:
                     ),
                 )
 
-            summary_bundle = self.summary_builder.build_many(contexts)
+            content_config = _content_config(self.analysis_config)
+            summary_config = _summary_config(self.analysis_config)
+            fetched, fetch_diag = self.content_enricher.fetch_many(
+                contexts,
+                max_workers=int(content_config.get("FETCH_CONCURRENCY", 3) or 3),
+            )
+            reduced_contexts, reduction_diag = self.content_preprocessor.reduce_many(
+                contexts,
+                fetched,
+                max_chars=int(content_config.get("MAX_REDUCED_CHARS", 6000) or 6000),
+            )
+            summary_bundle = self.summary_builder.build_many(
+                reduced_contexts,
+                item_concurrency=int(summary_config.get("ITEM_CONCURRENCY", 3) or 3),
+            )
             if not summary_bundle.summaries:
                 return InsightResult(
                     enabled=True,
@@ -89,6 +139,9 @@ class AIInsightStrategy:
                         selection=selection,
                         options=options,
                         contexts=contexts,
+                        reduced_contexts=reduced_contexts,
+                        fetch_diag=fetch_diag,
+                        reduction_diag=reduction_diag,
                         summary_bundle=summary_bundle,
                         aggregate_diag={"skipped": True, "reason": "no summaries available for insight generation"},
                         cache_stats=self._cache_delta(cache_stats_before),
@@ -109,6 +162,9 @@ class AIInsightStrategy:
                     selection=selection,
                     options=options,
                     contexts=contexts,
+                    reduced_contexts=reduced_contexts,
+                    fetch_diag=fetch_diag,
+                    reduction_diag=reduction_diag,
                     summary_bundle=summary_bundle,
                     aggregate_diag=aggregate_diag,
                     cache_stats=self._cache_delta(cache_stats_before),
@@ -125,6 +181,9 @@ class AIInsightStrategy:
                     selection=selection,
                     options=options,
                     contexts=contexts,
+                    reduced_contexts=reduced_contexts,
+                    fetch_diag=fetch_diag,
+                    reduction_diag=reduction_diag,
                     summary_bundle=summary_bundle,
                     aggregate_diag={"error": f"{type(exc).__name__}: {exc}"},
                     cache_stats=self._cache_delta(cache_stats_before),
@@ -170,6 +229,9 @@ class AIInsightStrategy:
         selection: Any,
         options: InsightOptions,
         contexts: list[Any],
+        reduced_contexts: list[Any],
+        fetch_diag: Mapping[str, Any],
+        reduction_diag: Mapping[str, Any],
         summary_bundle: Any,
         aggregate_diag: Mapping[str, Any],
         cache_stats: Mapping[str, Any],
@@ -177,14 +239,22 @@ class AIInsightStrategy:
         reason: str = "",
         error: str = "",
     ) -> dict[str, Any]:
+        summary_diag = dict(getattr(self.summary_builder, "last_diagnostics", {}) or {})
         diagnostics = {
             "mode": getattr(snapshot, "mode", ""),
             "report_mode": options.mode,
             "selected_items": int(getattr(selection, "total_selected", len(getattr(selection, "selected_items", []) or [])) or 0),
             "summary_count": len(summary_bundle.summaries) if summary_bundle is not None else 0,
             "item_summary_count": len(summary_bundle.item_summaries) if summary_bundle is not None else 0,
-            "theme_summary_count": len(summary_bundle.theme_summaries) if summary_bundle is not None else 0,
+            "item_summary_failed_count": int(summary_diag.get("item_summary_failed_count", 0) or 0),
             "report_summary_present": bool(getattr(summary_bundle, "report_summary", None)),
+            "summary_model_calls": int(summary_diag.get("summary_model_calls", 0) or 0),
+            "summary_concurrency": int(summary_diag.get("summary_concurrency", 0) or 0),
+            "content_fetch_enabled": bool(fetch_diag.get("enabled", False)),
+            "content_fetch_success_count": int(fetch_diag.get("success_count", 0) or 0),
+            "content_fetch_failed_count": int(fetch_diag.get("failed_count", 0) or 0),
+            "content_reduced_context_chars": int(reduction_diag.get("total_reduced_chars", 0) or 0),
+            "content_reduced_max_chars": int(reduction_diag.get("max_chars", 0) or 0),
             "section_count": int(aggregate_diag.get("section_count", 0) or 0),
             "max_items": options.max_items,
             "llm_cache_enabled": bool(cache_stats.get("enabled", False)),
@@ -192,12 +262,15 @@ class AIInsightStrategy:
             "llm_cache_misses": int(cache_stats.get("misses", 0) or 0),
             "llm_cache_entries": int(cache_stats.get("entries", 0) or 0),
             "input_contexts": [asdict(context) for context in contexts],
+            "reduced_contexts": [asdict(context) for context in reduced_contexts],
+            "content_fetch": dict(fetch_diag or {}),
+            "content_reduction": dict(reduction_diag or {}),
             "summary_payloads": [asdict(summary) for summary in summary_bundle.summaries] if summary_bundle is not None else [],
             "item_summary_payloads": [asdict(summary) for summary in summary_bundle.item_summaries] if summary_bundle is not None else [],
-            "theme_summary_payloads": [asdict(summary) for summary in summary_bundle.theme_summaries] if summary_bundle is not None else [],
             "report_summary_payload": asdict(summary_bundle.report_summary)
             if summary_bundle is not None and summary_bundle.report_summary is not None
             else {},
+            "summary_generation": summary_diag,
             "aggregate": dict(aggregate_diag or {}),
         }
         if skipped:
@@ -207,3 +280,13 @@ class AIInsightStrategy:
         if error:
             diagnostics["error"] = error
         return diagnostics
+
+
+def _content_config(analysis_config: Mapping[str, Any]) -> dict[str, Any]:
+    content = analysis_config.get("CONTENT", {})
+    return dict(content or {}) if isinstance(content, Mapping) else {}
+
+
+def _summary_config(analysis_config: Mapping[str, Any]) -> dict[str, Any]:
+    summary = analysis_config.get("SUMMARY", {})
+    return dict(summary or {}) if isinstance(summary, Mapping) else {}

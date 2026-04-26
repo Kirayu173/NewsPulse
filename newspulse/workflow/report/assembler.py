@@ -216,7 +216,7 @@ class ReportPackageAssembler:
         return [
             deepcopy(summary)
             for summary in summaries
-            if str(getattr(summary, "kind", "") or "").strip()
+            if str(getattr(summary, "kind", "") or "").strip() in {"item", "report"}
             and str(getattr(summary, "key", "") or "").strip()
             and str(getattr(summary, "summary", "") or "").strip()
         ]

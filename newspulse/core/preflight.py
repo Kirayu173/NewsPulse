@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import sys
 import tomllib
+import importlib.util
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -299,21 +300,25 @@ def _check_ai_runtime(report: PreflightReport, runtime: ApplicationRuntime) -> N
     if insight_enabled:
         _check_runtime_mapping(
             report,
-            item="AI global insight runtime",
+            item="AI insight runtime",
             config=settings.insight.ai_runtime_config,
             hint="Check the insight runtime fields in `.env` or `config/config.yaml`, especially model, API key, and base URL.",
         )
         _check_prompt_files(
             report,
-            item="AI global insight prompt",
+            item="AI insight prompts",
             paths=[
                 settings.insight.analysis_config.get("PROMPT_FILE"),
+                settings.insight.analysis_config.get("SUMMARY", {}).get("ITEM_PROMPT_FILE"),
+                settings.insight.analysis_config.get("SUMMARY", {}).get("REPORT_PROMPT_FILE"),
             ],
-            hint="Make sure the global insight prompt file under `config/` exists and is readable.",
+            hint="Make sure the global, item summary, and report summary prompt files exist and are readable.",
         )
+        _check_content_enrichment_dependencies(report, settings.insight.analysis_config)
     else:
-        report.add("skip", "AI global insight runtime", "not required because global insight is disabled")
-        report.add("skip", "AI global insight prompt", "not required because global insight is disabled")
+        report.add("skip", "AI insight runtime", "not required because insight is disabled")
+        report.add("skip", "AI insight prompts", "not required because insight is disabled")
+        report.add("skip", "Content enrichment dependencies", "not required because insight is disabled")
 
 
 def _check_runtime_mapping(report: PreflightReport, *, item: str, config: dict[str, Any], hint: str) -> None:
@@ -359,6 +364,34 @@ def _check_prompt_files(
         return
     existing = [str(Path(path)) for path in paths if path]
     report.add("pass", item, f"found: {', '.join(existing)}")
+
+
+def _check_content_enrichment_dependencies(report: PreflightReport, analysis_config: dict[str, Any]) -> None:
+    content_config = analysis_config.get("CONTENT", {}) if isinstance(analysis_config, dict) else {}
+    if not isinstance(content_config, dict) or not content_config.get("ENABLED", False):
+        report.add("skip", "Content enrichment dependencies", "content fetch enrichment is disabled")
+        return
+
+    missing = []
+    if importlib.util.find_spec("httpx") is None:
+        missing.append("httpx")
+    extractor_order = content_config.get("EXTRACTOR_ORDER", [])
+    wants_trafilatura = "trafilatura" in [str(item).lower() for item in extractor_order]
+    wants_readability = "readability" in [str(item).lower() for item in extractor_order]
+    if wants_trafilatura and importlib.util.find_spec("trafilatura") is None:
+        missing.append("trafilatura")
+    if wants_readability and importlib.util.find_spec("readability") is None:
+        missing.append("readability-lxml")
+
+    if missing:
+        report.add(
+            "warn",
+            "Content enrichment dependencies",
+            f"optional extractor dependencies missing: {', '.join(missing)}",
+            hint="Install the project dependencies before enabling live content enrichment in production.",
+        )
+        return
+    report.add("pass", "Content enrichment dependencies", "httpx and configured extractors are importable")
 
 
 def _check_notification(report: PreflightReport, runtime: ApplicationRuntime) -> None:

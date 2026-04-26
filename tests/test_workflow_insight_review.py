@@ -47,7 +47,6 @@ class InsightReviewExportTest(unittest.TestCase):
                         title="A",
                         summary="summary",
                         item_ids=["1"],
-                        theme_keys=["theme:ai"],
                         evidence_topics=["AI"],
                         sources=["Hacker News"],
                     )
@@ -74,7 +73,6 @@ class InsightReviewExportTest(unittest.TestCase):
                             "evidence_topics": ["AI"],
                         }
                     ],
-                    "theme_summary_payloads": [],
                     "report_summary_payload": {},
                     "aggregate": {"summary_count": 1, "section_count": 1},
                 },
@@ -93,6 +91,7 @@ class InsightReviewExportTest(unittest.TestCase):
 
             self.assertEqual(summary["insight"]["section_count"], 1)
             self.assertEqual(summary["insight"]["summary_count"], 1)
+            self.assertNotIn("theme_summary_count", summary["insight"])
             for filename in (
                 "stage5_summary_input.json",
                 "stage5_summaries.json",

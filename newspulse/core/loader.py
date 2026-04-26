@@ -400,8 +400,21 @@ def _load_workflow_selection_config(config_data: Dict[str, Any]) -> Dict[str, An
     }
 
 
-def _load_workflow_insight_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
+def _coerce_string_list(value: Any, default: list[str]) -> list[str]:
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, list):
+        values = value
+    else:
+        return list(default)
+    normalized = [str(item or "").strip() for item in values if str(item or "").strip()]
+    return normalized or list(default)
+
+
+def _load_workflow_insight_config(config_data: Dict[str, Any], config_root: Path) -> Dict[str, Any]:
     insight = _get_section(config_data, "workflow", "insight")
+    content = _get_section(insight, "content")
+    summary = _get_section(insight, "summary")
     enabled_env = _get_env_bool("AI_ANALYSIS_ENABLED")
     enabled = bool(
         _coalesce(
@@ -442,12 +455,46 @@ def _load_workflow_insight_config(config_data: Dict[str, Any]) -> Dict[str, Any]
                 default=50,
             )
         ),
+        "CONTENT": {
+            "ENABLED": bool(_coalesce(_get_present_value(content, "enabled"), default=False)),
+            "FETCH_TIMEOUT_SECONDS": int(
+                _coalesce(_get_present_value(content, "fetch_timeout_seconds"), default=8) or 8
+            ),
+            "FETCH_CONCURRENCY": int(_coalesce(_get_present_value(content, "fetch_concurrency"), default=3) or 3),
+            "MAX_RAW_CHARS": int(_coalesce(_get_present_value(content, "max_raw_chars"), default=120000) or 120000),
+            "MAX_REDUCED_CHARS": int(_coalesce(_get_present_value(content, "max_reduced_chars"), default=6000) or 6000),
+            "EXTRACTOR_ORDER": _coerce_string_list(
+                _coalesce(_get_present_value(content, "extractor_order"), default=[]),
+                ["trafilatura", "readability", "beautifulsoup"],
+            ),
+        },
+        "SUMMARY": {
+            "ITEM_PROMPT_FILE": str(
+                resolve_prompt_path(
+                    str(_coalesce(_get_present_value(summary, "item_prompt_file"), default="insight/item_summary_prompt.txt")),
+                    config_root=config_root,
+                )
+            ),
+            "REPORT_PROMPT_FILE": str(
+                resolve_prompt_path(
+                    str(_coalesce(_get_present_value(summary, "report_prompt_file"), default="insight/report_summary_prompt.txt")),
+                    config_root=config_root,
+                )
+            ),
+            "ITEM_CONCURRENCY": int(_coalesce(_get_present_value(summary, "item_concurrency"), default=3) or 3),
+            "ITEM_SUMMARY_MAX_CHARS": int(
+                _coalesce(_get_present_value(summary, "item_summary_max_chars"), default=220) or 220
+            ),
+            "REPORT_SUMMARY_MAX_CHARS": int(
+                _coalesce(_get_present_value(summary, "report_summary_max_chars"), default=300) or 300
+            ),
+        },
     }
 
-def _load_workflow_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
+def _load_workflow_config(config_data: Dict[str, Any], config_root: Path) -> Dict[str, Any]:
     return {
         "SELECTION": _load_workflow_selection_config(config_data),
-        "INSIGHT": _load_workflow_insight_config(config_data),
+        "INSIGHT": _load_workflow_insight_config(config_data, config_root),
     }
 
 
@@ -499,6 +546,18 @@ def _load_ai_insight_operation_config(config_data: Dict[str, Any], config_root: 
                 config_root=config_root,
             )
         ),
+        "ITEM_PROMPT_FILE": str(
+            resolve_prompt_path(
+                str(_coalesce(_get_present_value(operation, "item_prompt_file"), default="insight/item_summary_prompt.txt")),
+                config_root=config_root,
+            )
+        ),
+        "REPORT_PROMPT_FILE": str(
+            resolve_prompt_path(
+                str(_coalesce(_get_present_value(operation, "report_prompt_file"), default="insight/report_summary_prompt.txt")),
+                config_root=config_root,
+            )
+        ),
         "TIMEOUT": _coalesce(_get_present_value(operation, "timeout"), default=None),
         "NUM_RETRIES": _coalesce(_get_present_value(operation, "num_retries"), default=None),
         "EXTRA_PARAMS": dict(_coalesce(_get_present_value(operation, "extra_params"), default={}) or {}),
@@ -507,6 +566,9 @@ def _load_ai_insight_operation_config(config_data: Dict[str, Any], config_root: 
 
 def _load_ai_analysis_config(workflow_config: Dict[str, Any], operation_config: Dict[str, Any]) -> Dict[str, Any]:
     insight = workflow_config["INSIGHT"]
+    summary = dict(insight.get("SUMMARY", {}) or {})
+    summary.setdefault("ITEM_PROMPT_FILE", operation_config["ITEM_PROMPT_FILE"])
+    summary.setdefault("REPORT_PROMPT_FILE", operation_config["REPORT_PROMPT_FILE"])
     return {
         "ENABLED": insight["ENABLED"],
         "STRATEGY": insight["STRATEGY"],
@@ -516,6 +578,8 @@ def _load_ai_analysis_config(workflow_config: Dict[str, Any], operation_config: 
         "NUM_RETRIES": operation_config.get("NUM_RETRIES"),
         "EXTRA_PARAMS": operation_config.get("EXTRA_PARAMS", {}),
         "RUNTIME_CACHE": dict(operation_config.get("RUNTIME_CACHE", {}) or {}),
+        "CONTENT": dict(insight.get("CONTENT", {}) or {}),
+        "SUMMARY": summary,
         "MODE": insight["MODE"],
         "MAX_ITEMS": insight["MAX_ITEMS"],
     }
@@ -661,7 +725,7 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     config["WEIGHT_CONFIG"] = _load_weight_config(config_data)
     config["PLATFORMS"] = config_data.get("platforms", {}).get("sources", [])
 
-    workflow_config = _load_workflow_config(config_data)
+    workflow_config = _load_workflow_config(config_data, layout.config_root)
     selection_operation_config = _load_ai_selection_operation_config(config_data, layout.config_root)
     insight_operation_config = _load_ai_insight_operation_config(config_data, layout.config_root)
 

@@ -18,11 +18,10 @@ from newspulse.storage.base import NewsData, NewsItem
 from newspulse.workflow.delivery import DeliveryService, GenericWebhookDeliveryAdapter
 from newspulse.workflow.insight.ai import AIInsightStrategy
 from newspulse.workflow.insight.service import InsightService
-from newspulse.workflow.insight.summary_builder import InsightSummaryBuilder
 from newspulse.workflow.selection.ai import AISelectionStrategy
 from newspulse.workflow.selection.service import SelectionService
 from newspulse.workflow.shared.ai_runtime.prompts import PromptTemplate
-from newspulse.workflow.shared.contracts import InsightSection
+from newspulse.workflow.shared.contracts import InsightSection, InsightSummary, InsightSummaryBundle
 from tests.helpers.io import write_text
 from tests.helpers.runtime import json_result
 from tests.helpers.selection import FakeEmbeddingClient
@@ -237,10 +236,45 @@ class StubInsightAggregate:
             {
                 "summary_count": len(summary_bundle.summaries),
                 "item_summary_count": len(summary_bundle.item_summaries),
-                "theme_summary_count": len(summary_bundle.theme_summaries),
                 "section_count": 1,
             },
         )
+
+
+class StubInsightSummaryBuilder:
+    def __init__(self):
+        self.last_diagnostics = {}
+
+    def build_many(self, contexts, *, item_concurrency=1):
+        item_summaries = [
+            InsightSummary(
+                kind="item",
+                key=f"item:{context.news_item_id}",
+                title=context.title,
+                summary=f"{context.title} summary",
+                item_ids=[context.news_item_id],
+                evidence_topics=list(context.evidence_topics),
+                sources=[context.source],
+            )
+            for context in contexts
+        ]
+        report_summary = InsightSummary(
+            kind="report",
+            key="report",
+            title="报告摘要",
+            summary="Report summary from item summaries.",
+            item_ids=[item_id for summary in item_summaries for item_id in summary.item_ids],
+        )
+        bundle = InsightSummaryBundle(item_summaries=item_summaries, report_summary=report_summary)
+        self.last_diagnostics = {
+            "summary_count": len(bundle.summaries),
+            "item_summary_count": len(item_summaries),
+            "item_summary_failed_count": 0,
+            "report_summary_present": True,
+            "summary_model_calls": len(item_summaries) + 1,
+            "summary_concurrency": item_concurrency,
+        }
+        return bundle
 
 
 class RecordingSender:
@@ -383,7 +417,7 @@ class NativeWorkflowEndToEndTest(unittest.TestCase):
             ai_strategy=AIInsightStrategy(
                 client=object(),
                 analysis_config=runtime.settings.insight.analysis_config,
-                summary_builder=InsightSummaryBuilder(),
+                summary_builder=StubInsightSummaryBuilder(),
                 aggregate_generator=StubInsightAggregate(),
             )
         )

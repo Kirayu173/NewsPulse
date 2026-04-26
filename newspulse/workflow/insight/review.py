@@ -62,7 +62,8 @@ def export_insight_outbox(
             "section_count": len(insight.sections),
             "summary_count": len(insight.summaries),
             "item_summary_count": len([summary for summary in insight.summaries if summary.kind == "item"]),
-            "theme_summary_count": len([summary for summary in insight.summaries if summary.kind == "theme"]),
+            "item_summary_failed_count": int(diagnostics.get("item_summary_failed_count", 0) or 0),
+            "report_summary_present": bool(diagnostics.get("report_summary_present", False)),
         },
     }
 
@@ -76,8 +77,10 @@ def export_insight_outbox(
         summary=summary,
         summaries=diagnostics.get("summary_payloads", []),
         item_summaries=diagnostics.get("item_summary_payloads", []),
-        theme_summaries=diagnostics.get("theme_summary_payloads", []),
         report_summary=diagnostics.get("report_summary_payload", {}),
+        content_fetch=diagnostics.get("content_fetch", {}),
+        content_reduction=diagnostics.get("content_reduction", {}),
+        summary_generation=diagnostics.get("summary_generation", {}),
     )
     outbox.write_stage_json(
         "stage5_global_insight.json",
@@ -121,8 +124,8 @@ def _build_summary_review_markdown(
 ) -> str:
     diagnostics = dict(getattr(insight, "diagnostics", {}) or {})
     input_contexts = list(diagnostics.get("input_contexts", []))
+    reduced_contexts = list(diagnostics.get("reduced_contexts", []))
     item_summaries = list(diagnostics.get("item_summary_payloads", []))
-    theme_summaries = list(diagnostics.get("theme_summary_payloads", []))
     report_summary = dict(diagnostics.get("report_summary_payload", {}) or {})
 
     lines: list[str] = []
@@ -135,7 +138,12 @@ def _build_summary_review_markdown(
     lines.append(f'- selected_items: {selection.total_selected}')
     lines.append(f'- summaries: {len(insight.summaries)}')
     lines.append(f'- item_summaries: {len(item_summaries)}')
-    lines.append(f'- theme_summaries: {len(theme_summaries)}')
+    lines.append(f'- item_summary_failed_count: {diagnostics.get("item_summary_failed_count", 0)}')
+    lines.append(f'- report_summary_present: {bool(report_summary)}')
+    lines.append(f'- content_fetch_enabled: {diagnostics.get("content_fetch_enabled", False)}')
+    lines.append(f'- content_fetch_success_count: {diagnostics.get("content_fetch_success_count", 0)}')
+    lines.append(f'- content_fetch_failed_count: {diagnostics.get("content_fetch_failed_count", 0)}')
+    lines.append(f'- content_reduced_max_chars: {diagnostics.get("content_reduced_max_chars", 0)}')
     if diagnostics.get("reason"):
         lines.append(f'- reason: {diagnostics.get("reason")}')
     if diagnostics.get("error"):
@@ -165,6 +173,20 @@ def _build_summary_review_markdown(
         lines.append(f"... ({len(input_contexts) - 12} more inputs)")
     lines.append("")
 
+    lines.append("## Reduced Contexts")
+    lines.append("")
+    for index, row in enumerate(reduced_contexts[:12], start=1):
+        lines.append(f"{index}. {row.get('title', '')}")
+        diagnostics_row = row.get("diagnostics", {}) if isinstance(row.get("diagnostics"), dict) else {}
+        lines.append(f"   reduced_chars: {diagnostics_row.get('reduced_chars', 0)}")
+        lines.append(f"   fetch_status: {diagnostics_row.get('fetch_status', '')}")
+        paragraphs = row.get("key_paragraphs", [])
+        if isinstance(paragraphs, list) and paragraphs:
+            lines.append(f"   first_paragraph: {str(paragraphs[0])[:180]}")
+    if len(reduced_contexts) > 12:
+        lines.append(f"... ({len(reduced_contexts) - 12} more reduced contexts)")
+    lines.append("")
+
     lines.append("## Report Summary")
     lines.append("")
     if report_summary:
@@ -173,24 +195,6 @@ def _build_summary_review_markdown(
             lines.append(f"- evidence_topics: {', '.join(str(item) for item in report_summary.get('evidence_topics', [])[:8])}")
     else:
         lines.append("No report summary was generated.")
-    lines.append("")
-
-    lines.append("## Theme Summaries")
-    lines.append("")
-    for index, row in enumerate(theme_summaries[:12], start=1):
-        lines.append(f"{index}. {row.get('title', '')}")
-        if row.get("summary"):
-            lines.append(f"   summary: {row.get('summary')}")
-        if row.get("item_ids"):
-            lines.append(f"   item_ids: {', '.join(str(item) for item in row.get('item_ids', [])[:8])}")
-        if row.get("evidence_topics"):
-            lines.append(f"   evidence_topics: {', '.join(str(item) for item in row.get('evidence_topics', [])[:6])}")
-        if row.get("evidence_notes"):
-            lines.append(f"   evidence_notes: {' | '.join(str(item) for item in row.get('evidence_notes', [])[:3])}")
-        if row.get("sources"):
-            lines.append(f"   auxiliary_sources: {', '.join(str(item) for item in row.get('sources', [])[:4])}")
-    if len(theme_summaries) > 12:
-        lines.append(f"... ({len(theme_summaries) - 12} more theme summaries)")
     lines.append("")
 
     lines.append("## Item Summaries")
@@ -241,7 +245,7 @@ def _build_global_insight_review_markdown(
     lines.append("## Aggregate Diagnostics")
     lines.append("")
     lines.append(f"- aggregate_summary_count: {aggregate.get('summary_count', len(insight.summaries))}")
-    lines.append(f"- aggregate_theme_summary_count: {aggregate.get('theme_summary_count', 0)}")
+    lines.append(f"- aggregate_item_summary_count: {aggregate.get('item_summary_count', 0)}")
     lines.append(f"- aggregate_section_count: {aggregate.get('section_count', len(insight.sections))}")
     if aggregate.get("source_distribution"):
         lines.append(f"- source_distribution: {json.dumps(aggregate.get('source_distribution'), ensure_ascii=False)}")

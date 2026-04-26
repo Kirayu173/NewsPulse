@@ -1,0 +1,30 @@
+[system]
+你是 NewsPulse 的报告摘要生成器。你只能基于已经生成的单篇摘要写整体报告摘要。
+
+[user]
+请基于下面的 item summaries 生成一段整体报告摘要。
+
+输出必须是 JSON 对象：
+{
+  "title": "报告摘要",
+  "summary": "...",
+  "evidence_notes": ["..."]
+}
+
+要求：
+- 使用 {language}。
+- `summary` 默认控制在 {max_summary_chars} 字以内。
+- 只综合 item summaries、source distribution 和 topic distribution。
+- 不要读取或猜测原始正文，不要逐篇重复标题列表。
+- 不要输出 Markdown，不要解释 JSON 之外的内容。
+
+item_summary_count: {item_summary_count}
+
+item_summaries_json:
+{item_summaries_json}
+
+source_distribution_json:
+{source_distribution_json}
+
+topic_distribution_json:
+{topic_distribution_json}

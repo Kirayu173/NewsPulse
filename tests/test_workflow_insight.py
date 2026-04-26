@@ -8,8 +8,7 @@ from newspulse.workflow.insight.models import (
     InsightSelectionEvidence,
     InsightSourceContext,
 )
-from newspulse.workflow.insight.summary_builder import InsightSummaryBuilder
-from newspulse.workflow.shared.contracts import HotlistSnapshot, InsightResult, InsightSection, SelectionResult
+from newspulse.workflow.shared.contracts import HotlistSnapshot, InsightResult, InsightSection, InsightSummary, InsightSummaryBundle, SelectionResult
 from newspulse.workflow.shared.options import InsightOptions
 
 
@@ -58,10 +57,45 @@ class StubAggregate:
             {
                 "summary_count": len(summary_bundle.summaries),
                 "item_summary_count": len(summary_bundle.item_summaries),
-                "theme_summary_count": len(summary_bundle.theme_summaries),
                 "section_count": 1,
             },
         )
+
+
+class StubSummaryBuilder:
+    def __init__(self):
+        self.last_diagnostics = {}
+
+    def build_many(self, contexts, *, item_concurrency=1):
+        item_summaries = [
+            InsightSummary(
+                kind="item",
+                key=f"item:{context.news_item_id}",
+                title=context.title,
+                summary=f"{context.title} summary",
+                item_ids=[context.news_item_id],
+                evidence_topics=list(context.evidence_topics),
+                sources=[context.source],
+            )
+            for context in contexts
+        ]
+        report_summary = InsightSummary(
+            kind="report",
+            key="report",
+            title="报告摘要",
+            summary="Report summary.",
+            item_ids=[item_id for summary in item_summaries for item_id in summary.item_ids],
+        )
+        bundle = InsightSummaryBundle(item_summaries=item_summaries, report_summary=report_summary)
+        self.last_diagnostics = {
+            "summary_count": len(bundle.summaries),
+            "item_summary_count": len(item_summaries),
+            "item_summary_failed_count": 0,
+            "report_summary_present": True,
+            "summary_model_calls": len(item_summaries) + 1,
+            "summary_concurrency": item_concurrency,
+        }
+        return bundle
 
 
 class WorkflowInsightServiceTest(unittest.TestCase):
@@ -85,7 +119,7 @@ class WorkflowInsightServiceTest(unittest.TestCase):
         strategy = AIInsightStrategy(
             client=object(),
             input_builder=StubInputBuilder(),
-            summary_builder=InsightSummaryBuilder(),
+            summary_builder=StubSummaryBuilder(),
             aggregate_generator=StubAggregate(),
             analysis_config={},
         )
@@ -102,8 +136,9 @@ class WorkflowInsightServiceTest(unittest.TestCase):
         self.assertEqual(result.diagnostics["llm_cache_hits"], 0)
         self.assertEqual(result.diagnostics["llm_cache_misses"], 0)
         self.assertEqual(len(result.diagnostics["input_contexts"]), 2)
+        self.assertEqual(len(result.diagnostics["reduced_contexts"]), 2)
         self.assertEqual(len(result.diagnostics["item_summary_payloads"]), 2)
-        self.assertEqual(len(result.diagnostics["theme_summary_payloads"]), 2)
+        self.assertNotIn("theme_summary_payloads", result.diagnostics)
         self.assertNotIn("item_" + "analysis_payloads", result.diagnostics)
         self.assertNotIn("content_payloads", result.diagnostics)
         self.assertNotIn("reduced_bundles", result.diagnostics)

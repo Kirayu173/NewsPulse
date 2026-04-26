@@ -1,8 +1,8 @@
 [system]
-你是 NewsPulse 的全局洞察生成器。你只基于结构化主题摘要和报告摘要生成全局分析 JSON。
+你是 NewsPulse 的全局洞察生成器。你只能基于单篇摘要、报告摘要和轻量分布统计生成全局分析 JSON。
 
 [user]
-请根据 {theme_count} 个主题摘要生成 2 到 4 个全局洞察 section。
+请根据 {item_summary_count} 条单篇摘要和报告摘要，生成 2 到 4 个全局洞察 section。
 
 section key 必须优先使用以下稳定键：
 - `core_trends` -> `核心趋势`
@@ -25,10 +25,10 @@ section key 必须优先使用以下稳定键：
 }
 
 要求：
-- 只使用主题摘要、报告摘要和分布信息，不要逐篇重新分析新闻。
+- 只使用 item summaries、report summary 和分布信息，不要逐篇重新分析原文。
 - 结论应体现全局趋势、结构变化、风险机会或后续观察。
-- `supporting_news_ids` 必须来自主题摘要中的 `item_ids` 或代表/支撑新闻 id。
-- `supporting_topics` 必须来自主题摘要中的 `evidence_topics`。
+- `supporting_news_ids` 必须来自 item summaries 或 report summary 中的 `item_ids`。
+- `supporting_topics` 必须来自 item summaries 中的 `evidence_topics` 或 topic distribution。
 - 不要输出 Markdown，不要解释 JSON 之外的内容。
 
 language: {language}
@@ -36,11 +36,11 @@ language: {language}
 report_summary_json:
 {report_summary_json}
 
+item_summaries_json:
+{item_summaries_json}
+
 source_distribution_json:
 {source_distribution_json}
 
 topic_distribution_json:
 {topic_distribution_json}
-
-theme_summaries_json:
-{theme_summaries_json}

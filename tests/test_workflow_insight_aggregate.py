@@ -55,7 +55,6 @@ class InsightAggregateGeneratorTest(unittest.TestCase):
                     title="OpenAI ships a new coding agent",
                     summary="Terminal-native coding workflow stays hot.",
                     item_ids=["1"],
-                    theme_keys=["theme:ai-agent-mcp"],
                     evidence_topics=["AI Agent / MCP"],
                     evidence_notes=["workflow angle is clear"],
                     sources=["Hacker News"],
@@ -66,55 +65,17 @@ class InsightAggregateGeneratorTest(unittest.TestCase):
                     title="GitHub launches an open source developer tool",
                     summary="Open source distribution remains a major signal.",
                     item_ids=["2"],
-                    theme_keys=["theme:open-source"],
                     evidence_topics=["Open Source"],
                     evidence_notes=["open source momentum"],
                     sources=["GitHub Trending"],
-                ),
-            ],
-            theme_summaries=[
-                InsightSummary(
-                    kind="theme",
-                    key="theme:ai-agent-mcp",
-                    title="AI Agent / MCP",
-                    summary="AI Agent / MCP 覆盖 1 条入选新闻，代表信号包括：OpenAI ships a new coding agent",
-                    item_ids=["1"],
-                    theme_keys=["theme:ai-agent-mcp"],
-                    evidence_topics=["AI Agent / MCP"],
-                    evidence_notes=["workflow angle is clear"],
-                    sources=["Hacker News"],
-                    metadata={
-                        "representative_item_ids": ["1"],
-                        "supporting_item_ids": [],
-                        "representative_titles": ["OpenAI ships a new coding agent"],
-                        "item_count": 1,
-                    },
-                ),
-                InsightSummary(
-                    kind="theme",
-                    key="theme:open-source",
-                    title="Open Source",
-                    summary="Open Source 覆盖 1 条入选新闻，代表信号包括：GitHub launches an open source developer tool",
-                    item_ids=["2"],
-                    theme_keys=["theme:open-source"],
-                    evidence_topics=["Open Source"],
-                    evidence_notes=["open source momentum"],
-                    sources=["GitHub Trending"],
-                    metadata={
-                        "representative_item_ids": ["2"],
-                        "supporting_item_ids": [],
-                        "representative_titles": ["GitHub launches an open source developer tool"],
-                        "item_count": 1,
-                    },
                 ),
             ],
             report_summary=InsightSummary(
                 kind="report",
                 key="report",
                 title="报告摘要",
-                summary="2 条入选新闻形成 2 个主题：AI Agent / MCP、Open Source",
+                summary="Two item summaries show developer tooling momentum.",
                 item_ids=["1", "2"],
-                theme_keys=["theme:ai-agent-mcp", "theme:open-source"],
                 evidence_topics=["AI Agent / MCP", "Open Source"],
                 sources=["Hacker News", "GitHub Trending"],
             ),
@@ -139,7 +100,10 @@ class InsightAggregateGeneratorTest(unittest.TestCase):
         generator = InsightAggregateGenerator(
             client=client,
             analysis_config={"PROMPT_FILE": "ignored.txt"},
-            prompt_template=PromptTemplate(path=Path("agg.txt"), user_prompt="COUNT={theme_count}\n{theme_summaries_json}"),
+            prompt_template=PromptTemplate(
+                path=Path("agg.txt"),
+                user_prompt="COUNT={item_summary_count}\n{item_summaries_json}\n{report_summary_json}",
+            ),
         )
 
         sections, raw_response, diagnostics = generator.generate(self._summary_bundle(), self._contexts())
@@ -148,10 +112,11 @@ class InsightAggregateGeneratorTest(unittest.TestCase):
         self.assertEqual(sections[0].key, "core_trends")
         self.assertEqual(sections[0].metadata["supporting_news_ids"], ["1", "2"])
         self.assertEqual(diagnostics["section_count"], 1)
-        self.assertEqual(diagnostics["theme_summary_count"], 2)
+        self.assertEqual(diagnostics["item_summary_count"], 2)
         self.assertTrue(raw_response)
         self.assertIn("COUNT=2", client.calls[0])
-        self.assertIn("AI Agent / MCP 覆盖", client.calls[0])
+        self.assertIn("Terminal-native coding workflow stays hot.", client.calls[0])
+        self.assertNotIn("theme_summaries_json", client.calls[0])
 
     def test_supports_dynamic_section_count(self):
         client = StubClient(
@@ -177,7 +142,7 @@ class InsightAggregateGeneratorTest(unittest.TestCase):
         generator = InsightAggregateGenerator(
             client=client,
             analysis_config={"PROMPT_FILE": "ignored.txt"},
-            prompt_template=PromptTemplate(path=Path("agg.txt"), user_prompt="{theme_summaries_json}"),
+            prompt_template=PromptTemplate(path=Path("agg.txt"), user_prompt="{item_summaries_json}"),
         )
 
         sections, _, diagnostics = generator.generate(self._summary_bundle(), self._contexts())
@@ -209,7 +174,7 @@ class InsightAggregateGeneratorTest(unittest.TestCase):
         generator = InsightAggregateGenerator(
             client=client,
             analysis_config={"PROMPT_FILE": "ignored.txt"},
-            prompt_template=PromptTemplate(path=Path("agg.txt"), user_prompt="{theme_summaries_json}"),
+            prompt_template=PromptTemplate(path=Path("agg.txt"), user_prompt="{item_summaries_json}"),
         )
 
         sections, _, diagnostics = generator.generate(self._summary_bundle(), self._contexts())
@@ -218,7 +183,7 @@ class InsightAggregateGeneratorTest(unittest.TestCase):
         self.assertEqual([section.key for section in sections], ["signals"])
         self.assertEqual(sections[0].content, "First signal.")
 
-    def test_falls_back_when_payload_is_invalid(self):
+    def test_falls_back_from_report_or_item_summaries_only(self):
         class BrokenClient:
             def generate_json(self, messages, **kwargs):
                 raise ValueError("not-json")
@@ -226,17 +191,18 @@ class InsightAggregateGeneratorTest(unittest.TestCase):
         generator = InsightAggregateGenerator(
             client=BrokenClient(),
             analysis_config={"PROMPT_FILE": "ignored.txt"},
-            prompt_template=PromptTemplate(path=Path("agg.txt"), user_prompt="{theme_summaries_json}"),
+            prompt_template=PromptTemplate(path=Path("agg.txt"), user_prompt="{item_summaries_json}"),
         )
 
         bundle = self._summary_bundle()
-        bundle.theme_summaries = bundle.theme_summaries[:1]
         bundle.item_summaries = bundle.item_summaries[:1]
         sections, _, diagnostics = generator.generate(bundle, self._contexts()[:1])
 
         self.assertEqual(sections[0].key, "core_trends")
         self.assertEqual(sections[0].metadata["section_generator"], "aggregate_fallback")
+        self.assertIn("Two item summaries", sections[0].content)
         self.assertIn("error", diagnostics)
+        self.assertNotIn("theme", sections[0].content.lower())
 
 
 if __name__ == "__main__":

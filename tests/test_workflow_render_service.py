@@ -100,22 +100,10 @@ def _build_report_package() -> ReportPackage:
                     kind="report",
                     key="report",
                     title="报告摘要",
-                    summary="2 条入选新闻形成 2 个主题：AI Agents、Startups",
+                    summary="2 条入选新闻显示 AI Agents 与 Startups 两类信号正在升温。",
                     item_ids=["1", "2"],
-                    theme_keys=["theme:ai-agents", "theme:startups"],
                     evidence_topics=["AI Agents", "Startups"],
                     sources=["Hacker News", "Product Hunt"],
-                ),
-                InsightSummary(
-                    kind="theme",
-                    key="theme:ai-agents",
-                    title="AI Agents",
-                    summary="AI Agents 覆盖 1 条入选新闻，代表信号包括：OpenAI launches a new coding agent",
-                    item_ids=["1"],
-                    theme_keys=["theme:ai-agents"],
-                    evidence_topics=["AI Agents", "Coding Workflow"],
-                    evidence_notes=["clear developer workflow angle"],
-                    sources=["Hacker News"],
                 ),
                 InsightSummary(
                     kind="item",
@@ -123,7 +111,6 @@ def _build_report_package() -> ReportPackage:
                     title="OpenAI launches a new coding agent",
                     summary="Terminal-native coding workflow with patch and verify loops.",
                     item_ids=["1"],
-                    theme_keys=["theme:ai-agents"],
                     evidence_topics=["AI Agents", "Coding Workflow"],
                     evidence_notes=["clear developer workflow angle"],
                     sources=["Hacker News"],
@@ -142,7 +129,6 @@ def _build_report_package() -> ReportPackage:
                     title="Startup launches AI productivity app",
                     summary="主题: Startups | 入选原因: startup launch with concrete workflow angle",
                     item_ids=["2"],
-                    theme_keys=["theme:startups"],
                     evidence_topics=["Startups"],
                     evidence_notes=["startup launch with concrete workflow angle"],
                     sources=["Product Hunt"],
@@ -186,11 +172,10 @@ def _build_report_package() -> ReportPackage:
             "insight": {
                 "enabled": True,
                 "strategy": "ai",
-                "summary_count": 4,
+                "summary_count": 3,
                 "diagnostics": {
-                    "summary_count": 4,
+                    "summary_count": 3,
                     "item_summary_count": 2,
-                    "theme_summary_count": 1,
                     "max_items": 10,
                     "report_mode": "current",
                     "input_contexts": [
@@ -247,7 +232,7 @@ class WorkflowRenderServiceTest(unittest.TestCase):
         self.assertEqual(view_model.new_item_groups[0].items[0].title, "OpenAI launches a new coding agent")
         self.assertEqual(len(view_model.news_cards), 3)
         self.assertEqual(view_model.news_cards[0].summary.summary, "Terminal-native coding workflow with patch and verify loops.")
-        self.assertEqual(len(view_model.summary_cards), 4)
+        self.assertEqual(len(view_model.summary_cards), 3)
         self.assertEqual(view_model.news_cards[0].selection_evidence.matched_topics, ["AI Agents", "Coding Workflow"])
         self.assertTrue(view_model.news_cards[2].is_standalone)
         self.assertEqual(view_model.insight.sections[0].content, "AI tools keep dominating the developer conversation.")

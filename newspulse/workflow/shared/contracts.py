@@ -98,20 +98,22 @@ class InsightSummary:
     title: str
     summary: str
     item_ids: List[str] = field(default_factory=list)
-    theme_keys: List[str] = field(default_factory=list)
     evidence_topics: List[str] = field(default_factory=list)
     evidence_notes: List[str] = field(default_factory=list)
     sources: List[str] = field(default_factory=list)
     expanded: bool = True
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        if self.kind not in {"item", "report"}:
+            raise ValueError(f"Unsupported insight summary kind: {self.kind}")
+
 
 @dataclass
 class InsightSummaryBundle:
-    """Grouped Stage-5 summary output split by item, theme and report scopes."""
+    """Grouped Stage-5 summary output split by item and report scopes."""
 
     item_summaries: List[InsightSummary] = field(default_factory=list)
-    theme_summaries: List[InsightSummary] = field(default_factory=list)
     report_summary: InsightSummary | None = None
 
     @property
@@ -119,7 +121,6 @@ class InsightSummaryBundle:
         rows: List[InsightSummary] = []
         if self.report_summary is not None:
             rows.append(self.report_summary)
-        rows.extend(self.theme_summaries)
         rows.extend(self.item_summaries)
         return rows
 

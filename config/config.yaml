@@ -27,6 +27,22 @@
                 enabled: false
                 strategy: noop
                 mode: current
+                content:
+                  enabled: false
+                  fetch_timeout_seconds: 8
+                  fetch_concurrency: 3
+                  max_raw_chars: 120000
+                  max_reduced_chars: 6000
+                  extractor_order:
+                    - trafilatura
+                    - readability
+                    - beautifulsoup
+                summary:
+                  item_prompt_file: insight/item_summary_prompt.txt
+                  report_prompt_file: insight/report_summary_prompt.txt
+                  item_concurrency: 3
+                  item_summary_max_chars: 220
+                  report_summary_max_chars: 300
             ai:
               runtime:
                 model: openai/test-model

@@ -204,18 +204,10 @@ def _build_summary_section(view_model: "RenderViewModel", format_type: str) -> s
 
     lines = [f"{_bold('摘要', format_type)}", ""]
     report_summaries = [summary for summary in view_model.summary_cards if summary.kind == "report"]
-    theme_summaries = [summary for summary in view_model.summary_cards if summary.kind == "theme"]
 
     for summary in report_summaries[:1]:
         lines.append(f"{_bold(summary.title or '报告摘要', format_type)}")
         lines.append(summary.summary)
-        lines.append("")
-
-    if theme_summaries:
-        lines.append(f"{_bold('主题摘要', format_type)}")
-        for index, summary in enumerate(theme_summaries[:6], start=1):
-            source_suffix = f" · 来源证据: {', '.join(summary.sources[:3])}" if summary.sources else ""
-            lines.append(f"{index}. {summary.title}: {summary.summary}{source_suffix}")
         lines.append("")
 
     return "\n".join(lines).strip()
