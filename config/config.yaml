@@ -1,68 +1,89 @@
-
-            app:
-              timezone: Asia/Shanghai
-            schedule:
-              enabled: false
-              preset: always_on
-            platforms:
-              enabled: true
-              sources:
-                - id: thepaper
-                  name: 婢庢箖鏂伴椈
-            report:
-              mode: current
-              display_mode: keyword
-              rank_threshold: 10
-            notification:
-              enabled: false
-            workflow:
-              selection:
-                strategy: keyword
-                priority_sort_enabled: false
-                ai:
-                  interests_file: ai_interests.txt
-                semantic:
-                  enabled: true
-              insight:
-                enabled: false
-                strategy: noop
-                mode: current
-                content:
-                  enabled: false
-                  fetch_timeout_seconds: 8
-                  fetch_concurrency: 3
-                  max_raw_chars: 120000
-                  max_reduced_chars: 6000
-                  extractor_order:
-                    - trafilatura
-                    - readability
-                    - beautifulsoup
-                summary:
-                  item_prompt_file: insight/item_summary_prompt.txt
-                  report_prompt_file: insight/report_summary_prompt.txt
-                  item_concurrency: 3
-                  item_summary_max_chars: 220
-                  report_summary_max_chars: 300
-            ai:
-              runtime:
-                model: openai/test-model
-                api_key: ""
-                api_base: ""
-              operations:
-                selection:
-                  prompt_file: ai_filter/prompt.txt
-                  extract_prompt_file: ai_filter/extract_prompt.txt
-                  update_tags_prompt_file: ai_filter/update_tags_prompt.txt
-                insight:
-                  prompt_file: global_insight_prompt.txt
-            storage:
-              backend: local
-              formats:
-                txt: false
-                html: false
-              local:
-                data_dir: output
-                retention_days: 0
-            advanced:
-              crawler:
-                request_interval: 0
+app:
+  timezone: Asia/Shanghai
+schedule:
+  enabled: false
+  preset: always_on
+platforms:
+  enabled: true
+  sources:
+    - id: thepaper
+      name: 澎湃新闻
+    - id: tencent-hot
+      name: 腾讯热榜
+    - id: cls-hot
+      name: 财联社热榜
+    - id: wallstreetcn-hot
+      name: 华尔街见闻热榜
+    - id: github-trending-today
+      name: GitHub Trending
+    - id: hackernews
+      name: Hacker News
+    - id: juejin
+      name: 稀土掘金
+report:
+  mode: current
+  display_mode: keyword
+  rank_threshold: 10
+notification:
+  enabled: false
+workflow:
+  selection:
+    strategy: ai
+    priority_sort_enabled: false
+    ai:
+      interests_file: ai_interests.txt
+      batch_size: 25
+      batch_interval: 0
+      min_score: 0.82
+      fallback_to_keyword: false
+    semantic:
+      enabled: true
+      min_score: 0.58
+  insight:
+    enabled: true
+    strategy: ai
+    mode: current
+    max_items: 500
+    content:
+      enabled: true
+      fetch_timeout_seconds: 15
+      fetch_concurrency: 3
+      max_raw_chars: 120000
+      max_reduced_chars: 6000
+      extractor_order:
+        - trafilatura
+        - readability
+        - beautifulsoup
+    summary:
+      item_prompt_file: insight/item_summary_prompt.txt
+      report_prompt_file: insight/report_summary_prompt.txt
+      item_concurrency: 3
+      item_summary_max_chars: 220
+      report_summary_max_chars: 300
+ai:
+  runtime:
+    model: openai/test-model
+    api_key: ""
+    api_base: ""
+  operations:
+    selection:
+      prompt_file: ai_filter/prompt.txt
+      extract_prompt_file: ai_filter/extract_prompt.txt
+      update_tags_prompt_file: ai_filter/update_tags_prompt.txt
+      timeout: 240
+      num_retries: 2
+    insight:
+      prompt_file: global_insight_prompt.txt
+      timeout: 240
+      num_retries: 2
+storage:
+  backend: local
+  formats:
+    txt: false
+    html: false
+  local:
+    data_dir: output
+    retention_days: 0
+advanced:
+  crawler:
+    request_interval: 0

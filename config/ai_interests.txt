@@ -1,1 +1,80 @@
-AI agents
+[TOPIC_CATALOG]
+
+[Frontier AI Models]
+@priority: 1
+New foundation models, multimodal models, reasoning models, agentic systems, model evaluation, inference quality, and meaningful AI product launches.
++LLM
++foundation model
++multimodal
++reasoning model
++AI agent
++agentic AI
+-celebrity
+-viral
+-tutorial
+
+[AI Infrastructure and Developer Tools]
+@priority: 2
+Inference engines, model serving, vector databases, RAG systems, coding agents, IDE tooling, MCP, workflow automation, observability, and open-source AI engineering infrastructure.
++inference
++runtime
++serving
++RAG
++MCP
++coding agent
++developer tool
++open source
+-interview question
+-beginner tutorial
+-course promotion
+
+[Chips Compute and Cloud]
+@priority: 3
+AI chips, GPU/accelerator supply chains, datacenters, cloud platforms, edge AI hardware, semiconductor policy, and compute economics.
++GPU
++AI chip
++semiconductor
++datacenter
++cloud
++compute
++accelerator
+-stock rumor
+-routine earnings
+
+[Robotics Autonomous Systems and Embodied AI]
+@priority: 4
+Robots, autonomous driving, drones, embodied agents, industrial automation, smart manufacturing, and real-world AI deployment.
++robot
++robotics
++autonomous
++drone
++embodied AI
++automation
+-traffic accident
+-routine car sales
+
+[Cybersecurity and Trustworthy AI]
+@priority: 5
+Security vulnerabilities, AI safety, model abuse, privacy, data governance, compliance, watermarking, identity, and frontier-tech risk management.
++security
++vulnerability
++privacy
++AI safety
++governance
++compliance
+-crime story
+-rumor
+
+[Technology Business and Regulation]
+@priority: 6
+Market-moving technology company strategy, regulation, financing, acquisitions, antitrust, export controls, and policy that directly affects AI or frontier technology ecosystems.
++regulation
++funding
++acquisition
++antitrust
++export control
++startup
++platform
+-real estate
+-commodity prices
+-general macro
