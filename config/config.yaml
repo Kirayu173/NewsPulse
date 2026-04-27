@@ -34,7 +34,8 @@ workflow:
       interests_file: ai_interests.txt
       batch_size: 25
       batch_interval: 0
-      min_score: 0.82
+      concurrency: 3
+      min_score: 0.80
       fallback_to_keyword: false
     semantic:
       enabled: true

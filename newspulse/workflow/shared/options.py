@@ -23,6 +23,7 @@ class SelectionAIOptions:
     interests_file: str = "ai_interests.txt"
     batch_size: int = 50
     batch_interval: float = 2.0
+    concurrency: int = 3
     min_score: float = 0.7
     fallback_to_keyword: bool = True
     metadata: Dict[str, Any] = field(default_factory=dict)

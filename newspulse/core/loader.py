@@ -349,6 +349,13 @@ def _load_workflow_selection_config(config_data: Dict[str, Any]) -> Dict[str, An
                     default=5,
                 )
             ),
+            "CONCURRENCY": int(
+                _coalesce(
+                    _get_present_value(selection_ai, "concurrency"),
+                    default=3,
+                )
+                or 3
+            ),
             "MIN_SCORE": float(
                 _coalesce(
                     _get_present_value(selection_ai, "min_score"),
@@ -589,6 +596,7 @@ def _load_ai_filter_config(workflow_config: Dict[str, Any], operation_config: Di
     return {
         "BATCH_SIZE": selection_ai["BATCH_SIZE"],
         "BATCH_INTERVAL": selection_ai["BATCH_INTERVAL"],
+        "CONCURRENCY": selection_ai["CONCURRENCY"],
         "TIMEOUT": operation_config.get("TIMEOUT"),
         "NUM_RETRIES": operation_config.get("NUM_RETRIES"),
         "EXTRA_PARAMS": operation_config.get("EXTRA_PARAMS", {}),

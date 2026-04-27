@@ -111,6 +111,7 @@ class RuntimeSettingsTest(unittest.TestCase):
                     "INTERESTS_FILE": "focus.txt",
                     "BATCH_SIZE": 3,
                     "BATCH_INTERVAL": 1,
+                    "CONCURRENCY": 2,
                     "MIN_SCORE": 0.75,
                     "FALLBACK_TO_KEYWORD": False,
                 },
@@ -123,6 +124,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(options.frequency_file, "topics.txt")
         self.assertEqual(options.ai.interests_file, "focus.txt")
         self.assertEqual(options.ai.batch_size, 3)
+        self.assertEqual(options.ai.concurrency, 2)
         self.assertEqual(options.ai.min_score, 0.75)
         self.assertFalse(options.ai.fallback_to_keyword)
 
@@ -138,6 +140,7 @@ class RuntimeSettingsTest(unittest.TestCase):
                             "INTERESTS_FILE": "workflow-focus.txt",
                             "BATCH_SIZE": 9,
                             "BATCH_INTERVAL": 2,
+                            "CONCURRENCY": 4,
                             "MIN_SCORE": 0.6,
                             "FALLBACK_TO_KEYWORD": True,
                         },
@@ -170,6 +173,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(options.frequency_file, "workflow-topics.txt")
         self.assertEqual(options.ai.interests_file, "workflow-focus.txt")
         self.assertEqual(options.ai.batch_size, 9)
+        self.assertEqual(options.ai.concurrency, 4)
         self.assertEqual(options.ai.min_score, 0.6)
         self.assertFalse(options.priority_sort_enabled)
         self.assertTrue(options.ai.fallback_to_keyword)
@@ -254,6 +258,7 @@ class RuntimeSettingsTest(unittest.TestCase):
                             "interests_file": "focus.txt",
                             "batch_size": 11,
                             "batch_interval": 1.5,
+                            "concurrency": 5,
                             "min_score": 0.62,
                             "reclassify_threshold": 0.58,
                             "fallback_to_keyword": False,
@@ -309,6 +314,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(settings.selection.ai_runtime_config["MODEL"], "openai/selection-model")
         self.assertEqual(settings.selection.ai_runtime_config["API_KEY"], "base-key")
         self.assertEqual(settings.selection.ai_runtime_config["TIMEOUT"], 480)
+        self.assertEqual(settings.selection.ai.concurrency, 5)
         self.assertEqual(settings.selection.semantic.top_k, 6)
         self.assertEqual(settings.selection.semantic.direct_threshold, 0.82)
 

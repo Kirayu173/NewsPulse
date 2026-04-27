@@ -122,10 +122,18 @@ class AISelectionStrategy:
                 "rule_rejected_count": len(rule_result.rejected_items),
                 "semantic_passed_count": len(semantic_result.passed_items),
                 "semantic_rejected_count": len(semantic_result.rejected_items),
-                "llm_batch_count": len(batch_items),
+                "llm_batch_count": self.classifier.count_batches(
+                    len(batch_items),
+                    options.ai.batch_size,
+                ),
                 "llm_decision_count": len(llm_decisions),
                 "batch_size": options.ai.batch_size,
                 "batch_interval": options.ai.batch_interval,
+                "llm_concurrency": self.classifier.resolved_concurrency(
+                    len(batch_items),
+                    options.ai.batch_size,
+                    options.ai.concurrency,
+                ),
                 "min_score": options.ai.min_score,
                 "semantic_candidate_count": len(semantic_result.candidates),
             }

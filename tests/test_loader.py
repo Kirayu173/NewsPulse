@@ -339,6 +339,7 @@ class LoaderConfigRootTest(unittest.TestCase):
                       interests_file: founders.txt
                       batch_size: 25
                       batch_interval: 1.5
+                      concurrency: 4
                       min_score: 0.65
                       reclassify_threshold: 0.55
                       fallback_to_keyword: false
@@ -395,6 +396,7 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["WORKFLOW"]["SELECTION"]["AI"]["INTERESTS_FILE"], "founders.txt")
             self.assertEqual(config["WORKFLOW"]["SELECTION"]["AI"]["BATCH_SIZE"], 25)
             self.assertAlmostEqual(config["WORKFLOW"]["SELECTION"]["AI"]["BATCH_INTERVAL"], 1.5)
+            self.assertEqual(config["WORKFLOW"]["SELECTION"]["AI"]["CONCURRENCY"], 4)
             self.assertAlmostEqual(config["WORKFLOW"]["SELECTION"]["AI"]["MIN_SCORE"], 0.65)
             self.assertAlmostEqual(config["WORKFLOW"]["SELECTION"]["AI"]["RECLASSIFY_THRESHOLD"], 0.55)
             self.assertFalse(config["WORKFLOW"]["SELECTION"]["AI"]["FALLBACK_TO_KEYWORD"])

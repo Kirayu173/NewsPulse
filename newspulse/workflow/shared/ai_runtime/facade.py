@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from threading import RLock
 import time
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
@@ -144,6 +145,7 @@ class CachedAIRuntimeClient:
         self._misses = 0
         self._stores = 0
         self._evictions = 0
+        self._lock = RLock()
 
     @property
     def config(self) -> AIRuntimeConfig:
@@ -159,20 +161,22 @@ class CachedAIRuntimeClient:
         return self._client.runtime_summary()
 
     def reset_cache(self) -> None:
-        self._cache.clear()
+        with self._lock:
+            self._cache.clear()
 
     def cache_stats(self) -> dict[str, Any]:
-        self._purge_expired()
-        return {
-            "enabled": self.enabled,
-            "ttl_seconds": self.ttl_seconds,
-            "max_entries": self.max_entries,
-            "entries": len(self._cache),
-            "hits": self._hits,
-            "misses": self._misses,
-            "stores": self._stores,
-            "evictions": self._evictions,
-        }
+        with self._lock:
+            self._purge_expired()
+            return {
+                "enabled": self.enabled,
+                "ttl_seconds": self.ttl_seconds,
+                "max_entries": self.max_entries,
+                "entries": len(self._cache),
+                "hits": self._hits,
+                "misses": self._misses,
+                "stores": self._stores,
+                "evictions": self._evictions,
+            }
 
     def generate_text(self, messages: list[dict[str, Any]], **overrides: Any) -> AIResult:
         return self._generate_cached("text", messages, None, **overrides)
@@ -200,17 +204,19 @@ class CachedAIRuntimeClient:
         if not cache_enabled or cache_bypass or ttl_seconds <= 0 or self.max_entries <= 0:
             return self._dispatch(response_mode, messages, schema, **overrides)
 
-        now = self._clock()
-        self._purge_expired(now)
         cache_key = self._build_cache_key(messages, overrides, cache_context, response_mode, schema)
-        cached = self._cache.get(cache_key)
-        if cached is not None and cached[0] > now:
-            self._hits += 1
-            return cached[1]
+        now = self._clock()
+        with self._lock:
+            self._purge_expired(now)
+            cached = self._cache.get(cache_key)
+            if cached is not None and cached[0] > now:
+                self._hits += 1
+                return cached[1]
+            self._misses += 1
 
-        self._misses += 1
         response = self._dispatch(response_mode, messages, schema, **overrides)
-        self._store(cache_key, response, ttl_seconds, now)
+        with self._lock:
+            self._store(cache_key, response, ttl_seconds, self._clock())
         return response
 
     def _dispatch(

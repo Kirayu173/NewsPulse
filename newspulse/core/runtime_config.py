@@ -296,6 +296,7 @@ def resolve_selection_stage_config(config: Dict[str, Any], raw_config: Dict[str,
                 "INTERESTS_FILE": mapping_get(workflow_ai, "INTERESTS_FILE", "interests_file"),
                 "BATCH_SIZE": int(mapping_get(workflow_ai, "BATCH_SIZE", "batch_size", default=200) or 200),
                 "BATCH_INTERVAL": float(mapping_get(workflow_ai, "BATCH_INTERVAL", "batch_interval", default=5) or 0),
+                "CONCURRENCY": int(mapping_get(workflow_ai, "CONCURRENCY", "concurrency", default=3) or 3),
                 "MIN_SCORE": float(mapping_get(workflow_ai, "MIN_SCORE", "min_score", default=0) or 0),
                 "RECLASSIFY_THRESHOLD": float(
                     mapping_get(workflow_ai, "RECLASSIFY_THRESHOLD", "reclassify_threshold", default=0.6) or 0.6
@@ -324,6 +325,7 @@ def resolve_selection_stage_config(config: Dict[str, Any], raw_config: Dict[str,
             "INTERESTS_FILE": ai_filter_config.get("INTERESTS_FILE"),
             "BATCH_SIZE": int(ai_filter_config.get("BATCH_SIZE", 200) or 200),
             "BATCH_INTERVAL": float(ai_filter_config.get("BATCH_INTERVAL", 5) or 0),
+            "CONCURRENCY": int(ai_filter_config.get("CONCURRENCY", 3) or 3),
             "MIN_SCORE": float(ai_filter_config.get("MIN_SCORE", 0) or 0),
             "RECLASSIFY_THRESHOLD": float(ai_filter_config.get("RECLASSIFY_THRESHOLD", 0.6) or 0.6),
             "FALLBACK_TO_KEYWORD": bool(ai_filter_config.get("FALLBACK_TO_KEYWORD", True)),
@@ -375,6 +377,7 @@ def resolve_ai_filter_config(config: Dict[str, Any], raw_config: Dict[str, Any])
     return {
         "BATCH_SIZE": int(selection_ai.get("BATCH_SIZE", 200) or 200),
         "BATCH_INTERVAL": float(selection_ai.get("BATCH_INTERVAL", 5) or 0),
+        "CONCURRENCY": int(selection_ai.get("CONCURRENCY", 3) or 3),
         "TIMEOUT": mapping_get(operation, "TIMEOUT", "timeout"),
         "NUM_RETRIES": mapping_get(operation, "NUM_RETRIES", "num_retries"),
         "EXTRA_PARAMS": coerce_mapping(mapping_get(operation, "EXTRA_PARAMS", "extra_params", default={})),

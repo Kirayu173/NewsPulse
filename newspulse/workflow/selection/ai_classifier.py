@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from newspulse.workflow.selection.context_builder import build_selection_context
@@ -68,19 +69,62 @@ class AIBatchClassifier:
         all_results: list[AIQualityDecision] = []
         batch_size = max(1, int(options.ai.batch_size or 1))
         batch_interval = max(0.0, float(options.ai.batch_interval or 0.0))
+        concurrency = max(1, int(options.ai.concurrency or 1))
+        batches = [
+            list(pending_items[start : start + batch_size])
+            for start in range(0, len(pending_items), batch_size)
+        ]
 
-        for batch_index, start in enumerate(range(0, len(pending_items), batch_size), start=1):
-            if batch_index > 1 and batch_interval > 0:
-                self.sleep_func(batch_interval)
+        if concurrency <= 1 or len(batches) <= 1:
+            for batch_index, batch in enumerate(batches, start=1):
+                if batch_index > 1 and batch_interval > 0:
+                    self.sleep_func(batch_interval)
 
-            batch = list(pending_items[start : start + batch_size])
-            batch_results = self.classify_batch(
-                batch,
-                interests_content=interests_content,
-                focus_topics=focus_topics,
-            )
+                batch_results = self.classify_batch(
+                    batch,
+                    interests_content=interests_content,
+                    focus_topics=focus_topics,
+                )
+                all_results.extend(batch_results)
+            return all_results
+
+        ordered_results: list[list[AIQualityDecision]] = [[] for _ in batches]
+        max_workers = min(concurrency, len(batches))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {}
+            for batch_index, batch in enumerate(batches, start=1):
+                if batch_index > 1 and batch_interval > 0:
+                    self.sleep_func(batch_interval)
+                future = executor.submit(
+                    self.classify_batch,
+                    batch,
+                    interests_content=interests_content,
+                    focus_topics=focus_topics,
+                )
+                futures[future] = batch_index - 1
+
+            for future in as_completed(futures):
+                ordered_results[futures[future]] = future.result()
+
+        for batch_results in ordered_results:
             all_results.extend(batch_results)
         return all_results
+
+    @staticmethod
+    def count_batches(item_count: int, batch_size: int) -> int:
+        """Return how many LLM batches a candidate set will use."""
+
+        normalized_batch_size = max(1, int(batch_size or 1))
+        return (max(0, int(item_count)) + normalized_batch_size - 1) // normalized_batch_size
+
+    @staticmethod
+    def resolved_concurrency(item_count: int, batch_size: int, concurrency: int) -> int:
+        """Return the effective worker count for a pending item set."""
+
+        batch_count = AIBatchClassifier.count_batches(item_count, batch_size)
+        if batch_count <= 0:
+            return 0
+        return min(max(1, int(concurrency or 1)), batch_count)
 
     def classify_batch(
         self,

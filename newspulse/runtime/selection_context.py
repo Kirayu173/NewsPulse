@@ -29,6 +29,7 @@ class SelectionOptionsBuilder:
                 interests_file=interests_file or stage.ai.interests_file or "ai_interests.txt",
                 batch_size=stage.ai.batch_size,
                 batch_interval=stage.ai.batch_interval,
+                concurrency=stage.ai.concurrency,
                 min_score=stage.ai.min_score,
                 fallback_to_keyword=stage.ai.fallback_to_keyword,
             ),

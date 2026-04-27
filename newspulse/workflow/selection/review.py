@@ -264,6 +264,7 @@ def _extract_llm_payload(
             "skipped": True,
             "reason": skipped_reason or "ai_selection_unavailable",
             "batch_count": 0,
+            "concurrency": 0,
             "evaluated_count": 0,
             "kept_count": 0,
             "rejected_count": 0,
@@ -304,6 +305,7 @@ def _extract_llm_payload(
         "skipped": False,
         "reason": "",
         "batch_count": int(diagnostics.get("llm_batch_count", 0) or 0),
+        "concurrency": int(diagnostics.get("llm_concurrency", 0) or 0),
         "evaluated_count": int(diagnostics.get("llm_evaluated_count", len(decisions)) or len(decisions)),
         "kept_count": len(kept_matches),
         "rejected_count": len(rejected_items),
@@ -321,6 +323,7 @@ def _llm_summary(payload: Mapping[str, Any]) -> dict[str, Any]:
         "skipped": bool(payload.get("skipped", False)),
         "reason": str(payload.get("reason", "") or ""),
         "batch_count": int(payload.get("batch_count", 0) or 0),
+        "concurrency": int(payload.get("concurrency", 0) or 0),
         "evaluated_count": int(payload.get("evaluated_count", 0) or 0),
         "kept_count": int(payload.get("kept_count", 0) or 0),
         "rejected_count": int(payload.get("rejected_count", 0) or 0),
@@ -462,6 +465,7 @@ def _append_llm_section(lines: list[str], llm_payload: Mapping[str, Any]) -> Non
     if reason:
         lines.append(f"- reason: {reason}")
     lines.append(f"- batch_count: {int(llm_payload.get('batch_count', 0) or 0)}")
+    lines.append(f"- concurrency: {int(llm_payload.get('concurrency', 0) or 0)}")
     lines.append(f"- evaluated_count: {int(llm_payload.get('evaluated_count', 0) or 0)}")
     lines.append(f"- kept_count: {int(llm_payload.get('kept_count', 0) or 0)}")
     lines.append(f"- rejected_count: {int(llm_payload.get('rejected_count', 0) or 0)}")

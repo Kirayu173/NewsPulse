@@ -93,6 +93,7 @@ class SelectionAISettings:
     interests_file: str | None
     batch_size: int
     batch_interval: float
+    concurrency: int
     min_score: float
     reclassify_threshold: float
     fallback_to_keyword: bool
@@ -267,6 +268,7 @@ class RuntimeSettings:
                     interests_file=selection_ai.get("INTERESTS_FILE"),
                     batch_size=int(selection_ai.get("BATCH_SIZE", 200) or 200),
                     batch_interval=float(selection_ai.get("BATCH_INTERVAL", 5) or 0),
+                    concurrency=int(selection_ai.get("CONCURRENCY", 3) or 3),
                     min_score=float(selection_ai.get("MIN_SCORE", 0) or 0),
                     reclassify_threshold=float(selection_ai.get("RECLASSIFY_THRESHOLD", 0.6) or 0.6),
                     fallback_to_keyword=bool(selection_ai.get("FALLBACK_TO_KEYWORD", True)),

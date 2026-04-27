@@ -1,6 +1,8 @@
+import time
 import unittest
 from datetime import datetime
 from pathlib import Path
+from threading import Lock
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -174,6 +176,31 @@ class EmptyResponseAIClient:
         raise AIResponseDecodeError("AI response does not contain JSON")
 
 
+class ConcurrentTrackingAIClient:
+    def __init__(self):
+        self.active = 0
+        self.max_active = 0
+        self.calls = []
+        self.lock = Lock()
+
+    def generate_json(self, messages, **kwargs):
+        user_content = messages[-1]["content"]
+        lines = [line for line in user_content.splitlines() if line[:1].isdigit() and ". [" in line]
+        with self.lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            self.calls.append(len(lines))
+        try:
+            time.sleep(0.03)
+            prompt_id = int(lines[0].split(".", 1)[0])
+            return json_result(
+                [{"id": prompt_id, "keep": True, "score": 0.9, "reasons": ["ok"], "evidence": "ok"}]
+            )
+        finally:
+            with self.lock:
+                self.active -= 1
+
+
 class DummyStorage:
     def begin_batch(self):
         pass
@@ -328,6 +355,44 @@ class AISelectionStrategyTest(unittest.TestCase):
         self.assertTrue(all(result.keep for result in results))
         self.assertEqual(client.calls[0], 3)
         self.assertEqual(client.calls.count(1), 2)
+
+    def test_ai_classify_pending_items_runs_batches_concurrently_and_preserves_order(self):
+        tmp_root = _make_tmp_dir()
+        config_root = tmp_root / "config"
+        _write_test_ai_config(config_root)
+
+        client = ConcurrentTrackingAIClient()
+        strategy = AISelectionStrategy(
+            storage_manager=DummyStorage(),
+            client=client,
+            filter_config={"PROMPT_FILE": "prompt.txt"},
+            config_root=config_root,
+            sleep_func=lambda _: None,
+        )
+
+        batch_items = [
+            AIBatchNewsItem(prompt_id=1, news_item_id="1", title="a"),
+            AIBatchNewsItem(prompt_id=2, news_item_id="2", title="b"),
+            AIBatchNewsItem(prompt_id=3, news_item_id="3", title="c"),
+            AIBatchNewsItem(prompt_id=4, news_item_id="4", title="d"),
+        ]
+        results = strategy.classifier.classify_pending_items(
+            pending_items=batch_items,
+            interests_content="AI",
+            focus_topics=[],
+            options=SelectionOptions(
+                ai=SelectionAIOptions(
+                    batch_size=1,
+                    batch_interval=0,
+                    concurrency=2,
+                ),
+                semantic=SelectionSemanticOptions(enabled=False),
+            ),
+        )
+
+        self.assertEqual([result.news_item_id for result in results], ["1", "2", "3", "4"])
+        self.assertGreaterEqual(client.max_active, 2)
+        self.assertEqual(client.calls, [1, 1, 1, 1])
 
     def test_ai_batch_prompt_includes_summary_and_structured_context(self):
         tmp_root = _make_tmp_dir()
