@@ -31,7 +31,7 @@ workflow:
     strategy: ai
     priority_sort_enabled: false
     ai:
-      interests_file: ai_interests.txt
+      interests_file: profiles/ai/default.txt
       batch_size: 25
       batch_interval: 0
       concurrency: 3
@@ -56,8 +56,9 @@ workflow:
         - readability
         - beautifulsoup
     summary:
-      item_prompt_file: insight/item_summary_prompt.txt
-      report_prompt_file: insight/report_summary_prompt.txt
+      item_prompt_file: prompts/insight/item_summary_batch.txt
+      report_prompt_file: prompts/insight/report_summary.txt
+      item_batch_size: 3
       item_concurrency: 3
       item_summary_max_chars: 220
       report_summary_max_chars: 300
@@ -68,13 +69,13 @@ ai:
     api_base: ""
   operations:
     selection:
-      prompt_file: ai_filter/prompt.txt
-      extract_prompt_file: ai_filter/extract_prompt.txt
-      update_tags_prompt_file: ai_filter/update_tags_prompt.txt
+      prompt_file: prompts/selection/classify.txt
+      extract_prompt_file: prompts/selection/extract_tags.txt
+      update_tags_prompt_file: prompts/selection/update_tags.txt
       timeout: 240
       num_retries: 2
     insight:
-      prompt_file: global_insight_prompt.txt
+      prompt_file: prompts/insight/global_insight.txt
       timeout: 240
       num_retries: 2
 storage:

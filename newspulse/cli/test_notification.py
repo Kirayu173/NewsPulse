@@ -17,7 +17,6 @@ from newspulse.workflow.shared.contracts import (
     SelectionGroup,
 )
 
-
 logger = get_logger(__name__)
 
 

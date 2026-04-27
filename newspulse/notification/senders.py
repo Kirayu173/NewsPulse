@@ -7,8 +7,8 @@ import json
 from typing import Optional
 
 import requests
-from newspulse.utils.logging import get_logger
 
+from newspulse.utils.logging import get_logger
 
 logger = get_logger(__name__)
 

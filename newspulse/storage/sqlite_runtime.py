@@ -116,7 +116,7 @@ class SQLiteRuntime:
             CREATE TABLE ai_filter_analyzed_news__migrated (
                 news_item_id INTEGER NOT NULL,
                 source_type TEXT NOT NULL DEFAULT 'hotlist',
-                interests_file TEXT NOT NULL DEFAULT 'ai_interests.txt',
+                interests_file TEXT NOT NULL DEFAULT 'profiles/ai/default.txt',
                 prompt_hash TEXT NOT NULL,
                 tag_version INTEGER NOT NULL DEFAULT 0,
                 model_key TEXT NOT NULL DEFAULT '',

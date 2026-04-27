@@ -70,8 +70,8 @@ def extract_json_block(response_text: Any) -> str:
 def decode_json_response(response_text: Any, *, repair: bool = True) -> Any:
     """Decode structured JSON data from a raw AI response or AI result."""
 
-    if hasattr(response_text, "json_payload") and getattr(response_text, "json_payload") is not None:
-        return getattr(response_text, "json_payload")
+    if hasattr(response_text, "json_payload") and response_text.json_payload is not None:
+        return response_text.json_payload
     if isinstance(response_text, (dict, list)):
         return response_text
     if hasattr(response_text, "text") and not isinstance(response_text, str):

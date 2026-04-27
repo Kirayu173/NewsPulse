@@ -14,7 +14,6 @@ from bs4 import BeautifulSoup
 from newspulse.workflow.insight.content_models import FetchedContent
 from newspulse.workflow.insight.models import InsightNewsContext
 
-
 DEFAULT_EXTRACTOR_ORDER = ("trafilatura", "readability", "beautifulsoup")
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (compatible; NewsPulse/1.0; +https://github.com/news-pulse)"

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from newspulse.core.config_paths import DEFAULT_AI_INTERESTS_FILE
 from newspulse.runtime.settings import RuntimeSettings
 from newspulse.workflow.shared.options import SelectionAIOptions, SelectionOptions, SelectionSemanticOptions
 
@@ -26,7 +27,7 @@ class SelectionOptionsBuilder:
             frequency_file=frequency_file or stage.frequency_file,
             priority_sort_enabled=stage.priority_sort_enabled,
             ai=SelectionAIOptions(
-                interests_file=interests_file or stage.ai.interests_file or "ai_interests.txt",
+                interests_file=interests_file or stage.ai.interests_file or DEFAULT_AI_INTERESTS_FILE,
                 batch_size=stage.ai.batch_size,
                 batch_interval=stage.ai.batch_interval,
                 concurrency=stage.ai.concurrency,

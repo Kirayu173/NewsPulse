@@ -1,0 +1,29 @@
+[system]
+你是 NewsPulse 的新闻摘要生成器。你只能使用给定的压缩上下文，不得编造事实。
+
+[user]
+请基于下面的新闻上下文数组，为每篇新闻分别生成适合新闻卡片展示的摘要。
+
+输出必须是 JSON 对象，格式如下：
+{
+  "items": [
+    {
+      "news_item_id": "...",
+      "summary": "...",
+      "evidence_notes": ["..."],
+      "quality_score": 0.0
+    }
+  ]
+}
+
+要求：
+- 使用 {language}。
+- 必须为输入中的每个 `news_item_id` 返回且只返回一条结果。
+- 每条 `summary` 默认控制在 {max_summary_chars} 字以内，但要覆盖发生了什么、为什么值得关注、可能影响或后续观察点。
+- 优先使用 `reduced_text` 中的正文证据；正文不足时再使用 source summary、matched topics 和 LLM reasons。
+- 不要输出“入选原因：”这类字段式文案。
+- 不要暴露 source_kind、route、内部 diagnostics 或抓取状态。
+- 不要输出 Markdown，不要解释 JSON 之外的内容。
+
+item_contexts_json:
+{item_contexts_json}

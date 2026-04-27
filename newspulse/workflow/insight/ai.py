@@ -129,6 +129,7 @@ class AIInsightStrategy:
             summary_bundle = self.summary_builder.build_many(
                 reduced_contexts,
                 item_concurrency=int(summary_config.get("ITEM_CONCURRENCY", 3) or 3),
+                item_batch_size=int(summary_config.get("ITEM_BATCH_SIZE", 3) or 3),
             )
             if not summary_bundle.summaries:
                 return InsightResult(

@@ -2,9 +2,9 @@ import unittest
 from pathlib import Path
 from uuid import uuid4
 
-from newspulse.workflow.report import ReportPackageAssembler
 from newspulse.workflow import build_render_view_model
 from newspulse.workflow.render import render_hotlist_stats_html
+from newspulse.workflow.report import ReportPackageAssembler
 from newspulse.workflow.selection.service import SelectionService
 from newspulse.workflow.shared.contracts import HotlistItem, HotlistSnapshot, InsightResult
 from newspulse.workflow.shared.options import SelectionOptions
@@ -25,7 +25,7 @@ class SelectionServiceTest(unittest.TestCase):
         tmp_root = _make_tmp_dir()
         config_root = tmp_root / "config"
         write_text(
-            config_root / "custom" / "keyword" / "selection.txt",
+            config_root / "rules" / "keyword" / "selection.txt",
             """
             [GLOBAL_FILTER]
             Ignore
@@ -67,7 +67,7 @@ class SelectionServiceTest(unittest.TestCase):
         tmp_root = _make_tmp_dir()
         config_root = tmp_root / "config"
         write_text(
-            config_root / "custom" / "keyword" / "render.txt",
+            config_root / "rules" / "keyword" / "render.txt",
             """
             [GLOBAL_FILTER]
             Ignore

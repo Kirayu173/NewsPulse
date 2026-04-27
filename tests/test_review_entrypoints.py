@@ -3,7 +3,6 @@ import shutil
 import unittest
 import uuid
 from pathlib import Path
-from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 from unittest.mock import patch
 
 from newspulse.crawler.models import CrawlBatchResult, SourceFetchResult
@@ -13,6 +12,7 @@ from newspulse.storage.review import run_stage2_review
 from newspulse.workflow.insight.review import run_insight_review
 from newspulse.workflow.selection.review import run_selection_review
 from newspulse.workflow.snapshot.review import run_snapshot_review
+from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 
 
 class _FakeDataFetcher:
@@ -44,7 +44,10 @@ class ReviewEntrypointSmokeTest(unittest.TestCase):
         tmp = TemporaryDirectory()
         root = Path(tmp.name)
         config_dir = root / "config"
-        (config_dir / "ai_filter").mkdir(parents=True, exist_ok=True)
+        (config_dir / "rules" / "keyword").mkdir(parents=True, exist_ok=True)
+        (config_dir / "profiles" / "ai").mkdir(parents=True, exist_ok=True)
+        (config_dir / "prompts" / "selection").mkdir(parents=True, exist_ok=True)
+        (config_dir / "prompts" / "insight").mkdir(parents=True, exist_ok=True)
         (config_dir / "config.yaml").write_text(
             """
             app:
@@ -68,7 +71,7 @@ class ReviewEntrypointSmokeTest(unittest.TestCase):
                 strategy: keyword
                 priority_sort_enabled: false
                 ai:
-                  interests_file: ai_interests.txt
+                  interests_file: profiles/ai/default.txt
                 semantic:
                   enabled: true
               insight:
@@ -82,11 +85,11 @@ class ReviewEntrypointSmokeTest(unittest.TestCase):
                 api_base: ""
               operations:
                 selection:
-                  prompt_file: ai_filter/prompt.txt
-                  extract_prompt_file: ai_filter/extract_prompt.txt
-                  update_tags_prompt_file: ai_filter/update_tags_prompt.txt
+                  prompt_file: prompts/selection/classify.txt
+                  extract_prompt_file: prompts/selection/extract_tags.txt
+                  update_tags_prompt_file: prompts/selection/update_tags.txt
                 insight:
-                  prompt_file: global_insight_prompt.txt
+                  prompt_file: prompts/insight/global_insight.txt
             storage:
               backend: local
               formats:
@@ -101,15 +104,14 @@ class ReviewEntrypointSmokeTest(unittest.TestCase):
             """,
             encoding="utf-8",
         )
-        (config_dir / "frequency_words.txt").write_text("[WORD_GROUPS]\nAI\n", encoding="utf-8")
-        (config_dir / "ai_interests.txt").write_text("AI agents", encoding="utf-8")
-        (config_dir / "global_insight_prompt.txt").write_text("[user]\n{item_summaries_json}\n{report_summary_json}", encoding="utf-8")
-        (config_dir / "insight").mkdir(parents=True, exist_ok=True)
-        (config_dir / "insight" / "item_summary_prompt.txt").write_text("[user]\n{item_context_json}", encoding="utf-8")
-        (config_dir / "insight" / "report_summary_prompt.txt").write_text("[user]\n{item_summaries_json}", encoding="utf-8")
-        (config_dir / "ai_filter" / "prompt.txt").write_text("[user]\n{news_list}", encoding="utf-8")
-        (config_dir / "ai_filter" / "extract_prompt.txt").write_text("[user]\nextract", encoding="utf-8")
-        (config_dir / "ai_filter" / "update_tags_prompt.txt").write_text("[user]\nupdate", encoding="utf-8")
+        (config_dir / "rules/keyword/default.txt").write_text("[WORD_GROUPS]\nAI\n", encoding="utf-8")
+        (config_dir / "profiles/ai/default.txt").write_text("AI agents", encoding="utf-8")
+        (config_dir / "prompts/insight/global_insight.txt").write_text("[user]\n{item_summaries_json}\n{report_summary_json}", encoding="utf-8")
+        (config_dir / "prompts" / "insight" / "item_summary_batch.txt").write_text("[user]\n{item_contexts_json}", encoding="utf-8")
+        (config_dir / "prompts" / "insight" / "report_summary.txt").write_text("[user]\n{item_summaries_json}", encoding="utf-8")
+        (config_dir / "prompts" / "selection" / "classify.txt").write_text("[user]\n{news_list}", encoding="utf-8")
+        (config_dir / "prompts" / "selection" / "extract_tags.txt").write_text("[user]\nextract", encoding="utf-8")
+        (config_dir / "prompts" / "selection" / "update_tags.txt").write_text("[user]\nupdate", encoding="utf-8")
         return tmp, config_dir / "config.yaml"
 
     def _create_outbox(self, label: str) -> Path:

@@ -472,30 +472,30 @@ class StorageBackend(ABC):
         return False
 
     def begin_batch(self) -> None:
-        pass
+        return None
 
     def end_batch(self) -> None:
-        pass
+        return None
 
-    def get_active_ai_filter_tags(self, date: Optional[str] = None, interests_file: str = "ai_interests.txt") -> List[Dict]:
+    def get_active_ai_filter_tags(self, date: Optional[str] = None, interests_file: str = "profiles/ai/default.txt") -> List[Dict]:
         return []
 
-    def get_latest_prompt_hash(self, date: Optional[str] = None, interests_file: str = "ai_interests.txt") -> Optional[str]:
+    def get_latest_prompt_hash(self, date: Optional[str] = None, interests_file: str = "profiles/ai/default.txt") -> Optional[str]:
         return None
 
     def get_latest_ai_filter_tag_version(self, date: Optional[str] = None) -> int:
         return 0
 
-    def deprecate_all_ai_filter_tags(self, date: Optional[str] = None, interests_file: str = "ai_interests.txt") -> int:
+    def deprecate_all_ai_filter_tags(self, date: Optional[str] = None, interests_file: str = "profiles/ai/default.txt") -> int:
         return 0
 
-    def save_ai_filter_tags(self, tags: List[Dict], version: int, prompt_hash: str, date: Optional[str] = None, interests_file: str = "ai_interests.txt") -> int:
+    def save_ai_filter_tags(self, tags: List[Dict], version: int, prompt_hash: str, date: Optional[str] = None, interests_file: str = "profiles/ai/default.txt") -> int:
         return 0
 
     def save_ai_filter_results(self, results: List[Dict], date: Optional[str] = None) -> int:
         return 0
 
-    def get_active_ai_filter_results(self, date: Optional[str] = None, interests_file: str = "ai_interests.txt") -> List[Dict]:
+    def get_active_ai_filter_results(self, date: Optional[str] = None, interests_file: str = "profiles/ai/default.txt") -> List[Dict]:
         return []
 
     def deprecate_specific_ai_filter_tags(self, tag_ids: List[int], date: Optional[str] = None) -> int:
@@ -504,10 +504,10 @@ class StorageBackend(ABC):
     def update_ai_filter_tags_hash(self, interests_file: str, new_hash: str, date: Optional[str] = None) -> int:
         return 0
 
-    def update_ai_filter_tag_descriptions(self, tag_updates: List[Dict], date: Optional[str] = None, interests_file: str = "ai_interests.txt") -> int:
+    def update_ai_filter_tag_descriptions(self, tag_updates: List[Dict], date: Optional[str] = None, interests_file: str = "profiles/ai/default.txt") -> int:
         return 0
 
-    def update_ai_filter_tag_priorities(self, tag_priorities: List[Dict], date: Optional[str] = None, interests_file: str = "ai_interests.txt") -> int:
+    def update_ai_filter_tag_priorities(self, tag_priorities: List[Dict], date: Optional[str] = None, interests_file: str = "profiles/ai/default.txt") -> int:
         return 0
 
     def save_analyzed_news(
@@ -527,7 +527,7 @@ class StorageBackend(ABC):
         self,
         source_type: str = "hotlist",
         date: Optional[str] = None,
-        interests_file: str = "ai_interests.txt",
+        interests_file: str = "profiles/ai/default.txt",
         prompt_hash: Optional[str] = None,
         tag_version: Optional[int] = None,
         model_key: Optional[str] = None,
@@ -540,7 +540,7 @@ class StorageBackend(ABC):
         date: Optional[str] = None,
         *,
         source_type: str = "hotlist",
-        interests_file: str = "ai_interests.txt",
+        interests_file: str = "profiles/ai/default.txt",
         prompt_hash: str = "",
         tag_version: int = 0,
         model_key: str = "",
@@ -553,7 +553,7 @@ class StorageBackend(ABC):
         date: Optional[str] = None,
         *,
         source_type: str = "hotlist",
-        interests_file: str = "ai_interests.txt",
+        interests_file: str = "profiles/ai/default.txt",
         prompt_hash: str = "",
         tag_version: int = 0,
         model_key: str = "",
@@ -563,7 +563,7 @@ class StorageBackend(ABC):
     def clear_analyzed_news(
         self,
         date: Optional[str] = None,
-        interests_file: str = "ai_interests.txt",
+        interests_file: str = "profiles/ai/default.txt",
         prompt_hash: Optional[str] = None,
         tag_version: Optional[int] = None,
         model_key: Optional[str] = None,
@@ -573,7 +573,7 @@ class StorageBackend(ABC):
     def clear_unmatched_analyzed_news(
         self,
         date: Optional[str] = None,
-        interests_file: str = "ai_interests.txt",
+        interests_file: str = "profiles/ai/default.txt",
         prompt_hash: Optional[str] = None,
         tag_version: Optional[int] = None,
         model_key: Optional[str] = None,

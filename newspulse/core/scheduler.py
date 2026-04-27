@@ -9,12 +9,10 @@
 import copy
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
-from datetime import datetime
-
 from newspulse.utils.logging import get_logger
-
 
 logger = get_logger(__name__)
 

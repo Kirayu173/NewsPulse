@@ -8,9 +8,9 @@ from newspulse.crawler.sources.base import SourceItem
 from newspulse.runner import NewsRunner
 from newspulse.workflow import (
     DeliveryPayload,
-    HTMLArtifact,
     HotlistItem,
     HotlistSnapshot,
+    HTMLArtifact,
     InsightResult,
     RenderArtifacts,
     ReportContent,

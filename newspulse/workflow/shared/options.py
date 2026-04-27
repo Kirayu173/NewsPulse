@@ -20,7 +20,7 @@ class SnapshotOptions:
 class SelectionAIOptions:
     """Nested AI options for the selection stage."""
 
-    interests_file: str = "ai_interests.txt"
+    interests_file: str = "profiles/ai/default.txt"
     batch_size: int = 50
     batch_interval: float = 2.0
     concurrency: int = 3

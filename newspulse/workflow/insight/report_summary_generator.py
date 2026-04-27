@@ -10,6 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from newspulse.core.config_paths import DEFAULT_REPORT_SUMMARY_PROMPT_FILE
 from newspulse.workflow.shared.ai_runtime.client import AIRuntimeClient
 from newspulse.workflow.shared.ai_runtime.codec import decode_json_response, extract_json_block
 from newspulse.workflow.shared.ai_runtime.errors import AIResponseDecodeError
@@ -41,7 +42,7 @@ class ReportSummaryGenerator:
             client = AIRuntimeClient(ai_runtime_config)
         self.client = client
         self.prompt_template = prompt_template or load_prompt_template(
-            self.summary_config.get("REPORT_PROMPT_FILE", "insight/report_summary_prompt.txt"),
+            self.summary_config.get("REPORT_PROMPT_FILE", DEFAULT_REPORT_SUMMARY_PROMPT_FILE),
             config_root=self.config_root,
             required=True,
         )

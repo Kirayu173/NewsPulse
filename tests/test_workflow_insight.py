@@ -1,14 +1,21 @@
 import unittest
 
 from newspulse.workflow.insight.ai import AIInsightStrategy
-from newspulse.workflow.insight.service import InsightService
 from newspulse.workflow.insight.models import (
     InsightNewsContext,
     InsightRankSignals,
     InsightSelectionEvidence,
     InsightSourceContext,
 )
-from newspulse.workflow.shared.contracts import HotlistSnapshot, InsightResult, InsightSection, InsightSummary, InsightSummaryBundle, SelectionResult
+from newspulse.workflow.insight.service import InsightService
+from newspulse.workflow.shared.contracts import (
+    HotlistSnapshot,
+    InsightResult,
+    InsightSection,
+    InsightSummary,
+    InsightSummaryBundle,
+    SelectionResult,
+)
 from newspulse.workflow.shared.options import InsightOptions
 
 
@@ -66,7 +73,7 @@ class StubSummaryBuilder:
     def __init__(self):
         self.last_diagnostics = {}
 
-    def build_many(self, contexts, *, item_concurrency=1):
+    def build_many(self, contexts, *, item_concurrency=1, item_batch_size=3):
         item_summaries = [
             InsightSummary(
                 kind="item",
@@ -94,6 +101,7 @@ class StubSummaryBuilder:
             "report_summary_present": True,
             "summary_model_calls": len(item_summaries) + 1,
             "summary_concurrency": item_concurrency,
+            "summary_batch_size": item_batch_size,
         }
         return bundle
 

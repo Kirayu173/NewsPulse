@@ -2,8 +2,6 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
-from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
-
 from newspulse.runtime import build_runtime, run_render_stage
 from newspulse.workflow import (
     HotlistItem,
@@ -22,6 +20,7 @@ from newspulse.workflow import (
 )
 from newspulse.workflow.render import split_content_into_batches
 from newspulse.workflow.shared.options import RenderOptions
+from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 
 
 def _build_report_package() -> ReportPackage:

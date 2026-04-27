@@ -98,7 +98,7 @@ def _build_chat_params(request: ChatRequest) -> dict[str, Any]:
     extras.pop("do_sample", None)
     if "thinking" not in extras and "thinking" in extra_body:
         extras["thinking"] = extra_body.pop("thinking")
-    for key in sorted(list(extras)):
+    for key in sorted(extras):
         if key in _ANTHROPIC_ALLOWED_CHAT_KEYS:
             params[key] = extras.pop(key)
     if extra_body:

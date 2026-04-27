@@ -6,6 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
+from newspulse.core.config_paths import DEFAULT_FREQUENCY_WORDS_FILE
 from newspulse.workflow.selection.frequency import _word_matches, load_keyword_rule_set
 from newspulse.workflow.selection.models import KeywordRuleSet
 from newspulse.workflow.shared.contracts import (
@@ -54,7 +55,7 @@ class KeywordSelectionStrategy:
         qualified_items = list(filter_result.passed_items)
         diagnostics = {
             "mode": snapshot.mode,
-            "frequency_file": options.frequency_file or "frequency_words.txt",
+            "frequency_file": options.frequency_file or DEFAULT_FREQUENCY_WORDS_FILE,
             "passed_count": len(qualified_items),
             "blacklist_rejected_count": len(filter_result.rejected_items),
             "requested_strategy": "keyword",

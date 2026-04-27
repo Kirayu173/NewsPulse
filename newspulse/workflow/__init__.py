@@ -11,7 +11,6 @@ from newspulse.workflow.delivery import (
     DeliveryService,
     GenericWebhookDeliveryAdapter,
 )
-from newspulse.workflow.report import ReportPackageAssembler, ReportPackageValidator
 from newspulse.workflow.render import (
     HTMLArtifact,
     HTMLRenderAdapter,
@@ -23,6 +22,7 @@ from newspulse.workflow.render import (
     render_hotlist_stats_html,
     split_content_into_batches,
 )
+from newspulse.workflow.report import ReportPackageAssembler, ReportPackageValidator
 from newspulse.workflow.shared.contracts import (
     DeliveryPayload,
     HotlistItem,

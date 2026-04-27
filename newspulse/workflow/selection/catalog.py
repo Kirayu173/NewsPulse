@@ -8,7 +8,6 @@ from typing import Sequence
 
 from newspulse.workflow.selection.models import AIActiveTag, SelectionTopic
 
-
 _TOPIC_HEADER = "[TOPIC_CATALOG]"
 _PRIORITY_PATTERN = re.compile(r"^@(?:priority\s*[:=]\s*|)(\d+)\s*$", re.IGNORECASE)
 _SOURCE_PATTERN = re.compile(r"^@source\s*[:=]\s*(.+)$", re.IGNORECASE)

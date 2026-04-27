@@ -20,7 +20,6 @@ from newspulse.workflow.shared.contracts import (
 )
 from newspulse.workflow.shared.scoring import DEFAULT_WEIGHT_CONFIG, calculate_news_weight
 
-
 DEFAULT_RENDER_REGIONS = [
     "hotlist",
     "new_items",

@@ -77,14 +77,14 @@ def _write_timeline(config_dir: Path) -> None:
 
 
 def _write_common_files(config_dir: Path) -> None:
-    write_text(config_dir / "frequency_words.txt", "[WORD_GROUPS]\nAI\n")
-    write_text(config_dir / "ai_interests.txt", "AI agents and coding tools")
-    write_text(config_dir / "global_insight_prompt.txt", "[user]\n{item_summaries_json}\n{report_summary_json}")
-    write_text(config_dir / "insight" / "item_summary_prompt.txt", "[user]\n{item_context_json}")
-    write_text(config_dir / "insight" / "report_summary_prompt.txt", "[user]\n{item_summaries_json}")
-    write_text(config_dir / "ai_filter" / "prompt.txt", "[user]\n{news_list}")
-    write_text(config_dir / "ai_filter" / "extract_prompt.txt", "[user]\nextract")
-    write_text(config_dir / "ai_filter" / "update_tags_prompt.txt", "[user]\nupdate")
+    write_text(config_dir / "rules/keyword/default.txt", "[WORD_GROUPS]\nAI\n")
+    write_text(config_dir / "profiles/ai/default.txt", "AI agents and coding tools")
+    write_text(config_dir / "prompts/insight/global_insight.txt", "[user]\n{item_summaries_json}\n{report_summary_json}")
+    write_text(config_dir / "prompts" / "insight" / "item_summary_batch.txt", "[user]\n{item_contexts_json}")
+    write_text(config_dir / "prompts" / "insight" / "report_summary.txt", "[user]\n{item_summaries_json}")
+    write_text(config_dir / "prompts" / "selection" / "classify.txt", "[user]\n{news_list}")
+    write_text(config_dir / "prompts" / "selection" / "extract_tags.txt", "[user]\nextract")
+    write_text(config_dir / "prompts" / "selection" / "update_tags.txt", "[user]\nupdate")
     _write_timeline(config_dir)
 
 
@@ -119,9 +119,9 @@ def _write_config(
         workflow:
           selection:
             strategy: {selection_strategy}
-            frequency_file: frequency_words.txt
+            frequency_file: rules/keyword/default.txt
             ai:
-              interests_file: ai_interests.txt
+              interests_file: profiles/ai/default.txt
               fallback_to_keyword: {"true" if fallback_to_keyword else "false"}
             semantic:
               enabled: {"true" if semantic_enabled else "false"}
@@ -137,12 +137,12 @@ def _write_config(
           operations:
             selection:
               model: openai/filter-model
-              prompt_file: ai_filter/prompt.txt
-              extract_prompt_file: ai_filter/extract_prompt.txt
-              update_tags_prompt_file: ai_filter/update_tags_prompt.txt
+              prompt_file: prompts/selection/classify.txt
+              extract_prompt_file: prompts/selection/extract_tags.txt
+              update_tags_prompt_file: prompts/selection/update_tags.txt
             insight:
               model: openai/insight-model
-              prompt_file: global_insight_prompt.txt
+              prompt_file: prompts/insight/global_insight.txt
         storage:
           backend: local
           local:

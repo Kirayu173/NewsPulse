@@ -19,17 +19,22 @@ class EchoItemClient:
     def generate_json(self, messages, **kwargs):
         prompt = messages[-1]["content"]
         self.calls.append(prompt)
-        payload = json.loads(prompt)
-        item_id = payload["news_item_id"]
-        if item_id == self.fail_item_id:
+        rows = json.loads(prompt)
+        if any(row["news_item_id"] == self.fail_item_id for row in rows):
             raise RuntimeError("model failed")
-        if item_id == "1":
+        if any(row["news_item_id"] == "1" for row in rows):
             time.sleep(0.03)
         return json_result(
             {
-                "summary": f"{payload['title']} model summary",
-                "evidence_notes": ["model note"],
-                "quality_score": 0.91,
+                "items": [
+                    {
+                        "news_item_id": row["news_item_id"],
+                        "summary": f"{row['title']} model summary",
+                        "evidence_notes": ["model note"],
+                        "quality_score": 0.91,
+                    }
+                    for row in rows
+                ]
             }
         )
 
@@ -66,7 +71,7 @@ class ItemSummaryGeneratorTest(unittest.TestCase):
             client=client,
             analysis_config={"LANGUAGE": "Chinese"},
             summary_config={"ITEM_SUMMARY_MAX_CHARS": 220},
-            prompt_template=PromptTemplate(path=Path("item.txt"), user_prompt="{item_context_json}"),
+            prompt_template=PromptTemplate(path=Path("item.txt"), user_prompt="{item_contexts_json}"),
         )
 
         summaries, diagnostics = generator.generate_many(
@@ -79,6 +84,8 @@ class ItemSummaryGeneratorTest(unittest.TestCase):
         self.assertEqual(summaries[0].summary, "First model summary")
         self.assertEqual(summaries[0].metadata["reduced_context_chars"], len("paragraph evidence"))
         self.assertEqual(diagnostics["item_summary_failed_count"], 0)
+        self.assertEqual(diagnostics["summary_model_calls"], 1)
+        self.assertEqual(diagnostics["summary_batch_size"], 3)
         self.assertEqual(diagnostics["summary_concurrency"], 2)
 
     def test_generate_many_records_per_item_failures_without_fallback_summary(self):
@@ -86,7 +93,7 @@ class ItemSummaryGeneratorTest(unittest.TestCase):
             client=EchoItemClient(fail_item_id="2"),
             analysis_config={},
             summary_config={},
-            prompt_template=PromptTemplate(path=Path("item.txt"), user_prompt="{item_context_json}"),
+            prompt_template=PromptTemplate(path=Path("item.txt"), user_prompt="{item_contexts_json}"),
         )
 
         summaries, diagnostics = generator.generate_many(
@@ -94,9 +101,34 @@ class ItemSummaryGeneratorTest(unittest.TestCase):
             max_workers=2,
         )
 
-        self.assertEqual([summary.item_ids[0] for summary in summaries], ["1"])
-        self.assertEqual(diagnostics["item_summary_failed_count"], 1)
-        self.assertEqual(diagnostics["failures"][0]["news_item_id"], "2")
+        self.assertEqual(summaries, [])
+        self.assertEqual(diagnostics["item_summary_failed_count"], 2)
+        self.assertEqual([failure["news_item_id"] for failure in diagnostics["failures"]], ["1", "2"])
+
+    def test_generate_many_batches_four_items_into_two_model_calls(self):
+        client = EchoItemClient()
+        generator = ItemSummaryGenerator(
+            client=client,
+            analysis_config={},
+            summary_config={},
+            prompt_template=PromptTemplate(path=Path("item.txt"), user_prompt="{item_contexts_json}"),
+        )
+
+        summaries, diagnostics = generator.generate_many(
+            [
+                _context("1", "First"),
+                _context("2", "Second"),
+                _context("3", "Third"),
+                _context("4", "Fourth"),
+            ],
+            max_workers=2,
+            batch_size=3,
+        )
+
+        self.assertEqual([summary.item_ids[0] for summary in summaries], ["1", "2", "3", "4"])
+        self.assertEqual(len(client.calls), 2)
+        self.assertEqual(diagnostics["summary_model_calls"], 2)
+        self.assertEqual(diagnostics["summary_batch_count"], 2)
 
 
 class ReportSummaryGeneratorTest(unittest.TestCase):

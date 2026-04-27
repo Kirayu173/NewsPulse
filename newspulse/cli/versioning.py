@@ -126,8 +126,8 @@ def check_all_versions(
         resolve_timeline_path(config_root=layout.config_root),
         resolve_frequency_words_path(config_root=layout.config_root),
         resolve_ai_interests_path(config_root=layout.config_root),
-        resolve_prompt_path("global_insight_prompt.txt", config_root=layout.config_root),
-        resolve_prompt_path("ai_translation_prompt.txt", config_root=layout.config_root),
+        resolve_prompt_path("prompts/insight/global_insight.txt", config_root=layout.config_root),
+        resolve_prompt_path("prompts/selection/translation.txt", config_root=layout.config_root),
     ]
 
     version_pattern = re.compile(r"Version:\s*(\d+\.\d+\.\d+)", re.IGNORECASE)

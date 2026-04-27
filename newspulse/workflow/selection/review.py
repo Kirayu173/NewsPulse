@@ -27,6 +27,7 @@ from newspulse.workflow.shared.review_helpers import (
     ReviewOutboxWriter as _ReviewOutboxWriter,
 )
 
+
 def _snapshot_summary(snapshot: HotlistSnapshot) -> dict[str, object]:
     return {
         "mode": snapshot.mode,

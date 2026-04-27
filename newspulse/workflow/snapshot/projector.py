@@ -93,10 +93,7 @@ class SnapshotProjector:
         if not self.standalone_platform_ids:
             return []
 
-        if bundle.mode == "incremental":
-            base_index = bundle.latest_index
-        else:
-            base_index = self._select_current_index(bundle)
+        base_index = bundle.latest_index if bundle.mode == "incremental" else self._select_current_index(bundle)
 
         sections: list[StandaloneSection] = []
         for platform_id in self.standalone_platform_ids:

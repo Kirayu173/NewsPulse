@@ -46,7 +46,7 @@ def _today_at(runtime, time_text: str) -> str:
 
 def _write_config_files(config_root: Path) -> None:
     write_text(
-        config_root / "custom" / "keyword" / "topics.txt",
+        config_root / "rules" / "keyword" / "topics.txt",
         """
         [WORD_GROUPS]
         [AI]
@@ -61,14 +61,14 @@ def _write_config_files(config_root: Path) -> None:
         """,
     )
     write_text(
-        config_root / "custom" / "ai" / "interests.txt",
+        config_root / "profiles" / "ai" / "interests.txt",
         """
         AI agents and coding tools
         startup launches
         """,
     )
     write_text(
-        config_root / "ai_filter" / "prompt.txt",
+        config_root / "prompts" / "selection" / "classify.txt",
         """
         [user]
         TAGS:
@@ -80,7 +80,7 @@ def _write_config_files(config_root: Path) -> None:
         """,
     )
     write_text(
-        config_root / "ai_filter" / "extract_prompt.txt",
+        config_root / "prompts" / "selection" / "extract_tags.txt",
         """
         [user]
         INTERESTS:
@@ -88,7 +88,7 @@ def _write_config_files(config_root: Path) -> None:
         """,
     )
     write_text(
-        config_root / "ai_filter" / "update_tags_prompt.txt",
+        config_root / "prompts" / "selection" / "update_tags.txt",
         """
         [user]
         OLD:
@@ -143,6 +143,9 @@ def _build_config(
             "BATCH_INTERVAL": 0,
             "MIN_SCORE": 0.8,
             "FALLBACK_TO_KEYWORD": True,
+            "PROMPT_FILE": "prompts/selection/classify.txt",
+            "EXTRACT_PROMPT_FILE": "prompts/selection/extract_tags.txt",
+            "UPDATE_TAGS_PROMPT_FILE": "prompts/selection/update_tags.txt",
         },
         "AI_ANALYSIS": {
             "ENABLED": ai_analysis_enabled,
@@ -150,7 +153,7 @@ def _build_config(
             "MODE": "daily",
             "MAX_ITEMS": 5,
             "LANGUAGE": "Chinese",
-            "PROMPT_FILE": "global_insight_prompt.txt",
+            "PROMPT_FILE": "prompts/insight/global_insight.txt",
         },
         "ENABLE_NOTIFICATION": True,
         "GENERIC_WEBHOOK_URL": "https://example.com/webhook",
@@ -245,7 +248,7 @@ class StubInsightSummaryBuilder:
     def __init__(self):
         self.last_diagnostics = {}
 
-    def build_many(self, contexts, *, item_concurrency=1):
+    def build_many(self, contexts, *, item_concurrency=1, item_batch_size=3):
         item_summaries = [
             InsightSummary(
                 kind="item",
@@ -273,6 +276,7 @@ class StubInsightSummaryBuilder:
             "report_summary_present": True,
             "summary_model_calls": len(item_summaries) + 1,
             "summary_concurrency": item_concurrency,
+            "summary_batch_size": item_batch_size,
         }
         return bundle
 

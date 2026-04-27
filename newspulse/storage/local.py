@@ -1,12 +1,14 @@
 # coding=utf-8
 """Local SQLite storage backend."""
 
-import pytz
 import re
 import shutil
+from contextlib import suppress
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
+
+import pytz
 
 from newspulse.storage.base import (
     ArticleContentRecord,
@@ -19,7 +21,6 @@ from newspulse.storage.repos import AIFilterRepository, ArticleContentRepository
 from newspulse.storage.sqlite_runtime import SQLiteRuntime
 from newspulse.utils.logging import get_logger
 from newspulse.utils.time import DEFAULT_TIMEZONE
-
 
 logger = get_logger(__name__)
 
@@ -164,25 +165,25 @@ class LocalStorageBackend(StorageBackend):
             logger.info("[本地存储] 时间段执行记录已保存: %s/%s at %s", period_key, action, now_str)
         return success
 
-    def get_active_ai_filter_tags(self, date=None, interests_file="ai_interests.txt"):
+    def get_active_ai_filter_tags(self, date=None, interests_file="profiles/ai/default.txt"):
         return self.ai_filter_repo._get_active_tags_impl(date, interests_file)
 
-    def get_latest_prompt_hash(self, date=None, interests_file="ai_interests.txt"):
+    def get_latest_prompt_hash(self, date=None, interests_file="profiles/ai/default.txt"):
         return self.ai_filter_repo._get_latest_prompt_hash_impl(date, interests_file)
 
     def get_latest_ai_filter_tag_version(self, date=None):
         return self.ai_filter_repo._get_latest_tag_version_impl(date)
 
-    def deprecate_all_ai_filter_tags(self, date=None, interests_file="ai_interests.txt"):
+    def deprecate_all_ai_filter_tags(self, date=None, interests_file="profiles/ai/default.txt"):
         return self.ai_filter_repo._deprecate_all_tags_impl(date, interests_file)
 
-    def save_ai_filter_tags(self, tags, version, prompt_hash, date=None, interests_file="ai_interests.txt"):
+    def save_ai_filter_tags(self, tags, version, prompt_hash, date=None, interests_file="profiles/ai/default.txt"):
         return self.ai_filter_repo._save_tags_impl(date, tags, version, prompt_hash, interests_file)
 
     def save_ai_filter_results(self, results, date=None):
         return self.ai_filter_repo._save_filter_results_impl(date, results)
 
-    def get_active_ai_filter_results(self, date=None, interests_file="ai_interests.txt"):
+    def get_active_ai_filter_results(self, date=None, interests_file="profiles/ai/default.txt"):
         return self.ai_filter_repo._get_active_filter_results_impl(date, interests_file)
 
     def deprecate_specific_ai_filter_tags(self, tag_ids, date=None):
@@ -191,10 +192,10 @@ class LocalStorageBackend(StorageBackend):
     def update_ai_filter_tags_hash(self, interests_file, new_hash, date=None):
         return self.ai_filter_repo._update_tags_hash_impl(date, interests_file, new_hash)
 
-    def update_ai_filter_tag_descriptions(self, tag_updates, date=None, interests_file="ai_interests.txt"):
+    def update_ai_filter_tag_descriptions(self, tag_updates, date=None, interests_file="profiles/ai/default.txt"):
         return self.ai_filter_repo._update_tag_descriptions_impl(date, tag_updates, interests_file)
 
-    def update_ai_filter_tag_priorities(self, tag_priorities, date=None, interests_file="ai_interests.txt"):
+    def update_ai_filter_tag_priorities(self, tag_priorities, date=None, interests_file="profiles/ai/default.txt"):
         return self.ai_filter_repo._update_tag_priorities_impl(date, tag_priorities, interests_file)
 
     def save_analyzed_news(
@@ -223,7 +224,7 @@ class LocalStorageBackend(StorageBackend):
         self,
         source_type="hotlist",
         date=None,
-        interests_file="ai_interests.txt",
+        interests_file="profiles/ai/default.txt",
         prompt_hash=None,
         tag_version=None,
         model_key=None,
@@ -243,7 +244,7 @@ class LocalStorageBackend(StorageBackend):
         date=None,
         *,
         source_type="hotlist",
-        interests_file="ai_interests.txt",
+        interests_file="profiles/ai/default.txt",
         prompt_hash="",
         tag_version=0,
         model_key="",
@@ -264,7 +265,7 @@ class LocalStorageBackend(StorageBackend):
         date=None,
         *,
         source_type="hotlist",
-        interests_file="ai_interests.txt",
+        interests_file="profiles/ai/default.txt",
         prompt_hash="",
         tag_version=0,
         model_key="",
@@ -282,7 +283,7 @@ class LocalStorageBackend(StorageBackend):
     def clear_analyzed_news(
         self,
         date=None,
-        interests_file="ai_interests.txt",
+        interests_file="profiles/ai/default.txt",
         prompt_hash=None,
         tag_version=None,
         model_key=None,
@@ -298,7 +299,7 @@ class LocalStorageBackend(StorageBackend):
     def clear_unmatched_analyzed_news(
         self,
         date=None,
-        interests_file="ai_interests.txt",
+        interests_file="profiles/ai/default.txt",
         prompt_hash=None,
         tag_version=None,
         model_key=None,
@@ -417,10 +418,8 @@ class LocalStorageBackend(StorageBackend):
                     if file_date and file_date < cutoff_date:
                         db_path = str(db_file)
                         if db_path in self._db_connections:
-                            try:
+                            with suppress(Exception):
                                 self.runtime.close_connection(db_path)
-                            except Exception:
-                                pass
 
                         try:
                             db_file.unlink()

@@ -19,7 +19,6 @@ from newspulse.workflow.shared.contracts import (
     StandaloneSection,
 )
 
-
 REPORT_TYPE_BY_MODE = {
     "daily": "\u6bcf\u65e5\u62a5\u544a",
     "current": "\u5b9e\u65f6\u62a5\u544a",

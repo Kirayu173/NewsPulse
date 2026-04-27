@@ -10,7 +10,6 @@ from typing import Any, Mapping, Sequence
 from newspulse.crawler.models import CrawlSourceSpec
 from newspulse.crawler.source_names import resolve_source_display_name
 
-
 REVIEW_FILE_ENCODING = "utf-8-sig"
 
 

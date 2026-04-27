@@ -6,10 +6,10 @@
 """
 
 from newspulse.notification.batch import (
+    add_batch_headers,
     get_batch_header,
     get_max_batch_header_size,
     truncate_to_bytes,
-    add_batch_headers,
 )
 from newspulse.notification.senders import send_prepared_generic_webhook
 

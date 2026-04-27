@@ -9,7 +9,6 @@ from typing import Dict, List, Optional, Tuple
 
 from newspulse.utils.logging import get_logger
 
-
 logger = get_logger(__name__)
 
 

@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS ai_filter_tags (
     deprecated_at TEXT,                   -- 废弃时间
     version INTEGER NOT NULL,            -- 版本号，提示词变更时 +1
     prompt_hash TEXT NOT NULL,           -- 兴趣描述文件的 hash（格式: filename:md5）
-    interests_file TEXT NOT NULL DEFAULT 'ai_interests.txt',  -- 关联的兴趣文件名
+    interests_file TEXT NOT NULL DEFAULT 'profiles/ai/default.txt',  -- 关联的兴趣文件名
     created_at TEXT NOT NULL
 );
 
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS ai_filter_results (
 CREATE TABLE IF NOT EXISTS ai_filter_analyzed_news (
     news_item_id INTEGER NOT NULL,       -- 对应 news_items.id
     source_type TEXT NOT NULL DEFAULT 'hotlist',  -- 当前仅支持 hotlist
-    interests_file TEXT NOT NULL DEFAULT 'ai_interests.txt',  -- 关联的兴趣文件
+    interests_file TEXT NOT NULL DEFAULT 'profiles/ai/default.txt',  -- 关联的兴趣文件
     prompt_hash TEXT NOT NULL,           -- 分析时使用的标签集 hash
     tag_version INTEGER NOT NULL DEFAULT 0, -- 标签版本号，避免 prompt hash 一致但标签定义已切换
     model_key TEXT NOT NULL DEFAULT '',  -- 区分不同模型/运行时实现的缓存命中范围

@@ -1,9 +1,9 @@
 import json
+import shutil
 import unittest
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-import shutil
-import uuid
 
 from newspulse.crawler.models import CrawlBatchResult, CrawlSourceSpec, SourceFetchFailure, SourceFetchResult
 from newspulse.crawler.review import export_crawl_outbox

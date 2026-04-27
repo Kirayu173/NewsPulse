@@ -11,7 +11,6 @@ from typing import Any
 from newspulse.workflow.insight.content_models import FetchedContent, ReducedSummaryContext
 from newspulse.workflow.insight.models import InsightNewsContext
 
-
 BOILERPLATE_PATTERNS = (
     "cookie",
     "cookies",
@@ -170,9 +169,7 @@ def _is_useful_paragraph(paragraph: str) -> bool:
     lowered = text.lower()
     if any(pattern in lowered for pattern in BOILERPLATE_PATTERNS):
         return False
-    if _link_or_menu_heavy(text):
-        return False
-    return True
+    return not _link_or_menu_heavy(text)
 
 
 def _link_or_menu_heavy(text: str) -> bool:

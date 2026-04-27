@@ -72,13 +72,13 @@ class CLIErrorGuidanceTest(unittest.TestCase):
         guidance = build_cli_error_guidance(
             PromptTemplateNotFoundError(
                 "prompt missing",
-                details={"path": "config/ai_filter/prompt.txt"},
+                details={"path": "config/prompts/selection/classify.txt"},
             )
         )
 
         self.assertEqual(guidance.title, "AI prompt 文件缺失")
         self.assertIn("newspulse doctor", " ".join(guidance.fixes))
-        self.assertEqual(guidance.references, ("config/ai_filter/prompt.txt",))
+        self.assertEqual(guidance.references, ("config/prompts/selection/classify.txt",))
 
 
 if __name__ == "__main__":

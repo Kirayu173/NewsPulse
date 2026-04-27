@@ -4,11 +4,11 @@
 """
 
 from newspulse.utils.time import (
-    get_configured_time,
+    convert_time_for_display,
     format_date_folder,
     format_time_filename,
+    get_configured_time,
     get_current_time_display,
-    convert_time_for_display,
 )
 from newspulse.utils.url import normalize_url
 

@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Optional
 from newspulse.storage.repos.base import SQLiteRepositoryBase
 from newspulse.utils.logging import get_logger
 
-
 logger = get_logger(__name__)
 
 
@@ -36,7 +35,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
         self,
         source_type: str = "hotlist",
         date: Optional[str] = None,
-        interests_file: str = "ai_interests.txt",
+        interests_file: str = "profiles/ai/default.txt",
         prompt_hash: Optional[str] = None,
         tag_version: Optional[int] = None,
         model_key: Optional[str] = None,
@@ -56,7 +55,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
         date: Optional[str] = None,
         *,
         source_type: str = "hotlist",
-        interests_file: str = "ai_interests.txt",
+        interests_file: str = "profiles/ai/default.txt",
         prompt_hash: str = "",
         tag_version: int = 0,
         model_key: str = "",
@@ -77,7 +76,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
         date: Optional[str] = None,
         *,
         source_type: str = "hotlist",
-        interests_file: str = "ai_interests.txt",
+        interests_file: str = "profiles/ai/default.txt",
         prompt_hash: str = "",
         tag_version: int = 0,
         model_key: str = "",
@@ -96,7 +95,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
     def _normalize_model_key(model_key: Optional[str]) -> str:
         return str(model_key or "").strip()
 
-    def _get_active_tags_impl(self, date: Optional[str] = None, interests_file: str = "ai_interests.txt") -> List[Dict[str, Any]]:
+    def _get_active_tags_impl(self, date: Optional[str] = None, interests_file: str = "profiles/ai/default.txt") -> List[Dict[str, Any]]:
         """获取指定兴趣文件的 active 标签列表"""
         try:
             conn = self._get_connection(date)
@@ -120,7 +119,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
             logger.exception(f"[AI筛选] 获取标签失败: {e}")
             return []
 
-    def _get_latest_prompt_hash_impl(self, date: Optional[str] = None, interests_file: str = "ai_interests.txt") -> Optional[str]:
+    def _get_latest_prompt_hash_impl(self, date: Optional[str] = None, interests_file: str = "profiles/ai/default.txt") -> Optional[str]:
         """获取指定兴趣文件最新版本标签的 prompt_hash"""
         try:
             conn = self._get_connection(date)
@@ -153,7 +152,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
             logger.exception(f"[AI筛选] 获取版本号失败: {e}")
             return 0
 
-    def _deprecate_all_tags_impl(self, date: Optional[str] = None, interests_file: str = "ai_interests.txt") -> int:
+    def _deprecate_all_tags_impl(self, date: Optional[str] = None, interests_file: str = "profiles/ai/default.txt") -> int:
         """将指定兴趣文件的 active 标签和关联的分类结果标记为 deprecated"""
         try:
             conn = self._get_connection(date)
@@ -196,7 +195,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
 
     def _save_tags_impl(
         self, date: Optional[str], tags: List[Dict], version: int, prompt_hash: str,
-        interests_file: str = "ai_interests.txt"
+        interests_file: str = "profiles/ai/default.txt"
     ) -> int:
         """保存新提取的标签"""
         try:
@@ -287,7 +286,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
 
     def _update_tag_descriptions_impl(
         self, date: Optional[str], tag_updates: List[Dict],
-        interests_file: str = "ai_interests.txt"
+        interests_file: str = "profiles/ai/default.txt"
     ) -> int:
         """按 tag 名匹配，更新 active 标签的 description 字段"""
         try:
@@ -315,7 +314,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
 
     def _update_tag_priorities_impl(
         self, date: Optional[str], tag_priorities: List[Dict],
-        interests_file: str = "ai_interests.txt"
+        interests_file: str = "profiles/ai/default.txt"
     ) -> int:
         """按 tag 名匹配，更新 active 标签的 priority 字段"""
         try:
@@ -407,7 +406,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
         self,
         date: Optional[str] = None,
         source_type: str = "hotlist",
-        interests_file: str = "ai_interests.txt",
+        interests_file: str = "profiles/ai/default.txt",
         prompt_hash: Optional[str] = None,
         tag_version: Optional[int] = None,
         model_key: Optional[str] = None,
@@ -447,7 +446,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
         date: Optional[str] = None,
         *,
         source_type: str = "hotlist",
-        interests_file: str = "ai_interests.txt",
+        interests_file: str = "profiles/ai/default.txt",
         prompt_hash: str = "",
         tag_version: int = 0,
         model_key: str = "",
@@ -470,7 +469,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
         date: Optional[str] = None,
         *,
         source_type: str = "hotlist",
-        interests_file: str = "ai_interests.txt",
+        interests_file: str = "profiles/ai/default.txt",
         prompt_hash: str = "",
         tag_version: int = 0,
         model_key: str = "",
@@ -537,7 +536,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
     def _clear_analyzed_news_impl(
         self,
         date: Optional[str] = None,
-        interests_file: str = "ai_interests.txt",
+        interests_file: str = "profiles/ai/default.txt",
         prompt_hash: Optional[str] = None,
         tag_version: Optional[int] = None,
         model_key: Optional[str] = None,
@@ -576,7 +575,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
     def _clear_unmatched_analyzed_news_impl(
         self,
         date: Optional[str] = None,
-        interests_file: str = "ai_interests.txt",
+        interests_file: str = "profiles/ai/default.txt",
         prompt_hash: Optional[str] = None,
         tag_version: Optional[int] = None,
         model_key: Optional[str] = None,
@@ -645,7 +644,7 @@ class AIFilterRepository(SQLiteRepositoryBase):
             logger.exception(f"[AI筛选] 保存分类结果失败: {e}")
             return 0
 
-    def _get_active_filter_results_impl(self, date: Optional[str] = None, interests_file: str = "ai_interests.txt") -> List[Dict[str, Any]]:
+    def _get_active_filter_results_impl(self, date: Optional[str] = None, interests_file: str = "profiles/ai/default.txt") -> List[Dict[str, Any]]:
         """获取指定兴趣文件的 active 分类结果，JOIN news_items 获取新闻详情"""
         try:
             conn = self._get_connection(date)

@@ -6,7 +6,7 @@ from newspulse.workflow.shared.contracts import InsightSummary
 
 
 class StubItemSummaryGenerator:
-    def generate_many(self, contexts, *, max_workers=1):
+    def generate_many(self, contexts, *, max_workers=1, batch_size=3):
         summaries = [
             InsightSummary(
                 kind="item",
@@ -22,8 +22,10 @@ class StubItemSummaryGenerator:
             for index, context in enumerate(contexts)
         ]
         return summaries, {
-            "summary_model_calls": len(contexts),
+            "summary_model_calls": 1,
             "summary_concurrency": max_workers,
+            "summary_batch_size": batch_size,
+            "summary_batch_count": 1,
             "item_summary_count": len(summaries),
             "item_summary_failed_count": 0,
         }

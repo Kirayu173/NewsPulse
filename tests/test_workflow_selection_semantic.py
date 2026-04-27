@@ -26,7 +26,7 @@ def _make_tmp_dir() -> Path:
 
 def _write_test_ai_config(config_root: Path) -> None:
     write_text(
-        config_root / "ai_filter" / "prompt.txt",
+        config_root / "prompts" / "selection" / "classify.txt",
         """
         [user]
         FOCUS:
@@ -208,7 +208,7 @@ class SemanticAISelectionIntegrationTest(unittest.TestCase):
         config_root = tmp_root / "config"
         _write_test_ai_config(config_root)
         write_text(
-            config_root / "custom" / "ai" / "unit.txt",
+            config_root / "profiles" / "ai" / "unit.txt",
             """
             [TOPIC_CATALOG]
 
@@ -236,7 +236,7 @@ class SemanticAISelectionIntegrationTest(unittest.TestCase):
                 storage_manager=storage,
                 client=client,
                 embedding_client=FakeEmbeddingClient(),
-                filter_config={"PROMPT_FILE": "prompt.txt"},
+                filter_config={"PROMPT_FILE": "prompts/selection/classify.txt"},
                 config_root=config_root,
                 sleep_func=lambda _: None,
             )

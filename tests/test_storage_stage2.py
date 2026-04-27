@@ -435,7 +435,7 @@ class StorageStage2Test(unittest.TestCase):
                 CREATE TABLE ai_filter_analyzed_news (
                     news_item_id INTEGER NOT NULL,
                     source_type TEXT NOT NULL DEFAULT 'hotlist',
-                    interests_file TEXT NOT NULL DEFAULT 'ai_interests.txt',
+                    interests_file TEXT NOT NULL DEFAULT 'profiles/ai/default.txt',
                     prompt_hash TEXT NOT NULL,
                     matched INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,

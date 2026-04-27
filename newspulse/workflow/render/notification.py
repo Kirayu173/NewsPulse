@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from newspulse.workflow.render.notification_content import split_content_into_batches
 from newspulse.workflow.render.models import RenderViewModel
+from newspulse.workflow.render.notification_content import split_content_into_batches
 from newspulse.workflow.shared.contracts import DeliveryPayload
 
 

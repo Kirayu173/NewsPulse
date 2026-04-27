@@ -2,8 +2,6 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
-from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
-
 from newspulse.workflow.insight.review import export_insight_outbox
 from newspulse.workflow.shared.contracts import (
     HotlistItem,
@@ -13,6 +11,7 @@ from newspulse.workflow.shared.contracts import (
     InsightSummary,
     SelectionResult,
 )
+from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 
 
 class InsightReviewExportTest(unittest.TestCase):

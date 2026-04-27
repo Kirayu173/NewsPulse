@@ -9,7 +9,6 @@ from newspulse.storage.local import LocalStorageBackend
 from newspulse.utils.logging import get_logger
 from newspulse.utils.time import DEFAULT_TIMEZONE
 
-
 logger = get_logger(__name__)
 
 

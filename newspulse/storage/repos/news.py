@@ -15,7 +15,6 @@ from newspulse.storage.repos.base import SQLiteRepositoryBase
 from newspulse.utils.logging import get_logger
 from newspulse.utils.url import normalize_url
 
-
 logger = get_logger(__name__)
 
 

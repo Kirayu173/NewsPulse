@@ -6,8 +6,13 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Dict
 
-
 DEFAULT_REGION_ORDER = ["hotlist", "new_items", "standalone", "insight"]
+DEFAULT_SELECTION_PROMPT_FILE = "prompts/selection/classify.txt"
+DEFAULT_SELECTION_EXTRACT_PROMPT_FILE = "prompts/selection/extract_tags.txt"
+DEFAULT_SELECTION_UPDATE_TAGS_PROMPT_FILE = "prompts/selection/update_tags.txt"
+DEFAULT_GLOBAL_INSIGHT_PROMPT_FILE = "prompts/insight/global_insight.txt"
+DEFAULT_ITEM_SUMMARY_PROMPT_FILE = "prompts/insight/item_summary_batch.txt"
+DEFAULT_REPORT_SUMMARY_PROMPT_FILE = "prompts/insight/report_summary.txt"
 REGION_FLAG_KEYS = {
     "hotlist": "HOTLIST",
     "new_items": "NEW_ITEMS",
@@ -118,13 +123,14 @@ def normalize_insight_summary_mapping(mapping: Dict[str, Any]) -> Dict[str, Any]
         mapping = {}
     return {
         "ITEM_PROMPT_FILE": str(
-            mapping_get(mapping, "ITEM_PROMPT_FILE", "item_prompt_file", default="insight/item_summary_prompt.txt")
-            or "insight/item_summary_prompt.txt"
+            mapping_get(mapping, "ITEM_PROMPT_FILE", "item_prompt_file", default=DEFAULT_ITEM_SUMMARY_PROMPT_FILE)
+            or DEFAULT_ITEM_SUMMARY_PROMPT_FILE
         ),
         "REPORT_PROMPT_FILE": str(
-            mapping_get(mapping, "REPORT_PROMPT_FILE", "report_prompt_file", default="insight/report_summary_prompt.txt")
-            or "insight/report_summary_prompt.txt"
+            mapping_get(mapping, "REPORT_PROMPT_FILE", "report_prompt_file", default=DEFAULT_REPORT_SUMMARY_PROMPT_FILE)
+            or DEFAULT_REPORT_SUMMARY_PROMPT_FILE
         ),
+        "ITEM_BATCH_SIZE": int(mapping_get(mapping, "ITEM_BATCH_SIZE", "item_batch_size", default=3) or 3),
         "ITEM_CONCURRENCY": int(mapping_get(mapping, "ITEM_CONCURRENCY", "item_concurrency", default=3) or 3),
         "ITEM_SUMMARY_MAX_CHARS": int(
             mapping_get(mapping, "ITEM_SUMMARY_MAX_CHARS", "item_summary_max_chars", default=220) or 220
@@ -386,19 +392,19 @@ def resolve_ai_filter_config(config: Dict[str, Any], raw_config: Dict[str, Any])
             or get_nested_mapping(operation, "LLM_CACHE", "llm_cache")
         ),
         "INTERESTS_FILE": selection_ai.get("INTERESTS_FILE"),
-        "PROMPT_FILE": str(mapping_get(operation, "PROMPT_FILE", "prompt_file", default="prompt.txt") or "prompt.txt"),
+        "PROMPT_FILE": str(mapping_get(operation, "PROMPT_FILE", "prompt_file", default=DEFAULT_SELECTION_PROMPT_FILE) or DEFAULT_SELECTION_PROMPT_FILE),
         "EXTRACT_PROMPT_FILE": str(
-            mapping_get(operation, "EXTRACT_PROMPT_FILE", "extract_prompt_file", default="extract_prompt.txt")
-            or "extract_prompt.txt"
+            mapping_get(operation, "EXTRACT_PROMPT_FILE", "extract_prompt_file", default=DEFAULT_SELECTION_EXTRACT_PROMPT_FILE)
+            or DEFAULT_SELECTION_EXTRACT_PROMPT_FILE
         ),
         "UPDATE_TAGS_PROMPT_FILE": str(
             mapping_get(
                 operation,
                 "UPDATE_TAGS_PROMPT_FILE",
                 "update_tags_prompt_file",
-                default="update_tags_prompt.txt",
+                default=DEFAULT_SELECTION_UPDATE_TAGS_PROMPT_FILE,
             )
-            or "update_tags_prompt.txt"
+            or DEFAULT_SELECTION_UPDATE_TAGS_PROMPT_FILE
         ),
         "RECLASSIFY_THRESHOLD": float(selection_ai.get("RECLASSIFY_THRESHOLD", 0.6) or 0.6),
         "MIN_SCORE": float(selection_ai.get("MIN_SCORE", 0) or 0),
@@ -420,7 +426,10 @@ def resolve_ai_analysis_config(config: Dict[str, Any], raw_config: Dict[str, Any
         "ENABLED": bool(insight.get("ENABLED", False)),
         "STRATEGY": str(insight.get("STRATEGY", "noop") or "noop"),
         "LANGUAGE": str(insight.get("LANGUAGE", "Chinese") or "Chinese"),
-        "PROMPT_FILE": str(mapping_get(operation, "PROMPT_FILE", "prompt_file", default="global_insight_prompt.txt") or "global_insight_prompt.txt"),
+        "PROMPT_FILE": str(
+            mapping_get(operation, "PROMPT_FILE", "prompt_file", default=DEFAULT_GLOBAL_INSIGHT_PROMPT_FILE)
+            or DEFAULT_GLOBAL_INSIGHT_PROMPT_FILE
+        ),
         "MODE": str(insight.get("MODE", "follow_report") or "follow_report"),
         "MAX_ITEMS": int(insight.get("MAX_ITEMS", 50) or 50),
         "TIMEOUT": mapping_get(operation, "TIMEOUT", "timeout"),

@@ -9,9 +9,14 @@ PathLike = Union[str, os.PathLike[str]]
 
 DEFAULT_CONFIG_FILE = "config.yaml"
 DEFAULT_TIMELINE_FILE = "timeline.yaml"
-DEFAULT_FREQUENCY_WORDS_FILE = "frequency_words.txt"
-DEFAULT_AI_INTERESTS_FILE = "ai_interests.txt"
-DEFAULT_GLOBAL_INSIGHT_PROMPT_FILE = "global_insight_prompt.txt"
+DEFAULT_FREQUENCY_WORDS_FILE = "rules/keyword/default.txt"
+DEFAULT_AI_INTERESTS_FILE = "profiles/ai/default.txt"
+DEFAULT_SELECTION_PROMPT_FILE = "prompts/selection/classify.txt"
+DEFAULT_SELECTION_EXTRACT_PROMPT_FILE = "prompts/selection/extract_tags.txt"
+DEFAULT_SELECTION_UPDATE_TAGS_PROMPT_FILE = "prompts/selection/update_tags.txt"
+DEFAULT_GLOBAL_INSIGHT_PROMPT_FILE = "prompts/insight/global_insight.txt"
+DEFAULT_ITEM_SUMMARY_PROMPT_FILE = "prompts/insight/item_summary_batch.txt"
+DEFAULT_REPORT_SUMMARY_PROMPT_FILE = "prompts/insight/report_summary.txt"
 
 
 @dataclass(frozen=True)
@@ -46,10 +51,11 @@ def resolve_project_path(path_value: PathLike) -> Path:
 
 def get_config_layout(config_path: Optional[PathLike] = None) -> ConfigLayout:
     raw_config_path = config_path or os.environ.get("CONFIG_PATH", "")
-    if raw_config_path:
-        resolved_config_path = resolve_project_path(raw_config_path)
-    else:
-        resolved_config_path = get_default_config_root() / DEFAULT_CONFIG_FILE
+    resolved_config_path = (
+        resolve_project_path(raw_config_path)
+        if raw_config_path
+        else get_default_config_root() / DEFAULT_CONFIG_FILE
+    )
 
     return ConfigLayout(
         project_root=get_project_root(),
@@ -99,9 +105,9 @@ def resolve_frequency_words_path(
         return path
     if len(path.parts) > 1 or _is_project_config_reference(path):
         return resolve_config_resource(path, config_root=root)
-    if path.name == DEFAULT_FREQUENCY_WORDS_FILE:
+    if path.name == Path(DEFAULT_FREQUENCY_WORDS_FILE).name:
         return root / DEFAULT_FREQUENCY_WORDS_FILE
-    return root / "custom" / "keyword" / path.name
+    return root / "rules" / "keyword" / path.name
 
 
 def resolve_ai_interests_path(
@@ -118,9 +124,9 @@ def resolve_ai_interests_path(
         return path
     if len(path.parts) > 1 or _is_project_config_reference(path):
         return resolve_config_resource(path, config_root=root)
-    if path.name == DEFAULT_AI_INTERESTS_FILE:
+    if path.name == Path(DEFAULT_AI_INTERESTS_FILE).name:
         return root / DEFAULT_AI_INTERESTS_FILE
-    return root / "custom" / "ai" / path.name
+    return root / "profiles" / "ai" / path.name
 
 
 def resolve_prompt_path(

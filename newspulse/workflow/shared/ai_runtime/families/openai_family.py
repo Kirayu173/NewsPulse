@@ -82,7 +82,7 @@ class OpenAIFamilyRuntime:
         content = getattr(message, "content", None)
         text = coerce_text_content(content)
         reasoning_blocks = tuple(_reasoning_blocks(getattr(message, "reasoning_details", None)))
-        blocks = tuple((*reasoning_blocks, *_content_blocks(content, text)))
+        blocks = (*reasoning_blocks, *_content_blocks(content, text))
         tool_calls = tuple(_tool_calls(getattr(message, "tool_calls", None)))
         payload = decode_json_response(text) if request.response_mode == "json" else None
         return AIResult(
@@ -142,7 +142,7 @@ def _build_chat_params(request: ChatRequest) -> dict[str, Any]:
     extra_body = _pop_mapping(extras, "extra_body")
     if request.response_mode == "json" and "response_format" not in extras and "response_format" not in extra_body:
         params["response_format"] = {"type": "json_object"}
-    for key in sorted(list(extras)):
+    for key in sorted(extras):
         if key in _OPENAI_ALLOWED_CHAT_KEYS:
             params[key] = extras.pop(key)
     if extra_body:
@@ -160,7 +160,7 @@ def _build_embedding_params(request: EmbeddingRequest) -> dict[str, Any]:
     _merge_transport_overrides(params, extras)
 
     extra_body = _pop_mapping(extras, "extra_body")
-    for key in sorted(list(extras)):
+    for key in sorted(extras):
         if key in _OPENAI_ALLOWED_EMBEDDING_KEYS:
             params[key] = extras.pop(key)
     if extra_body:

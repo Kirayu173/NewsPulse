@@ -9,7 +9,6 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-
 REVIEW_FILE_ENCODING = "utf-8-sig"
 
 

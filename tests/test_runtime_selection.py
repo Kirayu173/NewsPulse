@@ -15,14 +15,14 @@ from tests.helpers.selection import DeterministicQualityAIClient, FakeEmbeddingC
 
 def _write_selection_configs(config_root: Path) -> None:
     write_text(
-        config_root / "custom" / "keyword" / "topics.txt",
+        config_root / "rules" / "keyword" / "topics.txt",
         """
         [GLOBAL_FILTER]
         sports
         """,
     )
     write_text(
-        config_root / "ai_filter" / "prompt.txt",
+        config_root / "prompts" / "selection" / "classify.txt",
         """
         [user]
         关注面:
@@ -34,7 +34,7 @@ def _write_selection_configs(config_root: Path) -> None:
         """,
     )
     write_text(
-        config_root / "ai_filter" / "extract_prompt.txt",
+        config_root / "prompts" / "selection" / "extract_tags.txt",
         """
         [user]
         INTERESTS:
@@ -42,7 +42,7 @@ def _write_selection_configs(config_root: Path) -> None:
         """,
     )
     write_text(
-        config_root / "ai_filter" / "update_tags_prompt.txt",
+        config_root / "prompts" / "selection" / "update_tags.txt",
         """
         [user]
         OLD:
@@ -74,12 +74,13 @@ def _build_config(config_root: Path, output_dir: Path) -> dict:
         "AI_FILTER_MODEL": {"MODEL": "openai/filter", "API_KEY": "test-key", "TIMEOUT": 30},
         "AI_ANALYSIS_MODEL": {"MODEL": "openai/analysis", "API_KEY": "test-key", "TIMEOUT": 30},
         "AI_FILTER": {
+            "INTERESTS_FILE": "ai.txt",
             "BATCH_SIZE": 2,
             "BATCH_INTERVAL": 0,
             "MIN_SCORE": 0.8,
-            "PROMPT_FILE": "prompt.txt",
-            "EXTRACT_PROMPT_FILE": "extract_prompt.txt",
-            "UPDATE_TAGS_PROMPT_FILE": "update_tags_prompt.txt",
+            "PROMPT_FILE": "prompts/selection/classify.txt",
+            "EXTRACT_PROMPT_FILE": "prompts/selection/extract_tags.txt",
+            "UPDATE_TAGS_PROMPT_FILE": "prompts/selection/update_tags.txt",
         },
         "STORAGE": {
             "BACKEND": "local",
@@ -180,7 +181,7 @@ class RuntimeSelectionStageTest(unittest.TestCase):
         output_dir = root / "output"
         _write_selection_configs(config_root)
         write_text(
-            config_root / "custom" / "ai" / "ai.txt",
+            config_root / "profiles" / "ai" / "ai.txt",
             """
             [TOPIC_CATALOG]
 
@@ -198,7 +199,7 @@ class RuntimeSelectionStageTest(unittest.TestCase):
             """,
         )
         write_text(
-            config_root / "custom" / "ai" / "startup.txt",
+            config_root / "profiles" / "ai" / "startup.txt",
             """
             [TOPIC_CATALOG]
 

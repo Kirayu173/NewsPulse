@@ -11,9 +11,9 @@ from newspulse.storage.local import LocalStorageBackend
 from newspulse.workflow.selection.ai import AISelectionStrategy
 from newspulse.workflow.selection.ai_classifier import _format_news_list
 from newspulse.workflow.selection.models import AIBatchNewsItem
-from newspulse.workflow.shared.contracts import HotlistItem
 from newspulse.workflow.selection.service import SelectionService
 from newspulse.workflow.shared.ai_runtime.errors import AIResponseDecodeError
+from newspulse.workflow.shared.contracts import HotlistItem
 from newspulse.workflow.shared.options import SelectionAIOptions, SelectionOptions, SelectionSemanticOptions, SnapshotOptions
 from newspulse.workflow.snapshot.service import SnapshotService
 from tests.helpers.io import write_text
@@ -43,7 +43,7 @@ def _make_tmp_dir() -> Path:
 
 def _write_test_ai_config(config_root: Path) -> None:
     write_text(
-        config_root / "ai_filter" / "prompt.txt",
+        config_root / "prompts" / "selection" / "classify.txt",
         """
         [user]
         关注面:
@@ -215,7 +215,7 @@ class AISelectionStrategyTest(unittest.TestCase):
         config_root = tmp_root / "config"
         _write_test_ai_config(config_root)
         write_text(
-            config_root / "custom" / "ai" / "unit.txt",
+            config_root / "profiles" / "ai" / "unit.txt",
             """
             [TOPIC_CATALOG]
 
@@ -233,7 +233,7 @@ class AISelectionStrategyTest(unittest.TestCase):
             """,
         )
         write_text(
-            config_root / "custom" / "keyword" / "selection.txt",
+            config_root / "rules" / "keyword" / "selection.txt",
             """
             [GLOBAL_FILTER]
             tutorial
@@ -250,7 +250,7 @@ class AISelectionStrategyTest(unittest.TestCase):
                 storage_manager=storage,
                 client=client,
                 embedding_client=FakeEmbeddingClient(),
-                filter_config={"PROMPT_FILE": "prompt.txt"},
+                filter_config={"PROMPT_FILE": "prompts/selection/classify.txt"},
                 config_root=config_root,
                 sleep_func=lambda _: None,
             )
@@ -305,7 +305,7 @@ class AISelectionStrategyTest(unittest.TestCase):
         strategy = AISelectionStrategy(
             storage_manager=DummyStorage(),
             client=client,
-            filter_config={"PROMPT_FILE": "prompt.txt"},
+            filter_config={"PROMPT_FILE": "prompts/selection/classify.txt"},
             config_root=config_root,
             sleep_func=lambda _: None,
         )
@@ -336,7 +336,7 @@ class AISelectionStrategyTest(unittest.TestCase):
         strategy = AISelectionStrategy(
             storage_manager=DummyStorage(),
             client=client,
-            filter_config={"PROMPT_FILE": "prompt.txt"},
+            filter_config={"PROMPT_FILE": "prompts/selection/classify.txt"},
             config_root=config_root,
             sleep_func=lambda _: None,
         )
@@ -365,7 +365,7 @@ class AISelectionStrategyTest(unittest.TestCase):
         strategy = AISelectionStrategy(
             storage_manager=DummyStorage(),
             client=client,
-            filter_config={"PROMPT_FILE": "prompt.txt"},
+            filter_config={"PROMPT_FILE": "prompts/selection/classify.txt"},
             config_root=config_root,
             sleep_func=lambda _: None,
         )
@@ -402,7 +402,7 @@ class AISelectionStrategyTest(unittest.TestCase):
         strategy = AISelectionStrategy(
             storage_manager=DummyStorage(),
             client=DeterministicQualityAIClient(),
-            filter_config={"PROMPT_FILE": "prompt.txt"},
+            filter_config={"PROMPT_FILE": "prompts/selection/classify.txt"},
             config_root=config_root,
             sleep_func=lambda _: None,
         )
@@ -440,7 +440,7 @@ class AISelectionStrategyTest(unittest.TestCase):
         config_root = tmp_root / "config"
         _write_test_ai_config(config_root)
         write_text(
-            config_root / "custom" / "ai" / "catalog.txt",
+            config_root / "profiles" / "ai" / "catalog.txt",
             """
             [TOPIC_CATALOG]
 
@@ -466,7 +466,7 @@ class AISelectionStrategyTest(unittest.TestCase):
                 storage_manager=storage,
                 client=DeterministicQualityAIClient(),
                 embedding_client=FakeEmbeddingClient(),
-                filter_config={"PROMPT_FILE": "prompt.txt"},
+                filter_config={"PROMPT_FILE": "prompts/selection/classify.txt"},
                 config_root=config_root,
                 sleep_func=lambda _: None,
             )
@@ -496,7 +496,7 @@ class AISelectionStrategyTest(unittest.TestCase):
         tmp_root = _make_tmp_dir()
         config_root = tmp_root / "config"
         _write_test_ai_config(config_root)
-        write_text(config_root / "custom" / "ai" / "unit.txt", "AI agents")
+        write_text(config_root / "profiles" / "ai" / "unit.txt", "AI agents")
 
         storage = _build_storage(str(tmp_root))
         try:
@@ -507,7 +507,7 @@ class AISelectionStrategyTest(unittest.TestCase):
             strategy = AISelectionStrategy(
                 storage_manager=storage,
                 client=LowScoreClient(),
-                filter_config={"PROMPT_FILE": "prompt.txt"},
+                filter_config={"PROMPT_FILE": "prompts/selection/classify.txt"},
                 config_root=config_root,
                 sleep_func=lambda _: None,
             )
@@ -532,7 +532,7 @@ class AISelectionStrategyTest(unittest.TestCase):
         tmp_root = _make_tmp_dir()
         config_root = tmp_root / "config"
         _write_test_ai_config(config_root)
-        write_text(config_root / "custom" / "ai" / "unit.txt", "AI agents")
+        write_text(config_root / "profiles" / "ai" / "unit.txt", "AI agents")
 
         storage = _build_storage(str(tmp_root))
         try:
@@ -544,7 +544,7 @@ class AISelectionStrategyTest(unittest.TestCase):
                 ai_strategy=AISelectionStrategy(
                     storage_manager=storage,
                     client=EmptyResponseAIClient(),
-                    filter_config={"PROMPT_FILE": "prompt.txt"},
+                    filter_config={"PROMPT_FILE": "prompts/selection/classify.txt"},
                     config_root=config_root,
                     sleep_func=lambda _: None,
                 ),

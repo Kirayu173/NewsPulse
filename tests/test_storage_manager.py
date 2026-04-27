@@ -1,7 +1,7 @@
 ﻿import unittest
-from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 
 from newspulse.storage.manager import StorageManager
+from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 
 
 class StorageManagerFacadeTest(unittest.TestCase):

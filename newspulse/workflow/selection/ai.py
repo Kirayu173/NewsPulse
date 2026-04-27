@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from newspulse.core.config_paths import resolve_ai_interests_path
+from newspulse.core.config_paths import DEFAULT_AI_INTERESTS_FILE, DEFAULT_SELECTION_PROMPT_FILE, resolve_ai_interests_path
 from newspulse.workflow.selection.ai_classifier import AIBatchClassifier
 from newspulse.workflow.selection.catalog import parse_topic_catalog
 from newspulse.workflow.selection.context_builder import build_selection_context
@@ -57,9 +57,8 @@ class AISelectionStrategy:
         self.client = self._wrap_runtime_cache(client)
 
         self.classify_prompt = classify_prompt or load_prompt_template(
-            self.filter_config.get("PROMPT_FILE", "prompt.txt"),
+            self.filter_config.get("PROMPT_FILE", DEFAULT_SELECTION_PROMPT_FILE),
             config_root=self.config_root,
-            config_subdir="ai_filter",
             required=True,
         )
         self.request_overrides = self._build_request_overrides()
@@ -80,7 +79,7 @@ class AISelectionStrategy:
     def run(self, snapshot: Any, options: SelectionOptions) -> SelectionResult:
         """Run AI selection against the provided snapshot."""
 
-        interests_file = options.ai.interests_file or self.filter_config.get("INTERESTS_FILE") or "ai_interests.txt"
+        interests_file = options.ai.interests_file or self.filter_config.get("INTERESTS_FILE") or DEFAULT_AI_INTERESTS_FILE
         interests_content = self.load_interests_content(interests_file)
         if not interests_content:
             raise ValueError("No AI interests content is available for selection")
@@ -160,15 +159,15 @@ class AISelectionStrategy:
                 ],
                 "semantic_candidates": [
                     {
-                        **{
+                        
                             "news_item_id": candidate.news_item.news_item_id,
                             "source_id": candidate.news_item.source_id,
                             "source_name": candidate.news_item.source_name,
                             "title": candidate.news_item.title,
                             "summary": candidate.news_item.summary,
                             "current_rank": candidate.news_item.current_rank,
-                            "metadata": dict(candidate.news_item.metadata or {}),
-                        },
+                            "metadata": dict(candidate.news_item.metadata or {})
+                        ,
                         "topic_id": candidate.topic_id,
                         "topic_label": candidate.topic_label,
                         "score": round(candidate.score, 6),

@@ -40,7 +40,7 @@ class WorkflowContractsTest(unittest.TestCase):
         )
         self.assertEqual(options.snapshot.mode, "current")
         self.assertEqual(options.selection.strategy, "keyword")
-        self.assertEqual(options.selection.ai.interests_file, "ai_interests.txt")
+        self.assertEqual(options.selection.ai.interests_file, "profiles/ai/default.txt")
         self.assertEqual(options.insight.strategy, "noop")
         self.assertEqual(
             options.render.display_regions,

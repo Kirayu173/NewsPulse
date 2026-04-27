@@ -3,7 +3,6 @@
 from newspulse.storage.repos.base import SQLiteRepositoryBase
 from newspulse.utils.logging import get_logger
 
-
 logger = get_logger(__name__)
 
 

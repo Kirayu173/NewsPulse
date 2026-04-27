@@ -1,10 +1,10 @@
 ﻿import unittest
-from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 from types import SimpleNamespace
 
 from newspulse.runtime import RuntimeProviders, build_runtime, run_insight_stage
 from newspulse.storage import get_storage_manager
 from newspulse.workflow.shared.contracts import HotlistItem, HotlistSnapshot, InsightResult, InsightSection, SelectionResult
+from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 
 
 class RecordingInsightService:
@@ -44,7 +44,7 @@ class RuntimeInsightStageTest(unittest.TestCase):
                 'MODE': ai_mode,
                 'MAX_ITEMS': 7,
                 'LANGUAGE': 'Chinese',
-                'PROMPT_FILE': 'global_insight_prompt.txt',
+                'PROMPT_FILE': 'prompts/insight/global_insight.txt',
             },
             'STORAGE': {
                 'BACKEND': 'local',

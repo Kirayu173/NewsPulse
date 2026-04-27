@@ -46,12 +46,12 @@ Copy-Item .env.example .env
 
 - `config/config.yaml`
 - `config/timeline.yaml`（可选，缺失时会退回默认调度模板）
-- `config/frequency_words.txt`
-- `config/ai_interests.txt`
-- `config/ai_filter/prompt.txt`
-- `config/ai_filter/extract_prompt.txt`
-- `config/ai_filter/update_tags_prompt.txt`
-- `config/ai_analysis_prompt.txt`
+- `config/rules/keyword/default.txt`
+- `config/profiles/ai/default.txt`
+- `config/prompts/selection/classify.txt`
+- `config/prompts/selection/extract_tags.txt`
+- `config/prompts/selection/update_tags.txt`
+- `config/prompts/insight/global_insight.txt`
 
 ### 4. 先跑环境检查
 
@@ -141,8 +141,8 @@ python -m newspulse --test-notification
 
 ### 4. `AI selection prompts` / `AI insight prompts` 失败
 
-- 检查 `config/ai_filter/*.txt`
-- 检查 `config/ai_analysis_prompt.txt`
+- 检查 `config/prompts/selection/*.txt`
+- 检查 `config/prompts/insight/global_insight.txt`
 
 ### 5. 调度解析失败
 

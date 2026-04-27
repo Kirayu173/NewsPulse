@@ -17,7 +17,6 @@ from newspulse.crawler.source_names import resolve_source_display_name
 from newspulse.crawler.sources import SourceClient, resolve_source_definition
 from newspulse.utils.logging import build_log_message, get_logger
 
-
 logger = get_logger(__name__)
 
 

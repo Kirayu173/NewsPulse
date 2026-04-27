@@ -10,7 +10,6 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Optional
 
-
 _HANDLER_MARKER = "_newspulse_handler"
 _DEFAULT_LOG_LEVEL = "INFO"
 

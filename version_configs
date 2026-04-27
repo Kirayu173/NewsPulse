@@ -1,6 +1,11 @@
 config.yaml=1.0.0
 timeline.yaml=1.0.0
-frequency_words.txt=1.0.0
-ai_interests.txt=1.0.0
-ai_analysis_prompt.txt=1.0.0
-ai_translation_prompt.txt=1.0.0
+rules/keyword/default.txt=1.0.0
+profiles/ai/default.txt=1.0.0
+prompts/selection/classify.txt=1.0.0
+prompts/selection/extract_tags.txt=1.0.0
+prompts/selection/update_tags.txt=1.0.0
+prompts/selection/translation.txt=1.0.0
+prompts/insight/item_summary_batch.txt=1.0.0
+prompts/insight/report_summary.txt=1.0.0
+prompts/insight/global_insight.txt=1.0.0

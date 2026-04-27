@@ -57,9 +57,11 @@ class LoaderConfigRootTest(unittest.TestCase):
                 """,
             )
 
-            with patch("newspulse.core.config_paths.get_project_root", return_value=project):
-                with patch.dict(os.environ, {}, clear=True):
-                    config = load_config()
+            with (
+                patch("newspulse.core.config_paths.get_project_root", return_value=project),
+                patch.dict(os.environ, {}, clear=True),
+            ):
+                config = load_config()
 
             self.assertEqual(config["AI"]["API_KEY"], "dotenv-key")
             self.assertEqual(config["AI"]["API_BASE"], "https://dotenv.example/v1")
@@ -93,9 +95,11 @@ class LoaderConfigRootTest(unittest.TestCase):
                 """,
             )
 
-            with patch("newspulse.core.config_paths.get_project_root", return_value=project):
-                with patch.dict(os.environ, {}, clear=True):
-                    config = load_config()
+            with (
+                patch("newspulse.core.config_paths.get_project_root", return_value=project),
+                patch.dict(os.environ, {}, clear=True),
+            ):
+                config = load_config()
 
             self.assertEqual(config["AI"]["API_KEY"], "dotenv-key")
             self.assertEqual(config["AI"]["API_BASE"], "https://dotenv.example/v1")
@@ -129,9 +133,11 @@ class LoaderConfigRootTest(unittest.TestCase):
                 """,
             )
 
-            with patch("newspulse.core.config_paths.get_project_root", return_value=project):
-                with patch.dict(os.environ, {}, clear=True):
-                    config = load_config()
+            with (
+                patch("newspulse.core.config_paths.get_project_root", return_value=project),
+                patch.dict(os.environ, {}, clear=True),
+            ):
+                config = load_config()
 
             self.assertEqual(config["AI"]["MODEL"], "MiniMax-M2.7")
             self.assertEqual(config["AI"]["API_KEY"], "dotenv-key")
@@ -165,9 +171,11 @@ class LoaderConfigRootTest(unittest.TestCase):
                 """,
             )
 
-            with patch("newspulse.core.config_paths.get_project_root", return_value=project):
-                with patch.dict(os.environ, {}, clear=True):
-                    config = load_config()
+            with (
+                patch("newspulse.core.config_paths.get_project_root", return_value=project),
+                patch.dict(os.environ, {}, clear=True),
+            ):
+                config = load_config()
 
             self.assertEqual(config["AI"]["MODEL"], "openai/yaml-model")
             self.assertEqual(config["AI"]["API_KEY"], "")
@@ -193,10 +201,10 @@ class LoaderConfigRootTest(unittest.TestCase):
                   api_base: ""
                 """,
             )
-            write_text(config_dir / "global_insight_prompt.txt", "[user]\nhello")
-            write_text(config_dir / "ai_filter" / "prompt.txt", "[user]\nclassify")
-            write_text(config_dir / "ai_filter" / "extract_prompt.txt", "[user]\nextract")
-            write_text(config_dir / "ai_filter" / "update_tags_prompt.txt", "[user]\nupdate")
+            write_text(config_dir / "prompts/insight/global_insight.txt", "[user]\nhello")
+            write_text(config_dir / "prompts/selection/classify.txt", "[user]\nclassify")
+            write_text(config_dir / "prompts/selection/extract_tags.txt", "[user]\nextract")
+            write_text(config_dir / "prompts/selection/update_tags.txt", "[user]\nupdate")
 
             env = {
                 "CONFIG_PATH": "configs/dev/config.yaml",
@@ -204,9 +212,11 @@ class LoaderConfigRootTest(unittest.TestCase):
                 "AI_API_BASE": "https://example.com/v1",
                 "AI_MODEL": "openai/env-model",
             }
-            with patch("newspulse.core.config_paths.get_project_root", return_value=project):
-                with patch.dict(os.environ, env, clear=True):
-                    config = load_config()
+            with (
+                patch("newspulse.core.config_paths.get_project_root", return_value=project),
+                patch.dict(os.environ, env, clear=True),
+            ):
+                config = load_config()
 
             self.assertEqual(config["AI"]["API_KEY"], "env-key")
             self.assertEqual(config["AI"]["API_BASE"], "https://example.com/v1")
@@ -215,11 +225,11 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["_PATHS"]["CONFIG_PATH"], str(config_dir / "config.yaml"))
             self.assertEqual(
                 config["AI_ANALYSIS"]["PROMPT_FILE"],
-                str(config_dir / "global_insight_prompt.txt"),
+                str(config_dir / "prompts/insight/global_insight.txt"),
             )
             self.assertEqual(
                 config["AI_FILTER"]["PROMPT_FILE"],
-                str(config_dir / "ai_filter" / "prompt.txt"),
+                str(config_dir / "prompts/selection/classify.txt"),
             )
 
     def test_load_config_builds_independent_ai_runtime_configs(self):
@@ -318,10 +328,10 @@ class LoaderConfigRootTest(unittest.TestCase):
         with workspace_tmpdir() as workspace:
             config_dir = workspace / "config"
             config_file = config_dir / "config.yaml"
-            write_text(config_dir / "global_insight_prompt.txt", "[user]\nanalysis")
-            write_text(config_dir / "ai_filter" / "prompt.txt", "[user]\nfilter")
-            write_text(config_dir / "ai_filter" / "extract_prompt.txt", "[user]\nextract")
-            write_text(config_dir / "ai_filter" / "update_tags_prompt.txt", "[user]\nupdate")
+            write_text(config_dir / "prompts/insight/global_insight.txt", "[user]\nanalysis")
+            write_text(config_dir / "prompts/selection/classify.txt", "[user]\nfilter")
+            write_text(config_dir / "prompts/selection/extract_tags.txt", "[user]\nextract")
+            write_text(config_dir / "prompts/selection/update_tags.txt", "[user]\nupdate")
             write_text(
                 config_file,
                 """
@@ -365,9 +375,9 @@ class LoaderConfigRootTest(unittest.TestCase):
                     num_retries: 2
                   operations:
                     selection:
-                      prompt_file: ai_filter/prompt.txt
-                      extract_prompt_file: ai_filter/extract_prompt.txt
-                      update_tags_prompt_file: ai_filter/update_tags_prompt.txt
+                      prompt_file: prompts/selection/classify.txt
+                      extract_prompt_file: prompts/selection/extract_tags.txt
+                      update_tags_prompt_file: prompts/selection/update_tags.txt
                       model: openai/selection-model
                       timeout: 222
                       runtime_cache:
@@ -377,7 +387,7 @@ class LoaderConfigRootTest(unittest.TestCase):
                       extra_params:
                         top_p: 0.9
                     insight:
-                      prompt_file: global_insight_prompt.txt
+                      prompt_file: prompts/insight/global_insight.txt
                       api_key: insight-key
                       temperature: 0.8
                       runtime_cache:
@@ -417,13 +427,13 @@ class LoaderConfigRootTest(unittest.TestCase):
             self.assertEqual(config["AI_ANALYSIS"]["MAX_ITEMS"], 9)
             self.assertEqual(
                 config["AI_ANALYSIS"]["PROMPT_FILE"],
-                str((config_dir / "global_insight_prompt.txt").resolve()),
+                str((config_dir / "prompts/insight/global_insight.txt").resolve()),
             )
             self.assertEqual(config["AI_ANALYSIS"]["RUNTIME_CACHE"]["TTL_SECONDS"], 60)
             self.assertFalse(config["AI_ANALYSIS"]["RUNTIME_CACHE"]["ENABLED"])
             self.assertEqual(
                 config["AI_FILTER"]["PROMPT_FILE"],
-                str((config_dir / "ai_filter" / "prompt.txt").resolve()),
+                str((config_dir / "prompts/selection/classify.txt").resolve()),
             )
             self.assertEqual(config["AI_FILTER"]["EXTRA_PARAMS"], {"top_p": 0.9})
             self.assertEqual(config["AI_FILTER"]["RUNTIME_CACHE"]["MAX_ENTRIES"], 128)
@@ -444,7 +454,7 @@ class FrequencyWordsPathTest(unittest.TestCase):
         with workspace_tmpdir() as project:
             config_dir = project / "config"
             write_text(
-                config_dir / "custom" / "keyword" / "weekly.txt",
+                config_dir / "rules" / "keyword" / "weekly.txt",
                 """
                 [WORD_GROUPS]
                 AI
@@ -461,14 +471,14 @@ class FrequencyWordsPathTest(unittest.TestCase):
     def test_resolve_ai_interests_path_uses_default_root_file(self):
         with workspace_tmpdir() as project:
             config_dir = project / "config"
-            write_text(config_dir / "ai_interests.txt", "AI agents")
+            write_text(config_dir / "profiles/ai/default.txt", "AI agents")
 
             path = resolve_ai_interests_path(
-                "ai_interests.txt",
+                "profiles/ai/default.txt",
                 config_root=config_dir,
             )
 
-            self.assertEqual(path, config_dir / "ai_interests.txt")
+            self.assertEqual(path, config_dir / "profiles/ai/default.txt")
 
 
 if __name__ == "__main__":

@@ -1,8 +1,8 @@
+import shutil
 import unittest
+import uuid
 from datetime import datetime
 from pathlib import Path
-import shutil
-import uuid
 from zoneinfo import ZoneInfo
 
 from newspulse.crawler import CrawlBatchResult, SourceFetchFailure, SourceFetchResult
@@ -10,7 +10,6 @@ from newspulse.crawler.sources.base import SourceItem
 from newspulse.storage import StorageManager, convert_crawl_batch_to_news_data
 from newspulse.workflow.shared.options import SnapshotOptions
 from newspulse.workflow.snapshot.service import SnapshotService
-
 
 TEST_TIMEZONE = ZoneInfo("Asia/Shanghai")
 

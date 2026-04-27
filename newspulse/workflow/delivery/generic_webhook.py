@@ -12,7 +12,6 @@ from newspulse.utils.logging import get_logger
 from newspulse.workflow.delivery.models import ChannelDeliveryResult
 from newspulse.workflow.shared.contracts import DeliveryPayload
 
-
 logger = get_logger(__name__)
 
 

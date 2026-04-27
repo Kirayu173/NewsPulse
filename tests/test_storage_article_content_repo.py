@@ -1,8 +1,8 @@
 ﻿import unittest
-from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 
 from newspulse.storage import ArticleContentRecord, SQLiteRuntime
 from newspulse.storage.repos import ArticleContentRepository
+from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 
 
 class ArticleContentRepositoryTest(unittest.TestCase):

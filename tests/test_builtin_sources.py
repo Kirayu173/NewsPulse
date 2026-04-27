@@ -18,7 +18,6 @@ from newspulse.crawler.sources.builtin import (
     resolve_source_definition,
 )
 
-
 EXPECTED_SOURCE_IDS = {
     "36kr",
     "36kr-quick",

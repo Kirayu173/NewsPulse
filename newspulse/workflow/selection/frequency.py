@@ -8,10 +8,9 @@ import re
 from pathlib import Path
 from typing import Optional, Union
 
-from newspulse.core.config_paths import resolve_frequency_words_path
+from newspulse.core.config_paths import DEFAULT_FREQUENCY_WORDS_FILE, resolve_frequency_words_path
 from newspulse.utils.logging import get_logger
 from newspulse.workflow.selection.models import KeywordRuleGroup, KeywordRuleSet, KeywordToken
-
 
 logger = get_logger(__name__)
 
@@ -22,7 +21,7 @@ def _parse_token(word: str) -> KeywordToken:
     display_name = ""
     word_config = word.strip()
     if "=>" in word_config:
-        parts = re.split(r"\s*=>\s*", word_config, 1)
+        parts = re.split(r"\s*=>\s*", word_config, maxsplit=1)
         word_config = parts[0].strip()
         if len(parts) > 1 and parts[1].strip():
             display_name = parts[1].strip()
@@ -76,7 +75,7 @@ def load_keyword_rule_set(
     if not frequency_path.exists():
         missing_name = frequency_file or os.environ.get(
             "FREQUENCY_WORDS_PATH",
-            "frequency_words.txt",
+            DEFAULT_FREQUENCY_WORDS_FILE,
         )
         raise FileNotFoundError(f"frequency words file not found: {missing_name}")
 
@@ -147,10 +146,11 @@ def load_keyword_rule_set(
             continue
 
         all_tokens = [*normal_tokens, *required_tokens]
-        if normal_tokens:
-            group_key = " ".join(token.text for token in normal_tokens)
-        else:
-            group_key = " ".join(token.text for token in required_tokens)
+        group_key = (
+            " ".join(token.text for token in normal_tokens)
+            if normal_tokens
+            else " ".join(token.text for token in required_tokens)
+        )
 
         label = group_alias or " / ".join(token.label for token in all_tokens) or group_key
         groups.append(

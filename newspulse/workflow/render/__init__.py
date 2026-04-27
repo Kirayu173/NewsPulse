@@ -10,8 +10,8 @@ from newspulse.workflow.render.models import (
     RenderViewModel,
     build_render_view_model,
 )
-from newspulse.workflow.render.notification_content import DEFAULT_BATCH_SIZES, split_content_into_batches
 from newspulse.workflow.render.notification import NotificationRenderAdapter
+from newspulse.workflow.render.notification_content import DEFAULT_BATCH_SIZES, split_content_into_batches
 from newspulse.workflow.render.service import RenderService
 
 __all__ = [

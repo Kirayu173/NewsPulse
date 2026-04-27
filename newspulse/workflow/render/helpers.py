@@ -95,10 +95,7 @@ def format_rank_display(ranks: List[int], rank_threshold: int, format_type: str)
     elif format_type == "feishu":
         highlight_start = "<font color='red'>**"
         highlight_end = "**</font>"
-    elif format_type == "dingtalk":
-        highlight_start = "**"
-        highlight_end = "**"
-    elif format_type == "wework":
+    elif format_type == "dingtalk" or format_type == "wework":
         highlight_start = "**"
         highlight_end = "**"
     elif format_type == "telegram":
@@ -120,10 +117,7 @@ def format_rank_display(ranks: List[int], rank_threshold: int, format_type: str)
         else:
             rank_str = f"{highlight_start}[{min_rank} - {max_rank}]{highlight_end}"
     else:
-        if min_rank == max_rank:
-            rank_str = f"[{min_rank}]"
-        else:
-            rank_str = f"[{min_rank} - {max_rank}]"
+        rank_str = f"[{min_rank}]" if min_rank == max_rank else f"[{min_rank} - {max_rank}]"
 
     # 计算热度趋势
     trend_arrow = ""

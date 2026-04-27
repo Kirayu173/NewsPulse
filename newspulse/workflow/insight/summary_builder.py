@@ -32,10 +32,12 @@ class InsightSummaryBuilder:
         contexts: Sequence[ReducedSummaryContext],
         *,
         item_concurrency: int = 1,
+        item_batch_size: int = 3,
     ) -> InsightSummaryBundle:
         item_summaries, item_diag = self.item_summary_generator.generate_many(
             contexts,
             max_workers=item_concurrency,
+            batch_size=item_batch_size,
         )
         report_summary, raw_report, report_diag = self.report_summary_generator.generate(
             item_summaries,

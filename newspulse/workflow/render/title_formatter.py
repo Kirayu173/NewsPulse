@@ -9,7 +9,6 @@ from typing import Any
 
 from newspulse.workflow.render.helpers import clean_title, format_rank_display, html_escape
 
-
 NEW_MARKER = "\U0001F195 "
 COUNT_UNIT = "\u6b21"
 

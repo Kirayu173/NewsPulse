@@ -1,8 +1,8 @@
 ﻿import unittest
 from pathlib import Path
-from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 
 from newspulse.utils.logging import build_log_message, configure_logging, get_logger
+from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 
 
 class LoggingUtilsTest(unittest.TestCase):

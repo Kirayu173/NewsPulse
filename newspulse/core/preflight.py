@@ -3,9 +3,9 @@
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 import tomllib
-import importlib.util
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -281,7 +281,7 @@ def _check_ai_runtime(report: PreflightReport, runtime: ApplicationRuntime) -> N
                 settings.selection.filter_config.get("EXTRACT_PROMPT_FILE"),
                 settings.selection.filter_config.get("UPDATE_TAGS_PROMPT_FILE"),
             ],
-            hint="Make sure the selection prompt files under `config/ai_filter/` exist and are readable.",
+            hint="Make sure the selection prompt files under `config/prompts/selection/` exist and are readable.",
         )
     else:
         report.add("skip", "AI selection runtime", "not required because AI selection is disabled")

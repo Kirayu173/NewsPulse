@@ -6,12 +6,12 @@ from __future__ import annotations
 import math
 from typing import Any, Iterable, Protocol, Sequence
 
+from newspulse.workflow.selection.context_builder import build_selection_context
 from newspulse.workflow.selection.models import (
     SelectionCandidate,
     SelectionTopic,
     SemanticSelectionResult,
 )
-from newspulse.workflow.selection.context_builder import build_selection_context
 from newspulse.workflow.shared.contracts import HotlistItem, SelectionRejectedItem
 from newspulse.workflow.shared.options import SelectionSemanticOptions
 
@@ -113,9 +113,15 @@ class SemanticSelectionLayer:
         rejected_items: list[SelectionRejectedItem] = []
         topic_lookup = {topic.topic_id: topic for topic in topics}
 
-        for item, item_context, item_text, item_vector in zip(snapshot_items, item_contexts, item_texts, item_vectors):
+        for item, item_context, item_text, item_vector in zip(
+            snapshot_items,
+            item_contexts,
+            item_texts,
+            item_vectors,
+            strict=True,
+        ):
             scored_candidates: list[SelectionCandidate] = []
-            for topic, topic_text, topic_vector in zip(topics, topic_texts, topic_vectors):
+            for topic, topic_text, topic_vector in zip(topics, topic_texts, topic_vectors, strict=True):
                 score = _cosine_similarity(item_vector, topic_vector)
                 if score < min_score:
                     continue
@@ -194,7 +200,7 @@ def _cosine_similarity(left: Iterable[float], right: Iterable[float]) -> float:
     if not left_list or not right_list or len(left_list) != len(right_list):
         return 0.0
 
-    numerator = sum(a * b for a, b in zip(left_list, right_list))
+    numerator = sum(a * b for a, b in zip(left_list, right_list, strict=True))
     left_norm = math.sqrt(sum(a * a for a in left_list))
     right_norm = math.sqrt(sum(b * b for b in right_list))
     if left_norm <= 0 or right_norm <= 0:

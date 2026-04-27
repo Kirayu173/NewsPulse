@@ -7,13 +7,23 @@ from typing import Any, Dict, Optional
 
 import yaml
 
-from .config import parse_multi_account_config
-from .config_paths import get_config_layout, resolve_prompt_path, resolve_timeline_path
-from .runtime_config import normalize_runtime_config
-from newspulse.workflow.shared.ai_runtime.provider_env import resolve_chat_env_defaults
 from newspulse.utils.logging import build_log_message, configure_logging, get_logger
 from newspulse.utils.time import DEFAULT_TIMEZONE
+from newspulse.workflow.shared.ai_runtime.provider_env import resolve_chat_env_defaults
 
+from .config import parse_multi_account_config
+from .config_paths import (
+    DEFAULT_GLOBAL_INSIGHT_PROMPT_FILE,
+    DEFAULT_ITEM_SUMMARY_PROMPT_FILE,
+    DEFAULT_REPORT_SUMMARY_PROMPT_FILE,
+    DEFAULT_SELECTION_EXTRACT_PROMPT_FILE,
+    DEFAULT_SELECTION_PROMPT_FILE,
+    DEFAULT_SELECTION_UPDATE_TAGS_PROMPT_FILE,
+    get_config_layout,
+    resolve_prompt_path,
+    resolve_timeline_path,
+)
+from .runtime_config import normalize_runtime_config
 
 DEFAULT_REGION_ORDER = ["hotlist", "new_items", "standalone", "insight"]
 _MISSING = object()
@@ -192,7 +202,7 @@ def _load_timeline_data(config_root: Path) -> Dict[str, Any]:
                 },
                 "periods": {},
                 "day_plans": {"all_day": {"periods": []}},
-                "week_map": {i: "all_day" for i in range(1, 8)},
+                "week_map": dict.fromkeys(range(1, 8), "all_day"),
             },
         }
 
@@ -478,16 +488,17 @@ def _load_workflow_insight_config(config_data: Dict[str, Any], config_root: Path
         "SUMMARY": {
             "ITEM_PROMPT_FILE": str(
                 resolve_prompt_path(
-                    str(_coalesce(_get_present_value(summary, "item_prompt_file"), default="insight/item_summary_prompt.txt")),
+                    str(_coalesce(_get_present_value(summary, "item_prompt_file"), default=DEFAULT_ITEM_SUMMARY_PROMPT_FILE)),
                     config_root=config_root,
                 )
             ),
             "REPORT_PROMPT_FILE": str(
                 resolve_prompt_path(
-                    str(_coalesce(_get_present_value(summary, "report_prompt_file"), default="insight/report_summary_prompt.txt")),
+                    str(_coalesce(_get_present_value(summary, "report_prompt_file"), default=DEFAULT_REPORT_SUMMARY_PROMPT_FILE)),
                     config_root=config_root,
                 )
             ),
+            "ITEM_BATCH_SIZE": int(_coalesce(_get_present_value(summary, "item_batch_size"), default=3) or 3),
             "ITEM_CONCURRENCY": int(_coalesce(_get_present_value(summary, "item_concurrency"), default=3) or 3),
             "ITEM_SUMMARY_MAX_CHARS": int(
                 _coalesce(_get_present_value(summary, "item_summary_max_chars"), default=220) or 220
@@ -510,23 +521,20 @@ def _load_ai_selection_operation_config(config_data: Dict[str, Any], config_root
     return {
         "PROMPT_FILE": str(
             resolve_prompt_path(
-                str(_coalesce(_get_present_value(operation, "prompt_file"), default="prompt.txt")),
+                str(_coalesce(_get_present_value(operation, "prompt_file"), default=DEFAULT_SELECTION_PROMPT_FILE)),
                 config_root=config_root,
-                config_subdir="ai_filter",
             )
         ),
         "EXTRACT_PROMPT_FILE": str(
             resolve_prompt_path(
-                str(_coalesce(_get_present_value(operation, "extract_prompt_file"), default="extract_prompt.txt")),
+                str(_coalesce(_get_present_value(operation, "extract_prompt_file"), default=DEFAULT_SELECTION_EXTRACT_PROMPT_FILE)),
                 config_root=config_root,
-                config_subdir="ai_filter",
             )
         ),
         "UPDATE_TAGS_PROMPT_FILE": str(
             resolve_prompt_path(
-                str(_coalesce(_get_present_value(operation, "update_tags_prompt_file"), default="update_tags_prompt.txt")),
+                str(_coalesce(_get_present_value(operation, "update_tags_prompt_file"), default=DEFAULT_SELECTION_UPDATE_TAGS_PROMPT_FILE)),
                 config_root=config_root,
-                config_subdir="ai_filter",
             )
         ),
         "TIMEOUT": _coalesce(_get_present_value(operation, "timeout"), default=None),
@@ -549,19 +557,19 @@ def _load_ai_insight_operation_config(config_data: Dict[str, Any], config_root: 
     return {
         "PROMPT_FILE": str(
             resolve_prompt_path(
-                str(_coalesce(_get_present_value(operation, "prompt_file"), default="global_insight_prompt.txt")),
+                str(_coalesce(_get_present_value(operation, "prompt_file"), default=DEFAULT_GLOBAL_INSIGHT_PROMPT_FILE)),
                 config_root=config_root,
             )
         ),
         "ITEM_PROMPT_FILE": str(
             resolve_prompt_path(
-                str(_coalesce(_get_present_value(operation, "item_prompt_file"), default="insight/item_summary_prompt.txt")),
+                str(_coalesce(_get_present_value(operation, "item_prompt_file"), default=DEFAULT_ITEM_SUMMARY_PROMPT_FILE)),
                 config_root=config_root,
             )
         ),
         "REPORT_PROMPT_FILE": str(
             resolve_prompt_path(
-                str(_coalesce(_get_present_value(operation, "report_prompt_file"), default="insight/report_summary_prompt.txt")),
+                str(_coalesce(_get_present_value(operation, "report_prompt_file"), default=DEFAULT_REPORT_SUMMARY_PROMPT_FILE)),
                 config_root=config_root,
             )
         ),

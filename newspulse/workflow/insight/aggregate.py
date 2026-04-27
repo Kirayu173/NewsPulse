@@ -10,6 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from newspulse.core.config_paths import DEFAULT_GLOBAL_INSIGHT_PROMPT_FILE
 from newspulse.workflow.insight.models import (
     DEFAULT_SECTION_TEMPLATES,
     InsightNewsContext,
@@ -48,7 +49,7 @@ class InsightAggregateGenerator:
             client = AIRuntimeClient(ai_runtime_config)
         self.client = client
         self.prompt_template = prompt_template or load_prompt_template(
-            self.analysis_config.get("PROMPT_FILE", "global_insight_prompt.txt"),
+            self.analysis_config.get("PROMPT_FILE", DEFAULT_GLOBAL_INSIGHT_PROMPT_FILE),
             config_root=self.config_root,
             required=True,
         )

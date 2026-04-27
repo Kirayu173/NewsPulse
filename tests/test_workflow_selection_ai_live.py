@@ -2,7 +2,6 @@
 import unittest
 from datetime import datetime
 from pathlib import Path
-from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 from zoneinfo import ZoneInfo
 
 from newspulse.core.loader import load_config
@@ -12,7 +11,7 @@ from newspulse.workflow.selection.service import SelectionService
 from newspulse.workflow.shared.options import SelectionAIOptions, SelectionOptions, SnapshotOptions
 from newspulse.workflow.snapshot.service import SnapshotService
 from tests.helpers.io import write_text
-
+from tests.helpers.tempdir import WorkspaceTemporaryDirectory as TemporaryDirectory
 
 TEST_TIMEZONE = ZoneInfo("Asia/Shanghai")
 

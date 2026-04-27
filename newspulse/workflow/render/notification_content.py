@@ -7,9 +7,9 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
 from newspulse.notification.batch import truncate_at_line_boundary
-from newspulse.workflow.render.title_formatter import format_title_for_platform
 from newspulse.utils.time import DEFAULT_TIMEZONE
 from newspulse.workflow.render.insight import render_insight_markdown
+from newspulse.workflow.render.title_formatter import format_title_for_platform
 
 if TYPE_CHECKING:
     from newspulse.workflow.render.models import RenderGroupView, RenderViewModel
