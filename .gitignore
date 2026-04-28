@@ -31,3 +31,5 @@ sources/
 /[0-9]-*.md
 /docs/stage*-refactor-plan.md
 
+subagent-architect.md
+subagent-refactor.md

@@ -162,6 +162,7 @@ def _build_noop_insight_result(
 ) -> InsightResult:
     diagnostics = {
         "report_mode": report_mode,
+        "generation_status": "skipped",
         "skipped": True,
         "reason": reason,
     }
@@ -171,6 +172,7 @@ def _build_noop_insight_result(
     return InsightResult(
         enabled=False,
         strategy="noop",
+        generation_status="skipped",
         diagnostics=diagnostics,
     )
 
@@ -180,6 +182,7 @@ def _is_successful_insight_result(insight: InsightResult) -> bool:
     return (
         insight.enabled
         and bool(insight.sections)
+        and insight.generation_status in {"ok", "partial", "fallback"}
         and not bool(diagnostics.get("skipped"))
         and not bool(diagnostics.get("error"))
         and not bool(diagnostics.get("parse_error"))

@@ -64,8 +64,11 @@ class SelectionService:
                         "requested_strategy": "ai",
                         "fallback_strategy": "keyword",
                         "fallback_reason": f"{type(exc).__name__}: {exc}",
+                        "quality_status": "fallback",
+                        "error_categories": ["llm_failed_fallback_keyword"],
                     }
                 )
+                result.quality_status = "fallback"
             else:
                 raise
 
@@ -73,6 +76,8 @@ class SelectionService:
             getattr(snapshot, "new_items", []),
         )
         result.diagnostics.setdefault("requested_strategy", requested_strategy)
+        result.diagnostics.setdefault("quality_status", result.quality_status)
+        result.diagnostics.setdefault("error_categories", [])
         return result
 
     def _run_strategy(self, snapshot: Any, options: SelectionOptions) -> SelectionResult:

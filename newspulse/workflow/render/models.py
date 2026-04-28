@@ -769,6 +769,11 @@ def _build_insight_view(
 ) -> RenderInsightView:
     diagnostics = dict(insight_metadata.get("diagnostics", {}))
     enabled = bool(insight_metadata.get("enabled", False))
+    generation_status = str(
+        insight_metadata.get("generation_status")
+        or diagnostics.get("generation_status")
+        or ""
+    ).strip()
     strategy = str(
         insight_metadata.get("strategy")
         or report_meta.get("insight_strategy", "")
@@ -793,12 +798,16 @@ def _build_insight_view(
         or ""
     ).strip()
 
-    if diagnostics.get("skipped"):
+    if generation_status in {"skipped", "disabled"} or diagnostics.get("skipped"):
         status = "skipped"
     elif not enabled and strategy == "noop":
         status = "disabled"
-    elif diagnostics.get("error") or diagnostics.get("parse_error"):
+    elif generation_status == "error" or diagnostics.get("error") or diagnostics.get("parse_error"):
         status = "error"
+    elif generation_status == "fallback":
+        status = "fallback"
+    elif generation_status == "partial":
+        status = "partial"
     elif section_views:
         status = "ok"
     elif message:
@@ -816,8 +825,9 @@ def _build_insight_view(
             "max_news_limit": int(diagnostics.get("max_items", 0) or 0),
             "hotlist_count": total_titles,
             "ai_mode": str(diagnostics.get("report_mode", report_meta.get("mode", "")) or ""),
+            "generation_status": generation_status or status,
         },
-        metadata=diagnostics,
+        metadata={**diagnostics, "generation_status": generation_status or status},
     )
 
 

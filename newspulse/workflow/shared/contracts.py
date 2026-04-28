@@ -149,6 +149,7 @@ class SelectionResult:
     """Selection stage output used by insight, render and delivery stages."""
 
     strategy: str
+    quality_status: str = "ok"
     qualified_items: List[HotlistItem] = field(default_factory=list)
     rejected_items: List[SelectionRejectedItem] = field(default_factory=list)
     groups: List[SelectionGroup] = field(default_factory=list)
@@ -186,10 +187,16 @@ class InsightResult:
 
     enabled: bool = False
     strategy: str = "noop"
+    generation_status: str = "disabled"
     summaries: List[InsightSummary] = field(default_factory=list)
     sections: List[InsightSection] = field(default_factory=list)
     raw_response: str = ""
     diagnostics: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.generation_status == "disabled" and self.enabled:
+            self.generation_status = "ok" if self.sections else "empty"
+        self.diagnostics.setdefault("generation_status", self.generation_status)
 
 
 @dataclass

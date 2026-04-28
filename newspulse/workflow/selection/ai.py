@@ -114,6 +114,7 @@ class AISelectionStrategy:
             {
                 "mode": snapshot.mode,
                 "interests_file": interests_file,
+                "quality_status": result.quality_status,
                 "focus_topic_count": len(topics),
                 "focus_labels": [topic.label for topic in topics],
                 "processed_candidates": len(snapshot.items),
@@ -135,6 +136,7 @@ class AISelectionStrategy:
                 ),
                 "min_score": options.ai.min_score,
                 "semantic_candidate_count": len(semantic_result.candidates),
+                "semantic_status": _resolve_semantic_status(semantic_result.diagnostics),
             }
         )
         result.diagnostics.update(
@@ -339,3 +341,18 @@ def build_embedding_runtime_config(
     if isinstance(extra_params, Mapping):
         derived["EXTRA_PARAMS"] = dict(extra_params)
     return derived
+
+
+def _resolve_semantic_status(diagnostics: Mapping[str, Any]) -> str:
+    if not bool(diagnostics.get("enabled", False)):
+        return "disabled"
+    if not bool(diagnostics.get("skipped", False)):
+        return "ok"
+    reason = str(diagnostics.get("reason", "") or "")
+    if reason == "embedding_unavailable":
+        return "semantic_unavailable"
+    if reason.startswith("embedding_error:"):
+        return "semantic_failed_passthrough"
+    if reason in {"no_items", "no_topics"}:
+        return f"skipped_{reason}"
+    return "skipped"

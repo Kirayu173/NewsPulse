@@ -53,6 +53,7 @@ def _build_stage_outputs(*, include_new_items: bool = True, include_failed_sourc
     )
     selection = SelectionResult(
         strategy="keyword",
+        quality_status="ok",
         groups=[SelectionGroup(key="ai", label="AI", items=[selected_item], position=0)],
         selected_items=[selected_item],
         selected_new_items=[other_item],
@@ -60,7 +61,7 @@ def _build_stage_outputs(*, include_new_items: bool = True, include_failed_sourc
         total_selected=1,
         diagnostics={"group_count": 1},
     )
-    insight = InsightResult(enabled=False, strategy="noop", diagnostics={"reason": "disabled"})
+    insight = InsightResult(enabled=False, strategy="noop", generation_status="skipped", diagnostics={"reason": "disabled"})
     return snapshot, selection, insight
 
 
@@ -82,6 +83,8 @@ class ReportPackageAssemblerTest(unittest.TestCase):
         )
         self.assertIsNot(package.content.hotlist_groups[0], selection.groups[0])
         self.assertEqual(package.integrity.errors, [])
+        self.assertEqual(package.diagnostics["selection"]["quality_status"], "ok")
+        self.assertEqual(package.diagnostics["insight"]["generation_status"], "skipped")
 
     def test_assembler_builds_integrity_counters_and_skipped_regions(self):
         snapshot, selection, insight = _build_stage_outputs(

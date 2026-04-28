@@ -285,6 +285,9 @@ class AISelectionStrategyTest(unittest.TestCase):
             self.assertEqual(result.rejected_items[0].rejected_stage, "rule")
             self.assertEqual(client.classify_calls, 1)
             self.assertEqual(result.diagnostics["focus_topic_count"], 2)
+            self.assertEqual(result.quality_status, "ok")
+            self.assertEqual(result.diagnostics["quality_status"], "ok")
+            self.assertEqual(result.diagnostics["error_categories"], [])
             self.assertEqual(result.diagnostics["rule_rejected_count"], 1)
             self.assertEqual(result.diagnostics["semantic_passed_count"], 2)
 
@@ -293,6 +296,40 @@ class AISelectionStrategyTest(unittest.TestCase):
                 [match["decision_layer"] for match in selected_matches],
                 ["llm_quality_gate", "llm_quality_gate"],
             )
+        finally:
+            storage.cleanup()
+
+    def test_ai_strategy_marks_semantic_unavailable_as_partial_quality(self):
+        tmp_root = _make_tmp_dir()
+        config_root = tmp_root / "config"
+        _write_test_ai_config(config_root)
+        write_text(config_root / "profiles" / "ai" / "unit.txt", "AI agents")
+
+        storage = _build_storage(str(tmp_root))
+        try:
+            _seed_hotlist(storage)
+            snapshot = _build_snapshot(storage)
+            snapshot.items = snapshot.items[:1]
+            strategy = AISelectionStrategy(
+                storage_manager=storage,
+                client=DeterministicQualityAIClient(),
+                filter_config={"PROMPT_FILE": "prompts/selection/classify.txt"},
+                config_root=config_root,
+                sleep_func=lambda _: None,
+            )
+
+            result = strategy.run(
+                snapshot,
+                SelectionOptions(
+                    strategy="ai",
+                    ai=SelectionAIOptions(interests_file="unit.txt", batch_size=1, batch_interval=0, min_score=0.7),
+                    semantic=SelectionSemanticOptions(enabled=True),
+                ),
+            )
+
+            self.assertEqual(result.quality_status, "partial")
+            self.assertEqual(result.diagnostics["semantic_status"], "semantic_unavailable")
+            self.assertIn("semantic_unavailable", result.diagnostics["error_categories"])
         finally:
             storage.cleanup()
 
@@ -563,6 +600,9 @@ class AISelectionStrategyTest(unittest.TestCase):
             self.assertEqual(result.total_selected, 1)
             self.assertEqual(result.diagnostics["requested_strategy"], "ai")
             self.assertEqual(result.diagnostics["fallback_strategy"], "keyword")
+            self.assertEqual(result.quality_status, "fallback")
+            self.assertEqual(result.diagnostics["quality_status"], "fallback")
+            self.assertEqual(result.diagnostics["error_categories"], ["llm_failed_fallback_keyword"])
             self.assertIn("AI response does not contain JSON", result.diagnostics["fallback_reason"])
         finally:
             storage.cleanup()

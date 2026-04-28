@@ -94,6 +94,7 @@ class ReportPackageAssembler:
                 "snapshot_summary": deepcopy(snapshot.summary),
                 "selection": {
                     "strategy": selection.strategy,
+                    "quality_status": selection.quality_status,
                     "total_candidates": selection.total_candidates,
                     "total_selected": selection.total_selected,
                     "rejected_count": len(selection.rejected_items),
@@ -102,6 +103,7 @@ class ReportPackageAssembler:
                 "insight": {
                     "enabled": insight.enabled,
                     "strategy": insight.strategy,
+                    "generation_status": insight.generation_status,
                     "summary_count": len(insight.summaries),
                     "raw_response": insight.raw_response,
                     "diagnostics": deepcopy(insight.diagnostics),

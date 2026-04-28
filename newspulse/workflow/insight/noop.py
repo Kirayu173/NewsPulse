@@ -16,11 +16,13 @@ class NoopInsightStrategy:
         return InsightResult(
             enabled=False,
             strategy="noop",
+            generation_status="skipped",
             diagnostics={
                 "mode": snapshot.mode,
                 "requested_strategy": options.strategy,
                 "selection_strategy": selection.strategy,
                 "selected_items": selection.total_selected,
+                "generation_status": "skipped",
                 "skipped": True,
             },
         )

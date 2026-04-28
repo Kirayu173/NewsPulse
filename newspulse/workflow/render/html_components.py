@@ -295,6 +295,8 @@ def _render_aggregate_insight(insight: "RenderInsightView") -> str:
     max_news_limit = int(insight.stats.get("max_news_limit", 0) or 0)
     if max_news_limit > 0:
         stats_bits.append(f"上限 {max_news_limit}")
+    if insight.status in {"fallback", "partial"}:
+        stats_bits.append(insight.status)
     stats_html = "".join(
         f'<span class="mini-chip">{html_escape(bit)}</span>' for bit in stats_bits
     )

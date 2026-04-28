@@ -99,6 +99,7 @@ class AIInsightStrategy:
                 return InsightResult(
                     enabled=True,
                     strategy="ai",
+                    generation_status="skipped",
                     diagnostics=self._build_diagnostics(
                         snapshot=snapshot,
                         selection=selection,
@@ -112,6 +113,7 @@ class AIInsightStrategy:
                         cache_stats=self._cache_delta(cache_stats_before),
                         skipped=True,
                         reason="no selected items available for insight generation",
+                        generation_status="skipped",
                     ),
                 )
 
@@ -135,6 +137,7 @@ class AIInsightStrategy:
                 return InsightResult(
                     enabled=True,
                     strategy="ai",
+                    generation_status="skipped",
                     diagnostics=self._build_diagnostics(
                         snapshot=snapshot,
                         selection=selection,
@@ -148,13 +151,19 @@ class AIInsightStrategy:
                         cache_stats=self._cache_delta(cache_stats_before),
                         skipped=True,
                         reason="no summaries available for insight generation",
+                        generation_status="skipped",
                     ),
                 )
 
             sections, raw_response, aggregate_diag = self.aggregate_generator.generate(summary_bundle, contexts)
+            generation_status = self._resolve_generation_status(
+                aggregate_diag=aggregate_diag,
+                section_count=len(sections),
+            )
             return InsightResult(
                 enabled=True,
                 strategy="ai",
+                generation_status=generation_status,
                 summaries=list(summary_bundle.summaries),
                 sections=list(sections),
                 raw_response=raw_response,
@@ -169,12 +178,14 @@ class AIInsightStrategy:
                     summary_bundle=summary_bundle,
                     aggregate_diag=aggregate_diag,
                     cache_stats=self._cache_delta(cache_stats_before),
+                    generation_status=generation_status,
                 ),
             )
         except Exception as exc:
             return InsightResult(
                 enabled=True,
                 strategy="ai",
+                generation_status="error",
                 summaries=list(summary_bundle.summaries) if summary_bundle is not None else [],
                 raw_response=raw_response,
                 diagnostics=self._build_diagnostics(
@@ -189,6 +200,7 @@ class AIInsightStrategy:
                     aggregate_diag={"error": f"{type(exc).__name__}: {exc}"},
                     cache_stats=self._cache_delta(cache_stats_before),
                     error=f"{type(exc).__name__}: {exc}",
+                    generation_status="error",
                 ),
             )
 
@@ -239,11 +251,20 @@ class AIInsightStrategy:
         skipped: bool = False,
         reason: str = "",
         error: str = "",
+        generation_status: str = "",
     ) -> dict[str, Any]:
         summary_diag = dict(getattr(self.summary_builder, "last_diagnostics", {}) or {})
+        if not generation_status:
+            generation_status = self._resolve_generation_status(
+                aggregate_diag=aggregate_diag,
+                section_count=int(aggregate_diag.get("section_count", 0) or 0),
+                skipped=skipped,
+                error=error,
+            )
         diagnostics = {
             "mode": getattr(snapshot, "mode", ""),
             "report_mode": options.mode,
+            "generation_status": generation_status,
             "selected_items": int(getattr(selection, "total_selected", len(getattr(selection, "selected_items", []) or [])) or 0),
             "summary_count": len(summary_bundle.summaries) if summary_bundle is not None else 0,
             "item_summary_count": len(summary_bundle.item_summaries) if summary_bundle is not None else 0,
@@ -281,6 +302,25 @@ class AIInsightStrategy:
         if error:
             diagnostics["error"] = error
         return diagnostics
+
+    def _resolve_generation_status(
+        self,
+        *,
+        aggregate_diag: Mapping[str, Any],
+        section_count: int,
+        skipped: bool = False,
+        error: str = "",
+    ) -> str:
+        summary_diag = dict(getattr(self.summary_builder, "last_diagnostics", {}) or {})
+        if skipped:
+            return "skipped"
+        if error:
+            return "error"
+        if aggregate_diag.get("error"):
+            return "fallback" if section_count > 0 else "error"
+        if int(summary_diag.get("item_summary_failed_count", 0) or 0) > 0:
+            return "partial"
+        return "ok" if section_count > 0 else "empty"
 
 
 def _content_config(analysis_config: Mapping[str, Any]) -> dict[str, Any]:

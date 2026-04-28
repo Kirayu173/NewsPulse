@@ -69,6 +69,24 @@ class StubAggregate:
         )
 
 
+class FallbackAggregate:
+    def generate(self, summary_bundle, contexts):
+        return (
+            [
+                InsightSection(
+                    key="fallback",
+                    title="Fallback",
+                    content="Fallback insight from summaries.",
+                )
+            ],
+            "",
+            {
+                "section_count": 1,
+                "error": "AIResponseDecodeError: bad response",
+            },
+        )
+
+
 class StubSummaryBuilder:
     def __init__(self):
         self.last_diagnostics = {}
@@ -117,6 +135,8 @@ class WorkflowInsightServiceTest(unittest.TestCase):
         self.assertIsInstance(result, InsightResult)
         self.assertFalse(result.enabled)
         self.assertEqual(result.strategy, "noop")
+        self.assertEqual(result.generation_status, "skipped")
+        self.assertEqual(result.diagnostics["generation_status"], "skipped")
         self.assertEqual(result.sections, [])
         self.assertEqual(result.summaries, [])
         self.assertTrue(result.diagnostics["skipped"])
@@ -137,6 +157,8 @@ class WorkflowInsightServiceTest(unittest.TestCase):
 
         self.assertTrue(result.enabled)
         self.assertEqual(result.strategy, "ai")
+        self.assertEqual(result.generation_status, "ok")
+        self.assertEqual(result.diagnostics["generation_status"], "ok")
         self.assertEqual(len([summary for summary in result.summaries if summary.kind == "item"]), 2)
         self.assertEqual(result.sections[0].metadata["supporting_news_ids"], ["1", "2"])
         self.assertEqual(result.diagnostics["item_summary_count"], 2)
@@ -151,6 +173,23 @@ class WorkflowInsightServiceTest(unittest.TestCase):
         self.assertNotIn("content_payloads", result.diagnostics)
         self.assertNotIn("reduced_bundles", result.diagnostics)
         self.assertNotIn("brief" + "_payloads", result.diagnostics)
+
+    def test_ai_strategy_marks_aggregate_fallback_status(self):
+        snapshot = HotlistSnapshot(mode="current", generated_at="2026-04-20 10:00:00")
+        selection = SelectionResult(strategy="ai", total_selected=2)
+        strategy = AIInsightStrategy(
+            client=object(),
+            input_builder=StubInputBuilder(),
+            summary_builder=StubSummaryBuilder(),
+            aggregate_generator=FallbackAggregate(),
+            analysis_config={},
+        )
+
+        result = strategy.run(snapshot, selection, InsightOptions(enabled=True, strategy="ai", mode="current", max_items=2))
+
+        self.assertEqual(result.generation_status, "fallback")
+        self.assertEqual(result.diagnostics["generation_status"], "fallback")
+        self.assertEqual(result.sections[0].key, "fallback")
 
     def test_service_raises_for_unknown_strategy(self):
         snapshot = HotlistSnapshot(mode="current", generated_at="2026-04-20 10:00:00")

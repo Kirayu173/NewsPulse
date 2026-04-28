@@ -33,6 +33,10 @@ class SelectionPipelineProjector:
         semantic_kept_ids = {str(item.news_item_id) for item in semantic_result.passed_items}
         missing_decision_count = max(0, len(semantic_kept_ids) - len(decision_map))
         title_guard_rejected_count = 0
+        error_categories = _build_error_categories(
+            semantic_result=semantic_result,
+            missing_decision_count=missing_decision_count,
+        )
 
         qualified_items: list[HotlistItem] = []
         rejected_items: list[SelectionRejectedItem] = []
@@ -127,6 +131,7 @@ class SelectionPipelineProjector:
 
         return SelectionResult(
             strategy="ai",
+            quality_status="partial" if error_categories else "ok",
             qualified_items=qualified_items,
             rejected_items=rejected_items,
             groups=groups,
@@ -140,7 +145,10 @@ class SelectionPipelineProjector:
                 "semantic_rejected_count": len(semantic_result.rejected_items),
                 "llm_evaluated_count": len(llm_decisions),
                 "llm_missing_decision_count": missing_decision_count,
+                "llm_status": "partial_missing_decisions" if missing_decision_count else "ok",
                 "llm_title_guard_rejected_count": title_guard_rejected_count,
+                "quality_status": "partial" if error_categories else "ok",
+                "error_categories": error_categories,
                 "selected_matches": final_matches,
             },
         )
@@ -166,6 +174,22 @@ def _build_llm_rejection_reason(decision: AIQualityDecision, min_score: float) -
             return "; ".join(decision.reasons)
         return "llm rejected the item"
     return f"quality score below threshold {min_score:.2f}"
+
+
+def _build_error_categories(
+    *,
+    semantic_result: SemanticSelectionResult,
+    missing_decision_count: int,
+) -> list[str]:
+    categories: list[str] = []
+    reason = str(semantic_result.diagnostics.get("reason", "") or "")
+    if reason == "embedding_unavailable":
+        categories.append("semantic_unavailable")
+    elif reason.startswith("embedding_error:"):
+        categories.append("semantic_failed_passthrough")
+    if missing_decision_count:
+        categories.append("llm_partial_missing_decisions")
+    return categories
 
 
 _GENERIC_REPO_TITLE_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")

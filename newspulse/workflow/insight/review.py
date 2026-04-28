@@ -59,6 +59,7 @@ def export_insight_outbox(
         "insight": {
             "enabled": bool(insight.enabled),
             "strategy": str(insight.strategy or ""),
+            "generation_status": str(getattr(insight, "generation_status", "") or diagnostics.get("generation_status", "")),
             "section_count": len(insight.sections),
             "summary_count": len(insight.summaries),
             "item_summary_count": len([summary for summary in insight.summaries if summary.kind == "item"]),

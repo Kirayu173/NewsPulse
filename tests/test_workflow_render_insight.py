@@ -33,6 +33,31 @@ class RenderInsightHelperTest(unittest.TestCase):
         self.assertIn("1. AI coding tools keep climbing.", markdown)
         self.assertIn("**关键信号**", markdown)
 
+    def test_render_insight_helper_marks_fallback_and_partial_statuses(self):
+        fallback = RenderInsightView(
+            status="fallback",
+            sections=[
+                RenderInsightSectionView(
+                    key="fallback",
+                    title="Fallback",
+                    content="Fallback insight from summaries.",
+                )
+            ],
+        )
+        partial = RenderInsightView(
+            status="partial",
+            sections=[
+                RenderInsightSectionView(
+                    key="partial",
+                    title="Partial",
+                    content="Partial insight with failed item summaries.",
+                )
+            ],
+        )
+
+        self.assertIn("(fallback)", render_insight_markdown(fallback))
+        self.assertIn("(partial)", render_insight_markdown(partial))
+
     def test_render_insight_helper_surfaces_skipped_and_error_messages(self):
         skipped = RenderInsightView(status="skipped", message="no selected items")
         errored = RenderInsightView(status="error", message="bad response")

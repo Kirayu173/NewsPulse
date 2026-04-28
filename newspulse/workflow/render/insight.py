@@ -39,6 +39,11 @@ def render_insight_markdown(insight: RenderInsightView) -> str:
         return f"全局洞察失败: {insight.message or '未知错误'}"
 
     lines = ["**全局洞察**", ""]
+    if insight.status == "fallback":
+        lines[0] = f"{lines[0]} (fallback)"
+    elif insight.status == "partial":
+        lines[0] = f"{lines[0]} (partial)"
+
     for title, content in _iter_sections(insight):
         lines.extend([f"**{title}**", content, ""])
     return "\n".join(lines).strip()
